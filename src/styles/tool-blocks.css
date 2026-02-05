@@ -1,0 +1,961 @@
+/**
+ * 工具块样式 - Tool Block Styles
+ * 用于展示工具调用的新样式
+ * 参考: idea-claude-code-gui 项目风格
+ */
+
+/* ============================================
+   任务容器样式（参考项目风格）
+   ============================================ */
+
+.task-container {
+  background: var(--bg-primary, var(--surface-card));
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  border-radius: 8px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-primary, var(--surface-card));
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.task-header:hover {
+  background: var(--bg-secondary, var(--surface-hover));
+}
+
+.task-title-section {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+.task-icon-wrapper {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--color-task-icon-bg, rgba(76, 175, 80, 0.15));
+  flex-shrink: 0;
+}
+
+.task-icon {
+  color: var(--color-task-icon, #4caf50);
+  font-size: 14px;
+}
+
+.task-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-task-badge-text, #d7ba7d);
+  background: var(--color-task-badge-bg, rgba(215, 186, 125, 0.1));
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.task-summary-text {
+  font-size: 13px;
+  color: var(--text-secondary, var(--text-muted));
+  white-space: nowrap;
+  font-weight: 500;
+  flex: 1;
+}
+
+.task-details {
+  padding: 0;
+  border-top: 1px solid var(--border-primary, var(--border-subtle));
+  background: var(--bg-primary, var(--surface-card));
+}
+
+.task-content-wrapper {
+  padding: 10px;
+}
+
+.task-field {
+  margin-bottom: 10px;
+}
+
+.task-field:last-child {
+  margin-bottom: 0;
+}
+
+.task-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--text-muted));
+  margin-bottom: 4px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-field-content {
+  font-size: 13px;
+  color: var(--text-primary, var(--text-stronger));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: var(--bg-secondary, var(--surface-command));
+  padding: 8px;
+  border-radius: 6px;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  border: 1px solid var(--border-primary, var(--border-subtle));
+}
+
+/* 工具标题样式 */
+.tool-title-icon {
+  color: var(--text-primary);
+  font-size: 16px;
+  margin-right: 4px;
+}
+
+.tool-title-text {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-secondary, var(--text-stronger));
+  white-space: nowrap;
+}
+
+.tool-title-summary {
+  color: var(--text-tertiary, var(--text-muted));
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* 工具状态指示器 */
+.tool-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.tool-status-indicator.pending {
+  background-color: var(--color-warning, var(--status-warning));
+  animation: tool-block-breathing 1.5s ease-in-out infinite;
+}
+
+.tool-status-indicator.completed {
+  background-color: var(--color-success, var(--status-success));
+}
+
+.tool-status-indicator.error {
+  background-color: var(--color-error, var(--status-error));
+}
+
+/* ============================================
+   工具块容器（兼容旧样式）
+   ============================================ */
+
+.tool-block {
+  background: var(--bg-primary, var(--surface-card));
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  border-radius: 8px;
+  margin: 12px 0;
+  overflow: hidden;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.tool-block:hover {
+  background: var(--bg-secondary, var(--surface-card-strong));
+}
+
+/* ============================================
+   工具块头部（可点击展开/收起）
+   ============================================ */
+
+.tool-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-primary, transparent);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  gap: 0;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.tool-block-header:hover {
+  background: var(--bg-secondary, var(--surface-hover));
+}
+
+.tool-block-header:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: -2px;
+}
+
+.tool-block-header.expanded {
+  border-bottom: 1px solid var(--border-primary, var(--border-subtle));
+}
+
+/* ============================================
+   工具块标题区域
+   ============================================ */
+
+.tool-block-title {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 工具图标 */
+.tool-block-icon {
+  flex-shrink: 0;
+  color: var(--text-primary, var(--text-muted));
+  font-size: 16px;
+  margin-right: 4px;
+  transition: color 0.15s ease;
+}
+
+.tool-block-icon.completed {
+  color: var(--color-success, var(--status-success, #4ade80));
+}
+
+.tool-block-icon.processing {
+  color: var(--color-warning, var(--status-warning, #fbbf24));
+}
+
+.tool-block-icon.failed {
+  color: var(--color-error, var(--status-error, #ef4444));
+}
+
+/* 工具名称 */
+.tool-block-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--text-stronger));
+  white-space: nowrap;
+}
+
+/* 工具摘要 */
+.tool-block-summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary, var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+  margin-left: 8px;
+}
+
+/* 文件类型的摘要 - 带文件图标 */
+.tool-block-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-block-file .file-icon {
+  flex-shrink: 0;
+}
+
+/* 命令类型的摘要 - 代码样式 */
+.tool-block-command {
+  font-family: var(--code-font-family);
+  font-size: var(--code-font-size, 11px);
+  background: var(--surface-command);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+/* 搜索模式 - 斜体 */
+.tool-block-pattern {
+  font-style: italic;
+}
+
+/* 行号信息 */
+.tool-block-line-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+
+/* ============================================
+   状态指示点
+   ============================================ */
+
+.tool-block-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 8px;
+  background: var(--text-tertiary, var(--text-faint));
+  transition: background-color 0.15s ease;
+}
+
+.tool-block-dot.completed {
+  background: var(--color-success, var(--status-success, #4ade80));
+}
+
+.tool-block-dot.processing {
+  background: var(--color-warning, var(--status-warning, #fbbf24));
+  animation: tool-block-breathing 1.5s ease-in-out infinite;
+}
+
+.tool-block-dot.failed {
+  background: var(--color-error, var(--status-error, #ef4444));
+}
+
+/* 兼容旧的 pending 状态命名 */
+.tool-block-dot.pending {
+  background: var(--color-warning, var(--status-warning, #fbbf24));
+  animation: tool-block-breathing 1.5s ease-in-out infinite;
+}
+
+@keyframes tool-block-breathing {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}
+
+/* ============================================
+   工具块详情区域
+   ============================================ */
+
+.tool-block-details {
+  padding: 0;
+  border-top: 1px solid var(--border-primary, var(--border-subtle));
+  background: var(--bg-primary, var(--surface-card));
+}
+
+.tool-block-content-wrapper {
+  padding: 10px;
+}
+
+/* 原始详情（当没有其他可显示内容时） */
+.tool-block-raw-detail {
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, var(--text-muted));
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* 参数列表 */
+.tool-block-params {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-block-param {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-block-param-key {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--text-muted));
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-block-param-value {
+  font-size: 13px;
+  color: var(--text-primary, var(--text-stronger));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: var(--bg-secondary, var(--surface-command));
+  padding: 8px;
+  border-radius: 6px;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 工作目录 */
+.tool-block-cwd {
+  font-size: 11px;
+  color: var(--text-tertiary, var(--text-faint));
+  padding: 4px 10px;
+}
+
+/* 输出区域 */
+.tool-block-output {
+  background: var(--bg-secondary, var(--surface-command));
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 10px 10px;
+  overflow-x: auto;
+}
+
+.tool-block-output pre {
+  margin: 0;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: var(--code-font-size, 13px);
+  font-weight: var(--code-font-weight, 400);
+  line-height: var(--code-line-height, 1.5);
+  color: var(--text-primary, var(--text-quiet));
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 终端输出区域 */
+.tool-block-terminal {
+  background: var(--bg-secondary, var(--surface-command));
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 10px 10px;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: var(--code-font-size, 13px);
+  font-weight: var(--code-font-weight, 400);
+  line-height: var(--code-line-height, 1.5);
+  color: var(--text-primary, var(--text-quiet));
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 12px);
+  mask-image: linear-gradient(180deg, transparent 0%, #000 12px);
+}
+
+.tool-block-terminal-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 命令块（用于bash命令） */
+.bash-command-block {
+  background: var(--bg-secondary, var(--surface-command));
+  border: 1px solid var(--border-primary, var(--border-subtle));
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 10px 10px;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 输出块 */
+.bash-output-block {
+  margin-top: 8px;
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  display: flex;
+  gap: 6px;
+}
+
+.bash-output-block.normal {
+  color: var(--text-tertiary);
+}
+
+.bash-output-block.error {
+  color: var(--color-error, var(--status-error));
+}
+
+/* 文件变更列表 */
+.tool-block-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.tool-block-change {
+  padding: 4px 0;
+}
+
+.tool-block-change-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.tool-block-change-kind {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+}
+
+.tool-block-change-path {
+  color: var(--text-stronger);
+}
+
+/* ============================================
+   MCP 工具特殊样式
+   ============================================ */
+
+.tool-block-mcp .tool-block-name {
+  color: var(--color-tool-name, var(--text-accent, #90caf9));
+}
+
+/* ============================================
+   文件图标
+   ============================================ */
+
+.file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   可点击的文件名样式
+   ============================================ */
+
+.clickable-file {
+  cursor: pointer;
+  color: var(--color-link, var(--message-link-color));
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.clickable-file:hover {
+  text-decoration-color: var(--color-link, var(--message-link-color));
+}
+
+/* ============================================
+   工具块文件显示
+   ============================================ */
+
+/* 文件类型的摘要 - 带文件图标 */
+.tool-block-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-block-file .file-icon {
+  flex-shrink: 0;
+}
+
+/* 命令类型的摘要 - 代码样式 */
+.tool-block-command {
+  font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
+  font-size: var(--code-font-size, 11px);
+  background: var(--surface-command, rgba(0, 0, 0, 0.1));
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+/* 搜索模式 - 斜体 */
+.tool-block-pattern {
+  font-style: italic;
+}
+
+/* 行号信息 */
+.tool-block-line-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+
+/* ============================================
+   工具块额外变量（用于主题支持）
+   ============================================ */
+
+:root {
+  /* 工具块颜色 */
+  --color-tool-bg: rgba(0, 0, 0, 0.2);
+  --color-tool-bg-secondary: rgba(0, 0, 0, 0.1);
+  --color-tool-icon: #64b5f6;
+  --color-tool-name: #90caf9;
+  --color-tool-summary: #888;
+  --color-tool-file-link: #a5d6a7;
+  --color-tool-param-text: #aaa;
+  --color-tool-param-key: #78909c;
+  --color-tool-param-value: #cfd8dc;
+
+  /* 任务颜色 */
+  --color-task-icon-bg: rgba(76, 175, 80, 0.15);
+  --color-task-icon: #4caf50;
+  --color-task-badge-text: #d7ba7d;
+  --color-task-badge-bg: rgba(215, 186, 125, 0.1);
+
+  /* 背景色（兼容参考项目）*/
+  --bg-primary: var(--surface-card);
+  --bg-secondary: var(--surface-command);
+  --bg-tertiary: var(--surface-control);
+  --bg-hover: var(--surface-hover);
+  --bg-active: var(--surface-active);
+
+  /* 边框色（兼容参考项目）*/
+  --border-primary: var(--border-subtle);
+
+  /* 文字色（兼容参考项目）*/
+  --text-tertiary: var(--text-muted);
+  --text-secondary: var(--text-stronger);
+
+  /* 状态色（兼容参考项目）*/
+  --color-success: var(--status-success);
+  --color-warning: var(--status-warning);
+  --color-error: var(--status-error);
+  --color-link: var(--message-link-color);
+}
+
+/* 亮色模式下的工具块适配 */
+:root[data-theme="light"] {
+  --color-tool-bg: rgba(0, 0, 0, 0.04);
+  --color-tool-bg-secondary: rgba(0, 0, 0, 0.02);
+  --color-tool-icon: #0078d4;
+  --color-tool-name: #0066cc;
+  --color-tool-summary: #666666;
+  --color-tool-file-link: #107c10;
+  --color-tool-param-text: #666666;
+  --color-tool-param-key: #666666;
+  --color-tool-param-value: #333333;
+
+  --color-task-icon-bg: rgba(16, 124, 16, 0.1);
+  --color-task-icon: #107c10;
+  --color-task-badge-text: #996600;
+  --color-task-badge-bg: rgba(153, 102, 0, 0.08);
+}
+
+/* ============================================
+   文件列表样式（用于分组显示）
+   ============================================ */
+
+.file-list-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(128, 128, 128, 0.4)) transparent;
+}
+
+.file-list-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-list-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-list-container::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb, rgba(128, 128, 128, 0.4));
+  border-radius: 3px;
+}
+
+.file-list-container::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover, rgba(128, 128, 128, 0.6));
+}
+
+.file-list-item {
+  transition: background-color 0.15s ease;
+}
+
+.file-list-item:hover {
+  background-color: var(--bg-secondary, var(--surface-hover));
+}
+
+.file-list-item.clickable-file {
+  cursor: pointer;
+}
+
+.file-list-item.clickable-file:hover {
+  background-color: var(--bg-tertiary, var(--surface-active));
+}
+
+.file-list-item.clickable-file:active {
+  background-color: var(--bg-active, var(--surface-active));
+}
+
+/* ============================================
+   Bash Group 时间线样式（参考项目）
+   ============================================ */
+
+.bash-group-container {
+  margin: 8px 0;
+}
+
+.bash-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-bottom: none;
+}
+
+.bash-group-chevron {
+  font-size: 12px;
+  margin-right: 6px;
+  color: var(--text-tertiary, var(--text-muted));
+  transition: transform 0.2s ease;
+}
+
+.bash-group-count {
+  color: var(--text-tertiary, var(--text-muted));
+  font-size: 12px;
+}
+
+.bash-group-summary {
+  display: flex;
+  align-items: center;
+}
+
+.bash-group-progress {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-muted));
+  display: flex;
+  align-items: center;
+}
+
+.bash-group-progress.completed {
+  color: var(--color-success, var(--status-success));
+}
+
+.bash-group-progress.error {
+  color: var(--color-error, var(--status-error));
+}
+
+/* 时间线列表容器 */
+.bash-group-timeline {
+  padding: 8px 12px 8px 16px;
+  overflow-x: hidden;
+}
+
+/* 自定义滚动条 */
+.bash-group-timeline::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bash-group-timeline::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bash-group-timeline::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb, rgba(128, 128, 128, 0.4));
+  border-radius: 3px;
+}
+
+.bash-group-timeline::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover, rgba(128, 128, 128, 0.6));
+}
+
+/* 时间线单项 */
+.bash-timeline-item {
+  display: flex;
+  position: relative;
+  min-height: 32px;
+}
+
+/* 时间线连接器 */
+.bash-timeline-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* 时间线垂直线 */
+.bash-timeline-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--border-primary, var(--border-subtle));
+  transform: translateX(-50%);
+}
+
+.bash-timeline-line.last {
+  height: 10px;
+}
+
+/* 时间线节点 */
+.bash-timeline-node {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--text-tertiary, var(--text-muted));
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+}
+
+.bash-timeline-node.pending {
+  background-color: var(--color-warning, var(--status-warning));
+  animation: tool-block-breathing 1.5s ease-in-out infinite;
+}
+
+.bash-timeline-node.completed {
+  background-color: var(--color-success, var(--status-success));
+}
+
+.bash-timeline-node.error {
+  background-color: var(--color-error, var(--status-error));
+}
+
+/* 时间线内容 */
+.bash-timeline-content {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  margin-left: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.bash-timeline-content:hover {
+  background-color: var(--bg-secondary, var(--surface-hover));
+}
+
+.bash-timeline-content.expanded {
+  background-color: var(--bg-secondary, var(--surface-hover));
+}
+
+/* 时间线行 */
+.bash-timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bash-timeline-description {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 展开的详情 */
+.bash-timeline-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-primary, var(--border-subtle));
+}
+
+.bash-timeline-detail .bash-command-block {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.bash-timeline-detail .bash-output-block {
+  margin-top: 6px;
+  font-size: 11px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* Bash 工具头部样式 */
+.bash-tool-header {
+  border-bottom: none;
+  background: var(--bg-primary, var(--surface-card));
+}
+
+.bash-tool-header.expanded {
+  border-bottom: 1px solid var(--border-primary, var(--border-subtle));
+}
+
+.bash-tool-icon {
+  color: var(--text-primary);
+  font-size: 16px;
+  margin-right: 6px;
+}
+
+.bash-tool-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-secondary, var(--text-stronger));
+  white-space: nowrap;
+}
+
+.bash-tool-description {
+  color: var(--text-tertiary, var(--text-muted));
+  font-style: normal;
+  margin-left: 12px;
+  white-space: nowrap;
+}
+
+.bash-tool-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.bash-tool-status.pending {
+  background-color: var(--text-tertiary, var(--text-muted));
+}
+
+.bash-tool-status.completed {
+  background-color: var(--color-success, var(--status-success));
+}
+
+.bash-tool-status.error {
+  background-color: var(--color-error, var(--status-error));
+}
+
+.bash-tool-content {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary, var(--surface-card));
+  position: relative;
+}
+
+.bash-tool-line {
+  position: absolute;
+  left: 21px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--border-primary, var(--border-subtle));
+  z-index: 0;
+}
+
+/* 亮色模式时间线适配 */
+:root[data-theme="light"] .bash-timeline-content:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="light"] .bash-timeline-content.expanded {
+  background-color: rgba(0, 0, 0, 0.04);
+}
