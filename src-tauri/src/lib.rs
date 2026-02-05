@@ -94,6 +94,7 @@ pub fn run() {
             files::file_write,
             // Menu
             menu::menu_set_accelerators,
+            menu::menu_update_labels,
             // Engine management
             engine::detect_engines,
             engine::get_active_engine,

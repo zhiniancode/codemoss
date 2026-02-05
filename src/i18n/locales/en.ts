@@ -777,6 +777,47 @@ const en = {
     github: "GitHub",
   },
 
+  // Menu
+  menu: {
+    // App menu
+    about: "About {{appName}}",
+    checkForUpdates: "Check for Updates…",
+    settings: "Settings…",
+    // File menu
+    file: "File",
+    newAgent: "New Agent",
+    newWorktreeAgent: "New Worktree Agent",
+    newCloneAgent: "New Clone Agent",
+    addWorkspace: "Add Workspace…",
+    closeWindow: "Close Window",
+    quit: "Quit",
+    // Edit menu
+    edit: "Edit",
+    // Composer menu
+    composer: "Composer",
+    cycleModel: "Cycle Model",
+    cycleAccessMode: "Cycle Access Mode",
+    cycleReasoningMode: "Cycle Reasoning Mode",
+    cycleCollaborationMode: "Cycle Collaboration Mode",
+    // View menu
+    view: "View",
+    toggleProjectsSidebar: "Toggle Projects Sidebar",
+    toggleGitSidebar: "Toggle Git Sidebar",
+    toggleDebugPanel: "Toggle Debug Panel",
+    toggleTerminal: "Toggle Terminal",
+    nextAgent: "Next Agent",
+    previousAgent: "Previous Agent",
+    nextWorkspace: "Next Workspace",
+    previousWorkspace: "Previous Workspace",
+    toggleFullScreen: "Toggle Full Screen",
+    // Window menu
+    window: "Window",
+    minimize: "Minimize",
+    maximize: "Maximize",
+    // Help menu
+    help: "Help",
+  },
+
   // Threads
   threads: {
     rename: "Rename",

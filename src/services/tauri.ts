@@ -578,6 +578,17 @@ export async function setMenuAccelerators(
   return invoke("menu_set_accelerators", { updates });
 }
 
+type MenuLabelUpdate = {
+  id: string;
+  text: string;
+};
+
+export async function updateMenuLabels(
+  updates: MenuLabelUpdate[],
+): Promise<void> {
+  return invoke("menu_update_labels", { updates });
+}
+
 export async function runCodexDoctor(
   codexBin: string | null,
   codexArgs: string | null,
