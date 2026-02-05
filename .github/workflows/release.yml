@@ -269,7 +269,7 @@ jobs:
           name: windows-x64
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.nsis.zip*
+            src-tauri/target/release/bundle/nsis/*.exe.sig
 
   release:
     runs-on: ubuntu-latest
@@ -407,13 +407,13 @@ jobs:
                 "signature": sig_path.read_text().strip(),
               }
 
-          # Find Windows NSIS installer
-          nsis_zips = list(artifacts_dir.rglob("*.nsis.zip"))
-          for nsis_zip in nsis_zips:
-            sig_path = nsis_zip.with_suffix(nsis_zip.suffix + ".sig")
+          # Find Windows NSIS installer (Tauri 2 generates .exe + .exe.sig)
+          nsis_exes = [f for f in artifacts_dir.rglob("*-setup.exe") if not f.name.endswith(".sig")]
+          for nsis_exe in nsis_exes:
+            sig_path = Path(str(nsis_exe) + ".sig")
             if sig_path.exists():
               platforms["windows-x86_64"] = {
-                "url": f"https://github.com/zhukunpenglinyutong/codemoss/releases/download/v${VERSION}/{nsis_zip.name}",
+                "url": f"https://github.com/zhukunpenglinyutong/codemoss/releases/download/v${VERSION}/{nsis_exe.name}",
                 "signature": sig_path.read_text().strip(),
               }
               break
@@ -452,8 +452,8 @@ jobs:
             "release-artifacts/CodeMoss_x86_64.app.tar.gz" \
             "release-artifacts/CodeMoss_x86_64.app.tar.gz.sig" \
             "release-artifacts/*.AppImage*" \
-            "release-artifacts/*.exe" \
-            "release-artifacts/*.nsis.zip*" \
+            "release-artifacts/*-setup.exe" \
+            "release-artifacts/*-setup.exe.sig" \
             "release-artifacts/latest.json"
           do
             for f in $pattern; do
