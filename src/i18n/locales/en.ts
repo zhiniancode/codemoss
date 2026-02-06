@@ -381,6 +381,7 @@ const en = {
     modelNotDownloaded: "Model not downloaded yet.",
     modelDownloading: "Downloading model...",
     modelDownloadError: "Download error.",
+    microphoneDenied: "Microphone access was denied. Please grant microphone permission in System Settings > Privacy & Security > Microphone.",
 
     // Shortcuts section
     shortcutsTitle: "Shortcuts",
@@ -516,6 +517,7 @@ const en = {
     collapseToolCalls: "Collapse tool calls",
     message: "message",
     messages: "messages",
+    emptyThread: "Start a thread and send a prompt to the agent.",
   },
 
   // Composer

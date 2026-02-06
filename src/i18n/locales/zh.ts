@@ -381,6 +381,7 @@ const zh = {
     modelNotDownloaded: "模型尚未下载。",
     modelDownloading: "正在下载模型...",
     modelDownloadError: "下载错误。",
+    microphoneDenied: "麦克风访问被拒绝。请在系统设置 > 隐私与安全性 > 麦克风中授予麦克风权限。",
 
     // Shortcuts 部分
     shortcutsTitle: "快捷键",
@@ -516,6 +517,7 @@ const zh = {
     collapseToolCalls: "收起工具调用",
     message: "条消息",
     messages: "条消息",
+    emptyThread: "开始一个对话，向智能体发送提示词。",
   },
 
   // 编辑器
