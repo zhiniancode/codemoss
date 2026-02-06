@@ -30,7 +30,7 @@ import { DiffBlock } from "../../git/components/DiffBlock";
 import { languageFromPath } from "../../../utils/syntax";
 import { useFileLinkOpener } from "../hooks/useFileLinkOpener";
 import { RequestUserInputMessage } from "../../app/components/RequestUserInputMessage";
-import { ToolBlockRenderer } from "./toolBlocks";
+
 
 type MessagesProps = {
   items: ConversationItem[];
@@ -843,8 +843,7 @@ const DiffRow = memo(function DiffRow({ item }: DiffRowProps) {
   );
 });
 
-// 旧版 ToolRow 组件，已被 ToolBlockRenderer 替代，保留以便回退
-export const _ToolRow = memo(function _ToolRow({
+const ToolRow = memo(function ToolRow({
   item,
   isExpanded,
   onToggle,
@@ -1388,11 +1387,13 @@ export const Messages = memo(function Messages({
     if (item.kind === "tool") {
       const isExpanded = expandedItems.has(item.id);
       return (
-        <ToolBlockRenderer
+        <ToolRow
           key={item.id}
           item={item}
           isExpanded={isExpanded}
           onToggle={toggleExpanded}
+          onOpenFileLink={openFileLink}
+          onOpenFileLinkMenu={showFileLinkMenu}
           onRequestAutoScroll={requestAutoScroll}
         />
       );
