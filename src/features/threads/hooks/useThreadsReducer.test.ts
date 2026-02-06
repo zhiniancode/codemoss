@@ -452,4 +452,58 @@ describe("threadReducer", () => {
     expect(ids).toContain("thread-visible");
     expect(ids).not.toContain("thread-bg");
   });
+
+  it("does not auto-rename when multiple Claude pending threads exist", () => {
+    const base: ThreadState = {
+      ...initialState,
+      activeThreadIdByWorkspace: { "ws-1": "claude-pending-a" },
+      threadsByWorkspace: {
+        "ws-1": [
+          {
+            id: "claude-pending-a",
+            name: "Agent 1",
+            updatedAt: 1,
+            engineSource: "claude",
+          },
+          {
+            id: "claude-pending-b",
+            name: "Agent 2",
+            updatedAt: 2,
+            engineSource: "claude",
+          },
+        ],
+      },
+      threadStatusById: {
+        "claude-pending-a": {
+          isProcessing: true,
+          hasUnread: false,
+          isReviewing: false,
+          processingStartedAt: 100,
+          lastDurationMs: null,
+        },
+        "claude-pending-b": {
+          isProcessing: true,
+          hasUnread: false,
+          isReviewing: false,
+          processingStartedAt: 120,
+          lastDurationMs: null,
+        },
+      },
+    };
+
+    const next = threadReducer(base, {
+      type: "ensureThread",
+      workspaceId: "ws-1",
+      threadId: "claude:session-1",
+      engine: "claude",
+    });
+
+    const ids = next.threadsByWorkspace["ws-1"]?.map((thread) => thread.id) ?? [];
+    expect(ids).toContain("claude-pending-a");
+    expect(ids).toContain("claude-pending-b");
+    expect(ids).toContain("claude:session-1");
+    expect(next.threadStatusById["claude-pending-a"]?.isProcessing).toBe(true);
+    expect(next.threadStatusById["claude-pending-b"]?.isProcessing).toBe(true);
+    expect(next.threadStatusById["claude:session-1"]?.isProcessing).toBe(false);
+  });
 });

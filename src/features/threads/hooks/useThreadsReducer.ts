@@ -440,11 +440,19 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       // CRITICAL FIX: Handle race condition between renameThreadId and subsequent events
       // If threadId is claude:{sessionId} but not found, check for pending thread to rename
       if (action.threadId.startsWith("claude:")) {
-        // Find any claude-pending-* thread in this workspace
-        const pendingIndex = list.findIndex((thread) =>
-          thread.id.startsWith("claude-pending-"),
-        );
-        if (pendingIndex >= 0) {
+        const pendingIndexes: number[] = [];
+        list.forEach((thread, index) => {
+          if (thread.id.startsWith("claude-pending-")) {
+            pendingIndexes.push(index);
+          }
+        });
+
+        // Only auto-rename when there is a single pending Claude thread.
+        // When multiple pending threads exist (parallel Claude turns),
+        // renaming an arbitrary one can bind events to the wrong thread
+        // and leave another thread stuck in processing state.
+        if (pendingIndexes.length === 1) {
+          const pendingIndex = pendingIndexes[0];
           // Found a pending thread - perform inline rename to avoid race condition
           const pendingThread = list[pendingIndex];
           const oldThreadId = pendingThread.id;

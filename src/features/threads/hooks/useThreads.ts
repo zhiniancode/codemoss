@@ -27,8 +27,9 @@ import {
 import { buildItemsFromThread } from "../../../utils/threadItems";
 import i18n from "../../../i18n";
 
-const AUTO_TITLE_REQUEST_TIMEOUT_MS = 15_000;
+const AUTO_TITLE_REQUEST_TIMEOUT_MS = 8_000;
 const AUTO_TITLE_MAX_ATTEMPTS = 2;
+const AUTO_TITLE_PENDING_STALE_MS = 20_000;
 
 type UseThreadsOptions = {
   activeWorkspace: WorkspaceInfo | null;
@@ -346,7 +347,7 @@ export function useThreads({
       const pendingStartedAt = getAutoTitlePendingStartedAt(workspaceId, threadId);
       if (pendingStartedAt) {
         const pendingAgeMs = Date.now() - pendingStartedAt;
-        if (pendingAgeMs >= 20_000) {
+        if (pendingAgeMs >= AUTO_TITLE_PENDING_STALE_MS) {
           onDebug?.({
             id: `${Date.now()}-thread-title-pending-timeout-reset`,
             timestamp: Date.now(),

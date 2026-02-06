@@ -48,7 +48,7 @@ export type UseThreadStorageResult = {
 
 type AutoTitlePendingMap = Record<string, number>;
 
-const AUTO_TITLE_PENDING_EXPIRE_MS = 30_000;
+const AUTO_TITLE_PENDING_EXPIRE_MS = 20_000;
 
 export function useThreadStorage(): UseThreadStorageResult {
   const threadActivityRef = useRef<ThreadActivityMap>(loadThreadActivity());
