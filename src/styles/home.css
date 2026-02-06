@@ -65,24 +65,19 @@
   height: 56px;
   padding: 0 32px;
   border-radius: 999px;
-  background: var(--text-stronger);
-  color: var(--surface-main);
+  background: linear-gradient(135deg, #62b7ff, #4fe3a3);
+  color: #0b0f1a;
   border: none;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, opacity 0.2s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 22px var(--shadow-accent);
 }
-
-/* Invert colors for dark mode if needed, but assuming vars handle it. 
-   If --text-stronger is white in dark mode, button is white with black text.
-   If --text-stronger is black in light mode, button is black with white text.
-*/
 
 .home-primary-button:hover {
   transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
 }
 
 .home-primary-button:active {
@@ -140,7 +135,7 @@
   height: 40px;
   border-radius: 12px;
   background: var(--surface-item);
-  color: var(--text-muted);
+  color: var(--text-accent);
   display: flex;
   align-items: center;
   justify-content: center;
