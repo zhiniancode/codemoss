@@ -136,13 +136,14 @@ export function extractToolName(title: string): string {
   // 例如: mcp__ace-tool__search_context -> search_context
   if (cleanTitle.includes('__')) {
     const parts = cleanTitle.split('__');
-    return parts[parts.length - 1];
+    return parts[parts.length - 1].trim();
   }
 
   // 如果包含斜杠，取最后一部分
+  // 例如: "claude / TodoWrite" -> "TodoWrite"
   if (cleanTitle.includes('/')) {
     const parts = cleanTitle.split('/');
-    return parts[parts.length - 1];
+    return parts[parts.length - 1].trim();
   }
 
   return cleanTitle.toLowerCase();

@@ -34,7 +34,7 @@ export function useStatusPanelData(items: ConversationItem[]): StatusPanelData {
     let lastTodos: TodoItem[] = [];
     for (const item of items) {
       if (item.kind !== "tool") continue;
-      const toolName = extractToolName(item.title).toLowerCase();
+      const toolName = extractToolName(item.title).trim().toLowerCase();
       if (toolName !== "todowrite" && toolName !== "todo_write") continue;
       const args = parseToolArgs(item.detail);
       if (!args) continue;
@@ -62,7 +62,7 @@ export function useStatusPanelData(items: ConversationItem[]): StatusPanelData {
     const result: SubagentInfo[] = [];
     for (const item of items) {
       if (item.kind !== "tool") continue;
-      const toolName = extractToolName(item.title).toLowerCase();
+      const toolName = extractToolName(item.title).trim().toLowerCase();
       if (toolName !== "task") continue;
       const args = parseToolArgs(item.detail);
       const description =

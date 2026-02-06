@@ -521,13 +521,16 @@ impl ClaudeSession {
                                         .get("name")
                                         .and_then(|n| n.as_str())
                                         .unwrap_or("unknown");
-                                    let tool_id = block
-                                        .get("id")
-                                        .and_then(|i| i.as_str())
-                                        .unwrap_or("unknown");
+                                    let index = block.get("index").and_then(|v| v.as_i64());
+                                    let tool_id = self
+                                        .resolve_tool_use_id(block, index)
+                                        .unwrap_or_else(|| "unknown".to_string());
                                     let input = block.get("input").cloned();
 
-                                    self.cache_tool_name(tool_id, tool_name);
+                                    if let Some(index) = index {
+                                        self.cache_tool_block_index(index, &tool_id);
+                                    }
+                                    self.cache_tool_name(&tool_id, tool_name);
                                     return Some(EngineEvent::ToolStarted {
                                         workspace_id: self.workspace_id.clone(),
                                         tool_id: tool_id.to_string(),
@@ -536,18 +539,24 @@ impl ClaudeSession {
                                     });
                                 }
                                 Some("tool_result") => {
-                                    let tool_id = block
-                                        .get("tool_use_id")
-                                        .or_else(|| block.get("toolUseId"))
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
+                                    let index = block.get("index").and_then(|v| v.as_i64());
+                                    let tool_id = self
+                                        .resolve_tool_result_id(block, index)
+                                        .unwrap_or_default();
+                                    if tool_id.is_empty() {
+                                        return None;
+                                    }
                                     let content = block.get("content");
                                     let is_error = block
                                         .get("is_error")
+                                        .or_else(|| block.get("isError"))
                                         .and_then(|v| v.as_bool())
                                         .unwrap_or(false);
                                     let output = content.and_then(extract_tool_result_text);
-                                    return self.build_tool_completed(tool_id, output, is_error);
+                                    let result =
+                                        self.build_tool_completed(&tool_id, output, is_error);
+                                    self.clear_tool_block_index(index);
+                                    return result;
                                 }
                                 Some("thinking") => {
                                     if let Some(text) = block.get("thinking").and_then(|t| t.as_str()) {
@@ -595,6 +604,46 @@ impl ClaudeSession {
                         .and_then(|c| c.as_str())
                         .map(|s| s.to_string()),
                 })
+            }
+            "tool_use" => {
+                let tool_name = event
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                let index = event.get("index").and_then(|v| v.as_i64());
+                let tool_id = self
+                    .resolve_tool_use_id(event, index)
+                    .unwrap_or_else(|| "unknown".to_string());
+                let input = event.get("input").cloned();
+                if let Some(index) = index {
+                    self.cache_tool_block_index(index, &tool_id);
+                }
+                self.cache_tool_name(&tool_id, tool_name);
+                Some(EngineEvent::ToolStarted {
+                    workspace_id: self.workspace_id.clone(),
+                    tool_id: tool_id.to_string(),
+                    tool_name: tool_name.to_string(),
+                    input,
+                })
+            }
+            "tool_result" => {
+                let index = event.get("index").and_then(|v| v.as_i64());
+                let tool_id = self
+                    .resolve_tool_result_id(event, index)
+                    .unwrap_or_default();
+                if tool_id.is_empty() {
+                    return None;
+                }
+                let content = event.get("content");
+                let is_error = event
+                    .get("is_error")
+                    .or_else(|| event.get("isError"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let output = content.and_then(extract_tool_result_text);
+                let result = self.build_tool_completed(&tool_id, output, is_error);
+                self.clear_tool_block_index(index);
+                result
             }
 
             _ => {
@@ -727,16 +776,16 @@ impl ClaudeSession {
                             .get("name")
                             .and_then(|n| n.as_str())
                             .unwrap_or("unknown");
-                        let tool_id = block
-                            .get("id")
-                            .and_then(|i| i.as_str())
-                            .unwrap_or("unknown");
+                        let index = inner.get("index").and_then(|v| v.as_i64());
+                        let tool_id = self
+                            .resolve_tool_use_id(block, index)
+                            .unwrap_or_else(|| "unknown".to_string());
                         let input = block.get("input").cloned();
-                        if let Some(index) = inner.get("index").and_then(|v| v.as_i64()) {
-                            self.cache_tool_block_index(index, tool_id);
+                        if let Some(index) = index {
+                            self.cache_tool_block_index(index, &tool_id);
                         }
 
-                        self.cache_tool_name(tool_id, tool_name);
+                        self.cache_tool_name(&tool_id, tool_name);
                         return Some(EngineEvent::ToolStarted {
                             workspace_id: self.workspace_id.clone(),
                             tool_id: tool_id.to_string(),
@@ -745,21 +794,24 @@ impl ClaudeSession {
                         });
                     }
                     "tool_result" => {
-                        let tool_id = block
-                            .get("tool_use_id")
-                            .or_else(|| block.get("toolUseId"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let index = inner.get("index").and_then(|v| v.as_i64());
+                        let tool_id = self
+                            .resolve_tool_result_id(block, index)
+                            .unwrap_or_default();
+                        if tool_id.is_empty() {
+                            return None;
+                        }
                         let content = block.get("content");
                         let is_error = block
                             .get("is_error")
+                            .or_else(|| block.get("isError"))
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
                         let output = content.and_then(extract_tool_result_text);
                         if let Some(event) =
-                            self.build_tool_completed(tool_id, output, is_error)
+                            self.build_tool_completed(&tool_id, output, is_error)
                         {
-                            self.clear_tool_block_index(inner.get("index").and_then(|v| v.as_i64()));
+                            self.clear_tool_block_index(index);
                             return Some(event);
                         }
                     }
@@ -821,20 +873,22 @@ impl ClaudeSession {
                     .or_else(|| inner.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("unknown");
-                let tool_id = delta
-                    .and_then(|d| d.get("id"))
-                    .or_else(|| inner.get("id"))
-                    .and_then(|i| i.as_str())
-                    .unwrap_or("unknown");
+                let index = inner.get("index").and_then(|v| v.as_i64());
+                let tool_id = self
+                    .resolve_tool_use_id(
+                        delta.unwrap_or(inner),
+                        index,
+                    )
+                    .unwrap_or_else(|| "unknown".to_string());
                 let input = delta
                     .and_then(|d| d.get("input"))
                     .cloned()
                     .or_else(|| inner.get("input").cloned());
 
-                if let Some(index) = inner.get("index").and_then(|v| v.as_i64()) {
-                    self.cache_tool_block_index(index, tool_id);
+                if let Some(index) = index {
+                    self.cache_tool_block_index(index, &tool_id);
                 }
-                self.cache_tool_name(tool_id, tool_name);
+                self.cache_tool_name(&tool_id, tool_name);
                 Some(EngineEvent::ToolStarted {
                     workspace_id: self.workspace_id.clone(),
                     tool_id: tool_id.to_string(),
@@ -843,28 +897,57 @@ impl ClaudeSession {
                 })
             }
             "tool_result" => {
-                let tool_id = delta
-                    .and_then(|d| d.get("tool_use_id"))
-                    .or_else(|| delta.and_then(|d| d.get("toolUseId")))
-                    .or_else(|| inner.get("tool_use_id"))
-                    .or_else(|| inner.get("toolUseId"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let content = delta
-                    .and_then(|d| d.get("content"))
-                    .or_else(|| inner.get("content"));
-                let is_error = delta
-                    .and_then(|d| d.get("is_error"))
-                    .or_else(|| inner.get("is_error"))
+                let index = inner.get("index").and_then(|v| v.as_i64());
+                let block = delta.unwrap_or(inner);
+                let tool_id = self
+                    .resolve_tool_result_id(block, index)
+                    .unwrap_or_default();
+                if tool_id.is_empty() {
+                    return None;
+                }
+                let content = block.get("content");
+                let is_error = block
+                    .get("is_error")
+                    .or_else(|| block.get("isError"))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let output = content.and_then(extract_tool_result_text);
-                let result = self.build_tool_completed(tool_id, output, is_error);
-                self.clear_tool_block_index(inner.get("index").and_then(|v| v.as_i64()));
+                let result = self.build_tool_completed(&tool_id, output, is_error);
+                self.clear_tool_block_index(index);
                 result
             }
             _ => None,
         }
+    }
+
+    fn resolve_tool_use_id(&self, block: &Value, index: Option<i64>) -> Option<String> {
+        if let Some(id) = extract_string_field(
+            block,
+            &[
+                "id",
+                "tool_use_id",
+                "toolUseId",
+                "tool_useId",
+                "toolId",
+                "tool_id",
+            ],
+        ) {
+            return Some(id);
+        }
+        index.map(|value| format!("tool-block-{}", value))
+    }
+
+    fn resolve_tool_result_id(&self, block: &Value, index: Option<i64>) -> Option<String> {
+        if let Some(id) = extract_string_field(
+            block,
+            &["tool_use_id", "toolUseId", "tool_useId", "toolUseID"],
+        ) {
+            return Some(id);
+        }
+        if let Some(mapped) = self.tool_id_for_block_index(index) {
+            return Some(mapped);
+        }
+        extract_string_field(block, &["tool_id", "toolId", "id"])
     }
 
     fn cache_tool_name(&self, tool_id: &str, tool_name: &str) {
@@ -1013,6 +1096,18 @@ fn extract_tool_result_text(value: &Value) -> Option<String> {
             .collect();
         if !parts.is_empty() {
             return Some(parts.join("\n"));
+        }
+    }
+    None
+}
+
+fn extract_string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(raw) = value.get(*key).and_then(|v| v.as_str()) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
         }
     }
     None
