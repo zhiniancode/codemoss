@@ -58,6 +58,9 @@ type SidebarProps = {
   onOpenDebug: () => void;
   // showDebugButton: boolean; // Removed prop to force hide
   showDebugButton?: boolean; // Kept as optional for compatibility but ignored
+  showTerminalButton?: boolean;
+  isTerminalOpen?: boolean;
+  onToggleTerminal?: () => void;
   onAddWorkspace: () => void;
   onSelectHome: () => void;
   onSelectWorkspace: (id: string) => void;
@@ -107,6 +110,9 @@ export function Sidebar({
   onOpenSettings,
   onOpenDebug,
   // showDebugButton, // Unused
+  showTerminalButton,
+  isTerminalOpen,
+  onToggleTerminal,
   onAddWorkspace,
   onSelectHome,
   onSelectWorkspace,
@@ -601,6 +607,9 @@ export function Sidebar({
         onOpenSettings={onOpenSettings}
         onOpenDebug={onOpenDebug}
         showDebugButton={false} // Force hidden per user request
+        showTerminalButton={showTerminalButton}
+        isTerminalOpen={isTerminalOpen}
+        onToggleTerminal={onToggleTerminal}
         showAccountSwitcher={showAccountSwitcher}
         accountLabel={accountButtonLabel}
         accountActionLabel={accountActionLabel}

@@ -504,6 +504,9 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onWorkspaceDragEnter={options.onWorkspaceDragEnter}
       onWorkspaceDragLeave={options.onWorkspaceDragLeave}
       onWorkspaceDrop={options.onWorkspaceDrop}
+      showTerminalButton={options.showTerminalButton}
+      isTerminalOpen={options.terminalOpen}
+      onToggleTerminal={options.onToggleTerminal}
     />
   );
 
@@ -662,9 +665,6 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onCreateBranch={options.onCreateBranch}
       canCopyThread={options.activeItems.length > 0}
       onCopyThread={options.onCopyThread}
-      onToggleTerminal={options.onToggleTerminal}
-      isTerminalOpen={options.terminalOpen}
-      showTerminalButton={options.showTerminalButton}
       launchScript={options.launchScript}
       launchScriptEditorOpen={options.launchScriptEditorOpen}
       launchScriptDraft={options.launchScriptDraft}

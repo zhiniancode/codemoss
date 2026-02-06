@@ -836,8 +836,10 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       };
     }
     case "completeAgentMessage": {
+      const segment = state.agentSegmentByThread[action.threadId] ?? 0;
+      const segmentedItemId = segment > 0 ? `${action.itemId}-seg-${segment}` : action.itemId;
       const list = [...(state.itemsByThread[action.threadId] ?? [])];
-      const index = list.findIndex((msg) => msg.id === action.itemId);
+      const index = list.findIndex((msg) => msg.id === segmentedItemId);
       if (index >= 0 && list[index].kind === "message") {
         const existing = list[index];
         list[index] = {
