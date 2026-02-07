@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import {
   MAX_PINS_SOFT_LIMIT,
-  STORAGE_KEY_CUSTOM_NAMES,
-  STORAGE_KEY_PINNED_THREADS,
   type CustomNamesMap,
   type PinnedThreadsMap,
   type ThreadActivityMap,
@@ -59,17 +57,7 @@ export function useThreadStorage(): UseThreadStorageResult {
   const customNamesRef = useRef<CustomNamesMap>({});
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
     customNamesRef.current = loadCustomNames();
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY_CUSTOM_NAMES) {
-        customNamesRef.current = loadCustomNames();
-      }
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   useEffect(() => {
@@ -118,19 +106,7 @@ export function useThreadStorage(): UseThreadStorageResult {
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
     pinnedThreadsRef.current = loadPinnedThreads();
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== STORAGE_KEY_PINNED_THREADS) {
-        return;
-      }
-      pinnedThreadsRef.current = loadPinnedThreads();
-      setPinnedThreadsVersion((version) => version + 1);
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   const pinThread = useCallback((workspaceId: string, threadId: string): boolean => {

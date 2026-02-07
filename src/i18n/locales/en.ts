@@ -929,6 +929,10 @@ const en = {
     openWorktreeInTerminal: "Open this worktree in your terminal.",
     reveal: "Reveal",
     revealInFinder: "Reveal in Finder",
+    // Project selection
+    switchProject: "Switch project",
+    searchProjects: "Search projects...",
+    noProjectsFound: "No projects found",
     // Branch
     noBranchesFound: "No branches found",
     searchOrCreateBranch: "Search or create branch",

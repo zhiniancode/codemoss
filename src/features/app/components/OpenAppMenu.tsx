@@ -9,8 +9,8 @@ import type { OpenAppTarget } from "../../../types";
 import {
   DEFAULT_OPEN_APP_ID,
   DEFAULT_OPEN_APP_TARGETS,
-  OPEN_APP_STORAGE_KEY,
 } from "../constants";
+import { writeClientStoreValue } from "../../../services/clientStorage";
 import { GENERIC_APP_ICON, getKnownOpenAppIcon } from "../utils/openAppIcons";
 
 type OpenTarget = {
@@ -161,7 +161,7 @@ export function OpenAppMenu({
 
   const handleSelectOpenTarget = async (target: OpenTarget) => {
     onSelectOpenAppId(target.id);
-    window.localStorage.setItem(OPEN_APP_STORAGE_KEY, target.id);
+    writeClientStoreValue("app", "openWorkspaceApp", target.id);
     setOpenMenuOpen(false);
     await openWithTarget(target);
   };

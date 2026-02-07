@@ -1,43 +1,32 @@
 import { useEffect, useState } from "react";
-
-const SIDEBAR_COLLAPSED_KEY = "codexmonitor.sidebarCollapsed";
-const RIGHT_PANEL_COLLAPSED_KEY = "codexmonitor.rightPanelCollapsed";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 
 type UseSidebarTogglesOptions = {
   isCompact: boolean;
 };
 
 function readStoredBool(key: string, defaultValue = false) {
-  if (typeof window === "undefined") {
+  const stored = getClientStoreSync<boolean>("layout", key);
+  if (stored === undefined) {
     return defaultValue;
   }
-  const stored = window.localStorage.getItem(key);
-  if (stored === null) {
-    return defaultValue;
-  }
-  return stored === "true";
+  return stored;
 }
 
 export function useSidebarToggles({ isCompact }: UseSidebarTogglesOptions) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    readStoredBool(SIDEBAR_COLLAPSED_KEY),
+    readStoredBool("sidebarCollapsed"),
   );
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() =>
-    readStoredBool(RIGHT_PANEL_COLLAPSED_KEY, true),
+    readStoredBool("rightPanelCollapsed", true),
   );
 
   useEffect(() => {
-    window.localStorage.setItem(
-      SIDEBAR_COLLAPSED_KEY,
-      String(sidebarCollapsed),
-    );
+    writeClientStoreValue("layout", "sidebarCollapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      RIGHT_PANEL_COLLAPSED_KEY,
-      String(rightPanelCollapsed),
-    );
+    writeClientStoreValue("layout", "rightPanelCollapsed", rightPanelCollapsed);
   }, [rightPanelCollapsed]);
 
   const collapseSidebar = () => {

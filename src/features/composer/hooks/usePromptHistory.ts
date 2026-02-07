@@ -1,44 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, RefObject } from "react";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 
 const HISTORY_LIMIT = 200;
 const DEFAULT_HISTORY_KEY = "default";
-const STORAGE_PREFIX = "codexmonitor.promptHistory.";
-
-function getStorageKey(key: string) {
-  return `${STORAGE_PREFIX}${key}`;
-}
 
 function readStoredHistory(key: string): string[] {
-  if (typeof window === "undefined") {
+  const allHistories = getClientStoreSync<Record<string, string[]>>("composer", "promptHistory");
+  if (!allHistories || typeof allHistories !== "object") {
     return [];
   }
-  const raw = window.localStorage.getItem(getStorageKey(key));
-  if (!raw) {
+  const data = allHistories[key];
+  if (!Array.isArray(data)) {
     return [];
   }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((item): item is string => typeof item === "string")
-      .slice(-HISTORY_LIMIT);
-  } catch {
-    return [];
-  }
+  return data
+    .filter((item): item is string => typeof item === "string")
+    .slice(-HISTORY_LIMIT);
 }
 
 function writeStoredHistory(key: string, value: string[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
+  const allHistories = getClientStoreSync<Record<string, string[]>>("composer", "promptHistory") ?? {};
+  const updated = { ...allHistories };
   if (value.length === 0) {
-    window.localStorage.removeItem(getStorageKey(key));
-    return;
+    delete updated[key];
+  } else {
+    updated[key] = value;
   }
-  window.localStorage.setItem(getStorageKey(key), JSON.stringify(value));
+  writeClientStoreValue("composer", "promptHistory", updated);
 }
 
 type UsePromptHistoryOptions = {

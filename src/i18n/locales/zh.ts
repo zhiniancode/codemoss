@@ -929,6 +929,10 @@ const zh = {
     openWorktreeInTerminal: "在终端中打开此工作树。",
     reveal: "显示",
     revealInFinder: "在访达中显示",
+    // 项目选择
+    switchProject: "切换项目",
+    searchProjects: "搜索项目...",
+    noProjectsFound: "未找到项目",
     // 分支
     noBranchesFound: "未找到分支",
     searchOrCreateBranch: "搜索或创建分支",

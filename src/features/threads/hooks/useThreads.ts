@@ -18,6 +18,7 @@ import {
   makeCustomNameKey,
   saveCustomName,
 } from "../utils/threadStorage";
+import { writeClientStoreValue } from "../../../services/clientStorage";
 import {
   generateThreadTitle,
   listThreadTitles,
@@ -170,16 +171,7 @@ export function useThreads({
       delete next[fromKey];
       next[toKey] = value;
       customNamesRef.current = next;
-      try {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            "codexmonitor.threadCustomNames",
-            JSON.stringify(next),
-          );
-        }
-      } catch {
-        // Best-effort persistence.
-      }
+      writeClientStoreValue("threads", "customNames", next);
     },
     [customNamesRef],
   );

@@ -433,3 +433,35 @@ if (!existingLocalStorage || typeof existingLocalStorage.clear !== "function") {
     configurable: true,
   });
 }
+
+// Mock Tauri APIs
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://localhost/${path}`,
+  invoke: vi.fn(() => Promise.resolve(null)),
+}));
+
+// Mock client storage to use in-memory cache without Tauri backend
+vi.mock("../services/clientStorage", () => {
+  const cache: Record<string, Record<string, unknown>> = {};
+  return {
+    preloadClientStores: vi.fn(() => Promise.resolve()),
+    isPreloaded: vi.fn(() => true),
+    getClientStoreSync: vi.fn((store: string, key: string) => {
+      return cache[store]?.[key];
+    }),
+    getClientStoreFullSync: vi.fn((store: string) => {
+      return cache[store];
+    }),
+    writeClientStoreValue: vi.fn((store: string, key: string, value: unknown) => {
+      if (!cache[store]) cache[store] = {};
+      cache[store][key] = value;
+    }),
+    writeClientStoreData: vi.fn((store: string, data: Record<string, unknown>) => {
+      cache[store] = data;
+    }),
+  };
+});
+
+vi.mock("../services/dragDrop", () => ({
+  subscribeWindowDragDrop: vi.fn(() => () => {}),
+}));

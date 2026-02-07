@@ -28,6 +28,8 @@ export function useLayoutController({
     onTerminalPanelResizeStart,
     debugPanelHeight,
     onDebugPanelResizeStart,
+    kanbanConversationWidth,
+    onKanbanConversationResizeStart,
   } = useResizablePanels();
 
   const layoutMode = useLayoutMode();
@@ -74,11 +76,13 @@ export function useLayoutController({
     planPanelHeight,
     terminalPanelHeight,
     debugPanelHeight,
+    kanbanConversationWidth,
     onSidebarResizeStart,
     onRightPanelResizeStart,
     onPlanPanelResizeStart,
     onTerminalPanelResizeStart,
     onDebugPanelResizeStart,
+    onKanbanConversationResizeStart,
     sidebarCollapsed,
     rightPanelCollapsed,
     collapseSidebar,

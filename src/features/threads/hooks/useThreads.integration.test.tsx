@@ -54,7 +54,6 @@ describe("useThreads UX integration", () => {
 
   beforeEach(() => {
     handlers = null;
-    localStorage.clear();
     vi.clearAllMocks();
     now = 1000;
     nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now++);

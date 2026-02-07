@@ -114,7 +114,7 @@ import type {
   EngineType,
   WorkspaceInfo,
 } from "./types";
-import { OPEN_APP_STORAGE_KEY } from "./features/app/constants";
+import { writeClientStoreValue } from "./services/clientStorage";
 import { useOpenAppIcons } from "./features/app/hooks/useOpenAppIcons";
 import { useCodeCssVars } from "./features/app/hooks/useCodeCssVars";
 import { useAccountSwitching } from "./features/app/hooks/useAccountSwitching";
@@ -230,6 +230,8 @@ function MainApp() {
     onTerminalPanelResizeStart,
     debugPanelHeight,
     onDebugPanelResizeStart,
+    kanbanConversationWidth,
+    onKanbanConversationResizeStart,
     isCompact,
     isTablet,
     isPhone,
@@ -977,9 +979,7 @@ function MainApp() {
 
   const handleSelectOpenAppId = useCallback(
     (id: string) => {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(OPEN_APP_STORAGE_KEY, id);
-      }
+      writeClientStoreValue("app", "openWorkspaceApp", id);
       setAppSettings((current) => {
         if (current.selectedOpenAppId === id) {
           return current;
@@ -2516,6 +2516,9 @@ function MainApp() {
               onOpenTaskConversation={handleOpenTaskConversation}
               onCloseTaskConversation={handleCloseTaskConversation}
               onDragToInProgress={handleDragToInProgress}
+              groupedWorkspaces={groupedWorkspaces}
+              kanbanConversationWidth={kanbanConversationWidth}
+              onKanbanConversationResizeStart={onKanbanConversationResizeStart}
             />
           ) : null
         }

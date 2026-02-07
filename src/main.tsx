@@ -1,8 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import * as Sentry from "@sentry/react";
-import "./i18n";
-import App from "./App";
+import { preloadClientStores } from "./services/clientStorage";
+import { migrateLocalStorageToFileStore } from "./services/migrateLocalStorage";
 
 const sentryDsn =
   import.meta.env.VITE_SENTRY_DSN ??
@@ -21,8 +21,17 @@ Sentry.metrics.count("app_open", 1, {
   },
 });
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function bootstrap() {
+  await preloadClientStores();
+  migrateLocalStorageToFileStore();
+  // i18n must be imported after preload so language can be read from cache
+  await import("./i18n");
+  const { default: App } = await import("./App");
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
+
+bootstrap();

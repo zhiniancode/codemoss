@@ -846,6 +846,112 @@
   white-space: pre-wrap;
 }
 
+/* --- Project Selector --- */
+
+.workspace-project-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.workspace-project-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.workspace-project-button:hover {
+  background: var(--surface-control-hover);
+}
+
+.workspace-project-caret {
+  color: var(--text-faint);
+  font-size: 12px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.workspace-project-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 360px;
+  z-index: 10;
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.project-search {
+  padding: 2px;
+}
+
+.project-search input {
+  width: 100%;
+}
+
+.project-list {
+  overflow-y: auto;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-group-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 6px 8px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.project-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-item:hover {
+  background: var(--surface-control-hover);
+  color: var(--text-stronger);
+}
+
+.project-item.is-active {
+  background: var(--surface-card-strong);
+  color: var(--text-stronger);
+  font-weight: 500;
+}
+
+.project-empty {
+  padding: 8px;
+  color: var(--text-quiet);
+  font-size: 12px;
+  text-align: center;
+}
+
 .actions {
   display: flex;
   gap: 12px;

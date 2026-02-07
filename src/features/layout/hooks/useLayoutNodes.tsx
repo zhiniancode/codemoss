@@ -689,6 +689,9 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onSaveLaunchScript={options.onSaveLaunchScript}
       launchScriptsState={options.launchScriptsState}
       extraActionsNode={options.mainHeaderActionsNode}
+      groupedWorkspaces={options.groupedWorkspaces}
+      activeWorkspaceId={options.activeWorkspaceId}
+      onSelectWorkspace={options.onSelectWorkspace}
     />
   ) : null;
 

@@ -10,6 +10,12 @@ import { LaunchScriptButton } from "./LaunchScriptButton";
 import { LaunchScriptEntryButton } from "./LaunchScriptEntryButton";
 import type { WorkspaceLaunchScriptsState } from "../hooks/useWorkspaceLaunchScripts";
 
+type WorkspaceGroupSection = {
+  id: string | null;
+  name: string;
+  workspaces: WorkspaceInfo[];
+};
+
 type MainHeaderProps = {
   workspace: WorkspaceInfo;
   parentName?: string | null;
@@ -57,6 +63,9 @@ type MainHeaderProps = {
     onCancel: () => void;
     onCommit: () => void;
   };
+  groupedWorkspaces?: WorkspaceGroupSection[];
+  activeWorkspaceId?: string | null;
+  onSelectWorkspace?: (workspaceId: string) => void;
 };
 
 export function MainHeader({
@@ -89,6 +98,9 @@ export function MainHeader({
   onSaveLaunchScript,
   launchScriptsState,
   worktreeRename,
+  groupedWorkspaces,
+  activeWorkspaceId,
+  onSelectWorkspace,
 }: MainHeaderProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -96,12 +108,42 @@ export function MainHeader({
   const [branchQuery, setBranchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectQuery, setProjectQuery] = useState("");
   const copyTimeoutRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const infoRef = useRef<HTMLDivElement | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameConfirmRef = useRef<HTMLButtonElement | null>(null);
   const renameOnCancel = worktreeRename?.onCancel;
+
+  // 判断是否显示项目选择菜单
+  const showProjectMenu = Boolean(
+    groupedWorkspaces &&
+    groupedWorkspaces.length > 0 &&
+    onSelectWorkspace
+  );
+
+  // 项目搜索过滤
+  const trimmedProjectQuery = projectQuery.trim();
+  const lowercaseProjectQuery = trimmedProjectQuery.toLowerCase();
+  const filteredGroups = useMemo(() => {
+    if (!groupedWorkspaces) {
+      return [];
+    }
+    if (trimmedProjectQuery.length === 0) {
+      return groupedWorkspaces;
+    }
+    return groupedWorkspaces
+      .map((group) => ({
+        ...group,
+        workspaces: group.workspaces.filter((ws) =>
+          ws.name.toLowerCase().includes(lowercaseProjectQuery)
+        ),
+      }))
+      .filter((group) => group.workspaces.length > 0);
+  }, [groupedWorkspaces, lowercaseProjectQuery, trimmedProjectQuery]);
 
   const trimmedQuery = branchQuery.trim();
   const lowercaseQuery = trimmedQuery.toLowerCase();
@@ -167,18 +209,30 @@ export function MainHeader({
     [relativeWorktreePath],
   );
 
+  // 处理项目选择
+  const handleSelectProject = (workspaceId: string) => {
+    if (onSelectWorkspace) {
+      onSelectWorkspace(workspaceId);
+      setProjectMenuOpen(false);
+      setProjectQuery("");
+    }
+  };
+
   useEffect(() => {
-    if (!menuOpen && !infoOpen) {
+    if (!menuOpen && !infoOpen && !projectMenuOpen) {
       return;
     }
     const handleClick = (event: MouseEvent) => {
       const target = event.target as Node;
       const menuContains = menuRef.current?.contains(target) ?? false;
       const infoContains = infoRef.current?.contains(target) ?? false;
-      if (!menuContains && !infoContains) {
+      const projectMenuContains = projectMenuRef.current?.contains(target) ?? false;
+      if (!menuContains && !infoContains && !projectMenuContains) {
         setMenuOpen(false);
         setInfoOpen(false);
+        setProjectMenuOpen(false);
         setBranchQuery("");
+        setProjectQuery("");
         setError(null);
       }
     };
@@ -186,7 +240,7 @@ export function MainHeader({
     return () => {
       window.removeEventListener("mousedown", handleClick);
     };
-  }, [infoOpen, menuOpen]);
+  }, [infoOpen, menuOpen, projectMenuOpen]);
 
   useEffect(() => {
     if (!infoOpen && renameOnCancel) {
@@ -224,9 +278,79 @@ export function MainHeader({
     <header className="main-header" data-tauri-drag-region>
       <div className="workspace-header">
         <div className="workspace-title-line">
-          <span className="workspace-title">
-            {parentName ? parentName : workspace.name}
-          </span>
+          {showProjectMenu ? (
+            <div className="workspace-project-menu" ref={projectMenuRef}>
+              <button
+                type="button"
+                className="workspace-project-button"
+                onClick={() => {
+                  setProjectMenuOpen((prev) => !prev);
+                  if (menuOpen) setMenuOpen(false);
+                }}
+                aria-haspopup="menu"
+                aria-expanded={projectMenuOpen}
+                data-tauri-drag-region="false"
+              >
+                <span className="workspace-title">
+                  {parentName ? parentName : workspace.name}
+                </span>
+                <span className="workspace-project-caret" aria-hidden>
+                  ›
+                </span>
+              </button>
+              {projectMenuOpen && (
+                <div
+                  className="workspace-project-dropdown popover-surface"
+                  role="menu"
+                  data-tauri-drag-region="false"
+                >
+                  <div className="project-search">
+                    <input
+                      value={projectQuery}
+                      onChange={(event) => setProjectQuery(event.target.value)}
+                      placeholder={t("workspace.searchProjects")}
+                      className="branch-input"
+                      autoFocus
+                      data-tauri-drag-region="false"
+                      aria-label={t("workspace.searchProjects")}
+                    />
+                  </div>
+                  <div className="project-list" role="none">
+                    {filteredGroups.map((group) => (
+                      <div key={group.id ?? "ungrouped"}>
+                        {group.name && (
+                          <div className="project-group-label">{group.name}</div>
+                        )}
+                        {group.workspaces.map((ws) => (
+                          <button
+                            key={ws.id}
+                            type="button"
+                            className={`project-item${
+                              ws.id === activeWorkspaceId ? " is-active" : ""
+                            }`}
+                            onClick={() => handleSelectProject(ws.id)}
+                            role="menuitem"
+                            data-tauri-drag-region="false"
+                          >
+                            {ws.name}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                    {filteredGroups.length === 0 && (
+                      <div className="project-empty">
+                        {t("workspace.noProjectsFound")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <span className="workspace-title">
+              {parentName ? parentName : workspace.name}
+            </span>
+          )}
           <span className="workspace-separator" aria-hidden>
             ›
           </span>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { DragDropContext } from "@hello-pangea/dnd";
 import type { DropResult } from "@hello-pangea/dnd";
@@ -24,6 +24,12 @@ type CreateTaskInput = {
   autoStart: boolean;
 };
 
+type WorkspaceGroupSection = {
+  id: string | null;
+  name: string;
+  workspaces: WorkspaceInfo[];
+};
+
 type KanbanBoardProps = {
   workspace: WorkspaceInfo;
   tasks: KanbanTask[];
@@ -45,6 +51,11 @@ type KanbanBoardProps = {
   onSelectTask: (task: KanbanTask) => void;
   onCloseConversation: () => void;
   onDragToInProgress: (task: KanbanTask) => void;
+  groupedWorkspaces?: WorkspaceGroupSection[];
+  activeWorkspaceId?: string | null;
+  onSelectWorkspace?: (workspaceId: string) => void;
+  kanbanConversationWidth?: number;
+  onKanbanConversationResizeStart?: (event: MouseEvent<HTMLDivElement>) => void;
 };
 
 export function KanbanBoard({
@@ -63,6 +74,11 @@ export function KanbanBoard({
   onSelectTask,
   onCloseConversation,
   onDragToInProgress,
+  groupedWorkspaces,
+  activeWorkspaceId,
+  onSelectWorkspace,
+  kanbanConversationWidth,
+  onKanbanConversationResizeStart,
 }: KanbanBoardProps) {
   const { t } = useTranslation();
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -165,6 +181,9 @@ export function KanbanBoard({
         workspace={workspace}
         onBack={onBack}
         onAppModeChange={onAppModeChange}
+        groupedWorkspaces={groupedWorkspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSelectWorkspace={onSelectWorkspace}
       />
       <div className="kanban-board-body">
         <div className="kanban-board-columns-area">
@@ -188,7 +207,19 @@ export function KanbanBoard({
         </div>
 
         {selectedTask && conversationNode && (
-          <div className="kanban-conversation-panel">
+          <div
+            className="kanban-conversation-panel"
+            style={{ width: kanbanConversationWidth ? `${kanbanConversationWidth}px` : undefined }}
+          >
+            {onKanbanConversationResizeStart && (
+              <div
+                className="kanban-conversation-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize conversation panel"
+                onMouseDown={onKanbanConversationResizeStart}
+              />
+            )}
             <div className="kanban-conversation-header">
               <span className="kanban-conversation-title">
                 {selectedTask.title}

@@ -1,26 +1,16 @@
-import { KANBAN_STORAGE_KEY } from "../constants";
 import type { KanbanStoreData } from "../types";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 
 const EMPTY_STORE: KanbanStoreData = { tasks: [] };
 
 export function loadKanbanData(): KanbanStoreData {
-  try {
-    const raw = localStorage.getItem(KANBAN_STORAGE_KEY);
-    if (!raw) return EMPTY_STORE;
-    const parsed = JSON.parse(raw) as KanbanStoreData;
-    if (!Array.isArray(parsed.tasks)) {
-      return EMPTY_STORE;
-    }
-    return { tasks: parsed.tasks };
-  } catch {
+  const stored = getClientStoreSync<KanbanStoreData>("app", "kanban");
+  if (!stored || !Array.isArray(stored.tasks)) {
     return EMPTY_STORE;
   }
+  return { tasks: stored.tasks };
 }
 
 export function saveKanbanData(data: KanbanStoreData): void {
-  try {
-    localStorage.setItem(KANBAN_STORAGE_KEY, JSON.stringify(data));
-  } catch (error) {
-    console.error("Failed to save kanban data:", error);
-  }
+  writeClientStoreValue("app", "kanban", data);
 }

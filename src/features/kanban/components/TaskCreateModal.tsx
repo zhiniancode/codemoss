@@ -4,6 +4,7 @@ import { X, ImagePlus } from "lucide-react";
 import type { EngineStatus, EngineType } from "../../../types";
 import type { KanbanTaskStatus } from "../types";
 import { pickImageFiles } from "../../../services/tauri";
+import { RichTextInput } from "../../../components/common/RichTextInput";
 
 type CreateTaskInput = {
   workspaceId: string;
@@ -40,15 +41,28 @@ export function TaskCreateModal({
   const [description, setDescription] = useState("");
   const [engineType, setEngineType] = useState<EngineType>("claude");
   const [modelId, setModelId] = useState<string | null>(null);
-  const [branchName, setBranchName] = useState("main");
   const [images, setImages] = useState<string[]>([]);
   const [autoStart, setAutoStart] = useState(false);
+
+  // branchName is always "main" - no UI control needed
+  const branchName = "main";
 
   const availableEngines = engineStatuses.filter((e) => e.installed);
   const selectedEngine = engineStatuses.find(
     (e) => e.engineType === engineType
   );
   const availableModels = selectedEngine?.models ?? [];
+
+  const formatEngineName = (type: EngineType): string => {
+    switch (type) {
+      case "claude":
+        return "Claude Code";
+      case "codex":
+        return "Codex";
+      default:
+        return type;
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -102,6 +116,14 @@ export function TaskCreateModal({
     }
   };
 
+  const handleAttachImages = (paths: string[]) => {
+    setImages((prev) => [...prev, ...paths]);
+  };
+
+  const handleRemoveImage = (path: string) => {
+    setImages((prev) => prev.filter((p) => p !== path));
+  };
+
   return (
     <div className="kanban-modal-overlay" onClick={onCancel}>
       <div
@@ -123,111 +145,89 @@ export function TaskCreateModal({
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t("kanban.task.titlePlaceholder")}
             />
-            <textarea
-              className="kanban-textarea"
+
+            <RichTextInput
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder={t("kanban.task.descPlaceholder")}
-              rows={5}
-            />
-
-            <div className="kanban-task-selectors">
-              <div className="kanban-task-selector">
-                <select
-                  className="kanban-select"
-                  value={engineType}
-                  onChange={(e) =>
-                    setEngineType(e.target.value as EngineType)
-                  }
-                >
-                  {engineStatuses.map((engine) => (
-                    <option
-                      key={engine.engineType}
-                      value={engine.engineType}
-                      disabled={!engine.installed}
-                    >
-                      {engine.engineType.toUpperCase()}
-                      {!engine.installed ? ` (${t("kanban.task.notInstalled")})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="kanban-task-selector">
-                <select
-                  className="kanban-select"
-                  value={modelId ?? ""}
-                  onChange={(e) => setModelId(e.target.value || null)}
-                >
-                  {availableModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.displayName}
-                    </option>
-                  ))}
-                  {availableModels.length === 0 && (
-                    <option value="">{t("kanban.task.noModels")}</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="kanban-task-selector">
-                <input
-                  className="kanban-select"
-                  value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
-                  placeholder="main"
-                />
-              </div>
-            </div>
-
-            {images.length > 0 && (
-              <div className="kanban-task-images">
-                {images.map((img, idx) => (
-                  <span key={idx} className="kanban-task-image-tag">
-                    {img.split("/").pop()}
-                    <button
-                      type="button"
-                      className="kanban-task-image-remove"
-                      onClick={() =>
-                        setImages((prev) => prev.filter((_, i) => i !== idx))
+              attachments={images}
+              onAddAttachment={handlePickImages}
+              onAttachImages={handleAttachImages}
+              onRemoveAttachment={handleRemoveImage}
+              enableResize={true}
+              initialHeight={120}
+              minHeight={80}
+              maxHeight={300}
+              className="kanban-rich-input"
+              footerLeft={
+                <>
+                  <button
+                    type="button"
+                    className="kanban-icon-btn kanban-rich-input-attach"
+                    onClick={handlePickImages}
+                    title={t("kanban.task.addImage")}
+                  >
+                    <ImagePlus size={16} />
+                  </button>
+                  <div className="kanban-task-selector">
+                    <select
+                      className="kanban-select"
+                      value={engineType}
+                      onChange={(e) =>
+                        setEngineType(e.target.value as EngineType)
                       }
                     >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+                      {engineStatuses.map((engine) => (
+                        <option
+                          key={engine.engineType}
+                          value={engine.engineType}
+                          disabled={!engine.installed}
+                        >
+                          {formatEngineName(engine.engineType)}
+                          {!engine.installed ? ` (${t("kanban.task.notInstalled")})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="kanban-task-selector">
+                    <select
+                      className="kanban-select"
+                      value={modelId ?? ""}
+                      onChange={(e) => setModelId(e.target.value || null)}
+                    >
+                      {availableModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.displayName}
+                        </option>
+                      ))}
+                      {availableModels.length === 0 && (
+                        <option value="">{t("kanban.task.noModels")}</option>
+                      )}
+                    </select>
+                  </div>
+                </>
+              }
+            />
           </div>
 
           <div className="kanban-modal-footer">
+            <label className="kanban-toggle-label">
+              <input
+                type="checkbox"
+                className="kanban-toggle-input"
+                checked={autoStart}
+                onChange={(e) => setAutoStart(e.target.checked)}
+              />
+              <span className="kanban-toggle-switch" />
+              <span>{t("kanban.task.start")}</span>
+            </label>
             <button
-              type="button"
-              className="kanban-icon-btn"
-              onClick={handlePickImages}
-              title={t("kanban.task.addImage")}
+              type="submit"
+              className="kanban-btn kanban-btn-primary"
+              disabled={!title.trim()}
             >
-              <ImagePlus size={20} />
+              {t("kanban.task.create")}
             </button>
-            <div className="kanban-modal-footer-right">
-              <label className="kanban-toggle-label">
-                <input
-                  type="checkbox"
-                  className="kanban-toggle-input"
-                  checked={autoStart}
-                  onChange={(e) => setAutoStart(e.target.checked)}
-                />
-                <span className="kanban-toggle-switch" />
-                <span>{t("kanban.task.start")}</span>
-              </label>
-              <button
-                type="submit"
-                className="kanban-btn kanban-btn-primary"
-                disabled={!title.trim()}
-              >
-                {t("kanban.task.create")}
-              </button>
-            </div>
           </div>
         </form>
       </div>

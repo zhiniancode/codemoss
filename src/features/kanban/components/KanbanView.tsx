@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useMemo } from "react";
 import type { AppMode, EngineStatus, EngineType, WorkspaceInfo } from "../../../types";
 import type {
   KanbanTask,
@@ -8,6 +9,12 @@ import type {
 import { ProjectList } from "./ProjectList";
 import { KanbanBoard } from "./KanbanBoard";
 import { KANBAN_COLUMNS } from "../constants";
+
+type WorkspaceGroupSection = {
+  id: string | null;
+  name: string;
+  workspaces: WorkspaceInfo[];
+};
 
 type CreateTaskInput = {
   workspaceId: string;
@@ -42,6 +49,9 @@ type KanbanViewProps = {
   onOpenTaskConversation: (task: KanbanTask) => void;
   onCloseTaskConversation: () => void;
   onDragToInProgress: (task: KanbanTask) => void;
+  groupedWorkspaces?: WorkspaceGroupSection[];
+  kanbanConversationWidth?: number;
+  onKanbanConversationResizeStart?: (event: React.MouseEvent<HTMLDivElement>) => void;
 };
 
 export function KanbanView({
@@ -62,7 +72,18 @@ export function KanbanView({
   onOpenTaskConversation,
   onCloseTaskConversation,
   onDragToInProgress,
+  groupedWorkspaces,
+  kanbanConversationWidth,
+  onKanbanConversationResizeStart,
 }: KanbanViewProps) {
+  // 项目切换处理
+  const handleSelectWorkspace = useMemo(
+    () => (workspaceId: string) => {
+      onCloseTaskConversation();
+      onViewStateChange({ view: "board", workspaceId });
+    },
+    [onCloseTaskConversation, onViewStateChange]
+  );
   if (viewState.view === "board") {
     const workspace = workspaces.find((w) => w.id === viewState.workspaceId);
     if (!workspace) {
@@ -93,6 +114,11 @@ export function KanbanView({
         onSelectTask={onOpenTaskConversation}
         onCloseConversation={onCloseTaskConversation}
         onDragToInProgress={onDragToInProgress}
+        groupedWorkspaces={groupedWorkspaces}
+        activeWorkspaceId={viewState.workspaceId}
+        onSelectWorkspace={handleSelectWorkspace}
+        kanbanConversationWidth={kanbanConversationWidth}
+        onKanbanConversationResizeStart={onKanbanConversationResizeStart}
       />
     );
   }

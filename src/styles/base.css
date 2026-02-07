@@ -1,5 +1,6 @@
 @import "./themes.css";
 @import "../assets/fonts/codicon.css";
+@import "../components/common/RichTextInput/richTextInput.css";
 
 .app.reduced-transparency {
   --surface-sidebar: rgba(18, 18, 18, 0.92);

@@ -2,8 +2,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  STORAGE_KEY_CUSTOM_NAMES,
-  STORAGE_KEY_PINNED_THREADS,
   loadCustomNames,
   loadPinnedThreads,
   loadThreadActivity,
@@ -14,8 +12,6 @@ import { useThreadStorage } from "./useThreadStorage";
 
 vi.mock("../utils/threadStorage", () => ({
   MAX_PINS_SOFT_LIMIT: 2,
-  STORAGE_KEY_CUSTOM_NAMES: "custom-names",
-  STORAGE_KEY_PINNED_THREADS: "pinned-threads",
   loadCustomNames: vi.fn(),
   loadPinnedThreads: vi.fn(),
   loadThreadActivity: vi.fn(),
@@ -32,15 +28,12 @@ describe("useThreadStorage", () => {
     vi.clearAllMocks();
   });
 
-  it("loads initial data and updates custom names on storage events", async () => {
+  it("loads initial data and custom names from store", async () => {
     vi.mocked(loadThreadActivity).mockReturnValue({
       "ws-1": { "thread-1": 101 },
     });
     vi.mocked(loadPinnedThreads).mockReturnValue({ "ws-1:thread-1": 202 });
-    vi
-      .mocked(loadCustomNames)
-      .mockReturnValueOnce({ "ws-1:thread-1": "Custom" })
-      .mockReturnValueOnce({ "ws-1:thread-1": "Updated" });
+    vi.mocked(loadCustomNames).mockReturnValue({ "ws-1:thread-1": "Custom" });
 
     const { result } = renderHook(() => useThreadStorage());
 
@@ -53,16 +46,6 @@ describe("useThreadStorage", () => {
 
     await waitFor(() => {
       expect(result.current.getCustomName("ws-1", "thread-1")).toBe("Custom");
-    });
-
-    act(() => {
-      window.dispatchEvent(
-        new StorageEvent("storage", { key: STORAGE_KEY_CUSTOM_NAMES }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(result.current.getCustomName("ws-1", "thread-1")).toBe("Updated");
     });
   });
 
@@ -114,7 +97,7 @@ describe("useThreadStorage", () => {
     expect(result.current.pinnedThreadsVersion).toBe(versionAfterPin + 1);
   });
 
-  it("ignores duplicate pins and reacts to pinned storage changes", async () => {
+  it("ignores duplicate pins", () => {
     vi.mocked(loadThreadActivity).mockReturnValue({});
     vi.mocked(loadPinnedThreads).mockReturnValue({ "ws-1:thread-1": 123 });
     vi.mocked(loadCustomNames).mockReturnValue({});
@@ -128,20 +111,6 @@ describe("useThreadStorage", () => {
 
     expect(pinResult).toBe(false);
     expect(savePinnedThreads).not.toHaveBeenCalled();
-
-    const versionBefore = result.current.pinnedThreadsVersion;
-
-    vi.mocked(loadPinnedThreads).mockReturnValue({ "ws-1:thread-2": 456 });
-    act(() => {
-      window.dispatchEvent(
-        new StorageEvent("storage", { key: STORAGE_KEY_PINNED_THREADS }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(result.current.pinnedThreadsVersion).toBe(versionBefore + 1);
-    });
-    expect(result.current.isThreadPinned("ws-1", "thread-2")).toBe(true);
   });
 
   it("tracks auto-title pending keys in-memory", () => {

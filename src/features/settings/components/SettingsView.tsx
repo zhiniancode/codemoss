@@ -42,7 +42,8 @@ import {
   clampCodeFontSize,
   normalizeFontFamily,
 } from "../../../utils/fonts";
-import { DEFAULT_OPEN_APP_ID, OPEN_APP_STORAGE_KEY } from "../../app/constants";
+import { DEFAULT_OPEN_APP_ID } from "../../app/constants";
+import { writeClientStoreValue } from "../../../services/clientStorage";
 import { GENERIC_APP_ICON, getKnownOpenAppIcon } from "../../app/utils/openAppIcons";
 import { useGlobalAgentsMd } from "../hooks/useGlobalAgentsMd";
 import { useGlobalCodexConfigToml } from "../hooks/useGlobalCodexConfigToml";
@@ -805,9 +806,7 @@ export function SettingsView({
 
   const handleSelectOpenAppDefault = (id: string) => {
     setOpenAppSelectedId(id);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(OPEN_APP_STORAGE_KEY, id);
-    }
+    writeClientStoreValue("app", "openWorkspaceApp", id);
     void handleCommitOpenApps(openAppDrafts, id);
   };
 

@@ -1,8 +1,5 @@
-export const STORAGE_KEY_THREAD_ACTIVITY = "codexmonitor.threadLastUserActivity";
-export const STORAGE_KEY_PINNED_THREADS = "codexmonitor.pinnedThreads";
-export const STORAGE_KEY_CUSTOM_NAMES = "codexmonitor.threadCustomNames";
-export const STORAGE_KEY_AUTO_TITLE_PENDING =
-  "codexmonitor.threadAutoTitlePending";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
+
 export const MAX_PINS_SOFT_LIMIT = 5;
 
 export type ThreadActivityMap = Record<string, Record<string, number>>;
@@ -11,36 +8,11 @@ export type CustomNamesMap = Record<string, string>;
 export type AutoTitlePendingMap = Record<string, true>;
 
 export function loadThreadActivity(): ThreadActivityMap {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_THREAD_ACTIVITY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw) as ThreadActivityMap;
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return parsed;
-  } catch {
-    return {};
-  }
+  return getClientStoreSync<ThreadActivityMap>("threads", "lastUserActivity") ?? {};
 }
 
 export function saveThreadActivity(activity: ThreadActivityMap) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY_THREAD_ACTIVITY,
-      JSON.stringify(activity),
-    );
-  } catch {
-    // Best-effort persistence; ignore write failures.
-  }
+  writeClientStoreValue("threads", "lastUserActivity", activity);
 }
 
 export function makeCustomNameKey(workspaceId: string, threadId: string): string {
@@ -48,78 +20,29 @@ export function makeCustomNameKey(workspaceId: string, threadId: string): string
 }
 
 export function loadCustomNames(): CustomNamesMap {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_CUSTOM_NAMES);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw) as CustomNamesMap;
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return parsed;
-  } catch {
-    return {};
-  }
+  return getClientStoreSync<CustomNamesMap>("threads", "customNames") ?? {};
 }
 
 export function saveCustomName(workspaceId: string, threadId: string, name: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    const current = loadCustomNames();
-    const key = makeCustomNameKey(workspaceId, threadId);
-    current[key] = name;
-    window.localStorage.setItem(
-      STORAGE_KEY_CUSTOM_NAMES,
-      JSON.stringify(current),
-    );
-  } catch {
-    // Best-effort persistence.
-  }
+  const current = loadCustomNames();
+  const key = makeCustomNameKey(workspaceId, threadId);
+  const updated = { ...current, [key]: name };
+  writeClientStoreValue("threads", "customNames", updated);
 }
 
 export function loadAutoTitlePending(): AutoTitlePendingMap {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_AUTO_TITLE_PENDING);
-    if (!raw) {
-      return {};
+  const raw = getClientStoreSync<AutoTitlePendingMap>("threads", "autoTitlePending") ?? {};
+  const normalized: AutoTitlePendingMap = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    if (key.trim() && value === true) {
+      normalized[key] = true;
     }
-    const parsed = JSON.parse(raw) as AutoTitlePendingMap;
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    const normalized: AutoTitlePendingMap = {};
-    Object.entries(parsed).forEach(([key, value]) => {
-      if (key.trim() && value === true) {
-        normalized[key] = true;
-      }
-    });
-    return normalized;
-  } catch {
-    return {};
-  }
+  });
+  return normalized;
 }
 
 export function saveAutoTitlePending(value: AutoTitlePendingMap): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY_AUTO_TITLE_PENDING,
-      JSON.stringify(value),
-    );
-  } catch {
-    // Best-effort persistence.
-  }
+  writeClientStoreValue("threads", "autoTitlePending", value);
 }
 
 export function makePinKey(workspaceId: string, threadId: string): string {
@@ -127,34 +50,9 @@ export function makePinKey(workspaceId: string, threadId: string): string {
 }
 
 export function loadPinnedThreads(): PinnedThreadsMap {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_PINNED_THREADS);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw) as PinnedThreadsMap;
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return parsed;
-  } catch {
-    return {};
-  }
+  return getClientStoreSync<PinnedThreadsMap>("threads", "pinnedThreads") ?? {};
 }
 
 export function savePinnedThreads(pinned: PinnedThreadsMap) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY_PINNED_THREADS,
-      JSON.stringify(pinned),
-    );
-  } catch {
-    // Best-effort persistence; ignore write failures.
-  }
+  writeClientStoreValue("threads", "pinnedThreads", pinned);
 }

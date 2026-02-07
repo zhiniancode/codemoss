@@ -2,27 +2,18 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import en from "./locales/en";
 import zh from "./locales/zh";
-
-const LANGUAGE_STORAGE_KEY = "codexmonitor.language";
+import { getClientStoreSync, writeClientStoreValue } from "../services/clientStorage";
 
 const getStoredLanguage = (): string => {
-  try {
-    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (stored && (stored === "zh" || stored === "en")) {
-      return stored;
-    }
-  } catch {
-    // localStorage not available
+  const stored = getClientStoreSync<string>("app", "language");
+  if (stored && (stored === "zh" || stored === "en")) {
+    return stored;
   }
   return "zh"; // Default to Chinese
 };
 
 export const saveLanguage = (lang: string): void => {
-  try {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
-  } catch {
-    // localStorage not available
-  }
+  writeClientStoreValue("app", "language", lang);
 };
 
 i18n.use(initReactI18next).init({

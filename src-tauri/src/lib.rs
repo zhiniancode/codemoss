@@ -18,6 +18,7 @@ fn get_pending_open_paths() -> Vec<String> {
 
 mod backend;
 mod claude_commands;
+mod client_storage;
 mod codex;
 mod engine;
 mod files;
@@ -207,6 +208,9 @@ pub fn run() {
             dictation::dictation_cancel,
             // Local usage
             local_usage::local_usage_snapshot,
+            // Client storage
+            client_storage::client_store_read,
+            client_storage::client_store_write,
             // Open paths
             get_pending_open_paths
         ])

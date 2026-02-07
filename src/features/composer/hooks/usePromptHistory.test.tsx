@@ -2,13 +2,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 import { usePromptHistory } from "./usePromptHistory";
-
-const STORAGE_PREFIX = "codexmonitor.promptHistory.";
-
-function getStorageKey(key: string) {
-  return `${STORAGE_PREFIX}${key}`;
-}
 
 function createKeyEvent(key: "ArrowUp" | "ArrowDown") {
   let prevented = false;
@@ -29,7 +24,6 @@ function createKeyEvent(key: "ArrowUp" | "ArrowDown") {
 
 describe("usePromptHistory", () => {
   it("stores and recalls history per workspace key", () => {
-    globalThis.localStorage.clear();
     vi.useFakeTimers();
     const textarea = document.createElement("textarea");
     document.body.appendChild(textarea);
@@ -56,20 +50,25 @@ describe("usePromptHistory", () => {
     act(() => {
       result.current.recordHistory("first prompt");
     });
-    expect(globalThis.localStorage.getItem(getStorageKey("ws-1"))).toBe(
-      JSON.stringify(["first prompt"]),
+
+    // Verify prompt was stored to client store
+    const promptHistory = getClientStoreSync<Record<string, string[]>>(
+      "composer",
+      "promptHistory",
     );
+    expect(promptHistory?.["ws-1"]).toEqual(["first prompt"]);
 
     rerender({ historyKey: "ws-2" });
     act(() => {
       result.current.recordHistory("second prompt");
     });
-    expect(globalThis.localStorage.getItem(getStorageKey("ws-2"))).toBe(
-      JSON.stringify(["second prompt"]),
+
+    const updatedHistory = getClientStoreSync<Record<string, string[]>>(
+      "composer",
+      "promptHistory",
     );
-    expect(globalThis.localStorage.getItem(getStorageKey("ws-1"))).toBe(
-      JSON.stringify(["first prompt"]),
-    );
+    expect(updatedHistory?.["ws-2"]).toEqual(["second prompt"]);
+    expect(updatedHistory?.["ws-1"]).toEqual(["first prompt"]);
 
     rerender({ historyKey: "ws-1" });
     act(() => {
@@ -86,15 +85,11 @@ describe("usePromptHistory", () => {
   });
 
   it("does not clobber stored history when switching keys", () => {
-    globalThis.localStorage.clear();
-    globalThis.localStorage.setItem(
-      getStorageKey("ws-a"),
-      JSON.stringify(["alpha prompt"]),
-    );
-    globalThis.localStorage.setItem(
-      getStorageKey("ws-b"),
-      JSON.stringify(["beta prompt"]),
-    );
+    // Pre-populate the client store with history data
+    writeClientStoreValue("composer", "promptHistory", {
+      "ws-a": ["alpha prompt"],
+      "ws-b": ["beta prompt"],
+    });
 
     const textarea = document.createElement("textarea");
     document.body.appendChild(textarea);
@@ -119,12 +114,12 @@ describe("usePromptHistory", () => {
 
     rerender({ historyKey: "ws-b" });
 
-    expect(globalThis.localStorage.getItem(getStorageKey("ws-a"))).toBe(
-      JSON.stringify(["alpha prompt"]),
+    const historyAfterSwitch = getClientStoreSync<Record<string, string[]>>(
+      "composer",
+      "promptHistory",
     );
-    expect(globalThis.localStorage.getItem(getStorageKey("ws-b"))).toBe(
-      JSON.stringify(["beta prompt"]),
-    );
+    expect(historyAfterSwitch?.["ws-a"]).toEqual(["alpha prompt"]);
+    expect(historyAfterSwitch?.["ws-b"]).toEqual(["beta prompt"]);
 
     unmount();
     textarea.remove();

@@ -12,8 +12,8 @@ import {
 import {
   DEFAULT_OPEN_APP_ID,
   DEFAULT_OPEN_APP_TARGETS,
-  OPEN_APP_STORAGE_KEY,
 } from "../../app/constants";
+import { getClientStoreSync } from "../../../services/clientStorage";
 import { normalizeOpenAppTargets } from "../../app/utils/openApp";
 import { getDefaultInterruptShortcut } from "../../../utils/shortcuts";
 
@@ -80,10 +80,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     settings.openAppTargets && settings.openAppTargets.length
       ? normalizeOpenAppTargets(settings.openAppTargets)
       : DEFAULT_OPEN_APP_TARGETS;
-  const storedOpenAppId =
-    typeof window === "undefined"
-      ? null
-      : window.localStorage.getItem(OPEN_APP_STORAGE_KEY);
+  const storedOpenAppId = getClientStoreSync<string>("app", "openWorkspaceApp") ?? null;
   const hasPersistedSelection = normalizedTargets.some(
     (target) => target.id === settings.selectedOpenAppId,
   );

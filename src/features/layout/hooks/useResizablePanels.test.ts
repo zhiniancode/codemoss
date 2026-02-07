@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { writeClientStoreValue } from "../../../services/clientStorage";
 import { useResizablePanels } from "./useResizablePanels";
 
 type HookResult = ReturnType<typeof useResizablePanels>;
@@ -45,19 +46,23 @@ function renderResizablePanels(): RenderedHook {
 
 describe("useResizablePanels", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    vi.mocked(writeClientStoreValue).mockClear();
     document.body.innerHTML = "";
   });
 
   it("reads stored sizes and clamps to bounds", () => {
-    window.localStorage.setItem("codexmonitor.sidebarWidth", "999");
-    window.localStorage.setItem("codexmonitor.rightPanelWidth", "100");
-    window.localStorage.setItem("codexmonitor.planPanelHeight", "not-a-number");
+    // Pre-populate the mock client store with values
+    writeClientStoreValue("layout", "sidebarWidth", 999);
+    writeClientStoreValue("layout", "rightPanelWidth", 100);
+    writeClientStoreValue("layout", "planPanelHeight", "not-a-number");
 
     const hook = renderResizablePanels();
 
+    // 999 is clamped to MAX_SIDEBAR_WIDTH (420)
     expect(hook.result.sidebarWidth).toBe(420);
+    // 100 is clamped to MIN_RIGHT_PANEL_WIDTH (270)
     expect(hook.result.rightPanelWidth).toBe(270);
+    // "not-a-number" is NaN, so falls back to DEFAULT_PLAN_PANEL_HEIGHT (220)
     expect(hook.result.planPanelHeight).toBe(220);
 
     hook.unmount();
@@ -80,8 +85,10 @@ describe("useResizablePanels", () => {
     });
 
     expect(hook.result.sidebarWidth).toBe(420);
-    expect(window.localStorage.getItem("codexmonitor.sidebarWidth")).toBe(
-      "420",
+    expect(writeClientStoreValue).toHaveBeenCalledWith(
+      "layout",
+      "sidebarWidth",
+      420,
     );
 
     act(() => {

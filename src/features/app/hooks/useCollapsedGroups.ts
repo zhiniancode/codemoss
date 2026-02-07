@@ -1,36 +1,20 @@
 import { useCallback, useState } from "react";
+import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 
-export function useCollapsedGroups(storageKey: string) {
+export function useCollapsedGroups(_storageKey: string) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") {
-      return new Set();
-    }
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return new Set();
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return new Set(parsed.filter((value) => typeof value === "string"));
-      }
-    } catch {
-      // Ignore invalid stored data.
+    const stored = getClientStoreSync<string[]>("layout", "collapsedGroups");
+    if (Array.isArray(stored)) {
+      return new Set(stored.filter((value) => typeof value === "string"));
     }
     return new Set();
   });
 
   const persistCollapsedGroups = useCallback(
     (next: Set<string>) => {
-      if (typeof window === "undefined") {
-        return;
-      }
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify(Array.from(next)),
-      );
+      writeClientStoreValue("layout", "collapsedGroups", Array.from(next));
     },
-    [storageKey],
+    [],
   );
 
   const toggleGroupCollapse = useCallback(
