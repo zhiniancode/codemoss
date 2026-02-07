@@ -459,7 +459,6 @@
 .kanban-column {
   flex: 1;
   min-width: 240px;
-  max-width: 400px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border-color, #e8e8e8);
@@ -525,7 +524,7 @@
 }
 
 .kanban-column-body.is-dragging-over {
-  background: rgba(59, 130, 246, 0.02);
+  background: var(--surface-hover, #212127);
 }
 
 /* --- Kanban Card --- */
@@ -555,7 +554,7 @@
 }
 
 .kanban-card.is-selected {
-  background: rgba(59, 130, 246, 0.03);
+  background: var(--surface-active, #1e2a38);
 }
 
 /* --- Card Header --- */
@@ -687,11 +686,11 @@
 }
 
 .kanban-conversation-resizer:hover {
-  background: var(--accent-primary, rgba(99, 102, 241, 0.1));
+  background: var(--accent-primary, var(--surface-hover));
 }
 
 .kanban-conversation-resizer:active {
-  background: var(--accent-primary, rgba(99, 102, 241, 0.2));
+  background: var(--accent-primary, var(--surface-active));
 }
 
 .kanban-conversation-header {
@@ -739,14 +738,22 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-strong, #353540);
+  background: var(--surface-control, #27272e);
+  color: var(--text-primary, #e6e7ea);
   transition: background 0.15s, border-color 0.15s;
 }
 
+.kanban-btn:hover {
+  background: var(--surface-control-hover, #353540);
+  transform: none;
+  box-shadow: none;
+}
+
 .kanban-btn-primary {
-  background: var(--text-primary, #111);
-  color: var(--bg-primary, #fff);
-  border-color: var(--text-primary, #111);
+  background: var(--text-primary, #e6e7ea);
+  color: var(--bg-primary, #1e1e1e);
+  border-color: transparent;
 }
 
 .kanban-btn-primary:hover {
@@ -761,13 +768,13 @@
 }
 
 .kanban-btn-secondary {
-  background: transparent;
-  color: var(--text-primary, #111);
-  border-color: var(--border-color, #e5e5e5);
+  background: var(--surface-control, #27272e);
+  color: var(--text-primary, #e6e7ea);
+  border-color: var(--border-strong, #353540);
 }
 
 .kanban-btn-secondary:hover {
-  background: var(--bg-tertiary, #f0f0f0);
+  background: var(--surface-control-hover, #353540);
 }
 
 .kanban-icon-btn {
@@ -890,7 +897,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -899,12 +908,13 @@
 
 .kanban-modal {
   background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 12px;
   width: 480px;
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
 }
 
 .kanban-task-modal {
@@ -1108,7 +1118,7 @@
 
 .kanban-rich-input .rich-text-attachment-remove:hover:not(:disabled) {
   color: #e53e3e;
-  background: rgba(229, 62, 62, 0.1);
+  background: #2e1a1a;
 }
 
 .kanban-rich-input .rich-text-input-footer {
@@ -1117,7 +1127,7 @@
 }
 
 .kanban-rich-input .rich-text-resize-handle-bar {
-  background: var(--border-color, #d0d0d0);
+  background: var(--border-color, #353540);
 }
 
 .kanban-rich-input-attach {

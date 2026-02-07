@@ -599,6 +599,8 @@ export async function runCodexDoctor(
 export type WorkspaceFilesResponse = {
   files: string[];
   directories: string[];
+  gitignored_files: string[];
+  gitignored_directories: string[];
 };
 
 export async function getWorkspaceFiles(workspaceId: string) {

@@ -99,7 +99,7 @@
 .turn-complete-line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18));
+  background: linear-gradient(90deg, transparent, #3a3a44);
 }
 
 .turn-complete-label {
@@ -286,7 +286,7 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(10, 12, 16, 0.7);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1049,6 +1049,48 @@
   font-family: var(--code-font-family);
   font-weight: var(--code-font-weight, 400);
   line-height: var(--code-line-height, 1.28);
+}
+
+/* ---- Mermaid Block ---- */
+
+.message .markdown-mermaidblock-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message .markdown-mermaidblock-diagram {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+  background: var(--surface-command);
+}
+
+.message .markdown-mermaidblock-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.message .markdown-mermaidblock-loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.message .markdown-mermaidblock-error {
+  display: flex;
+  flex-direction: column;
+}
+
+.message .markdown-mermaidblock-error-hint {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--status-error, #ef4444);
+  background: color-mix(in srgb, var(--status-error, #ef4444) 8%, transparent);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .message .markdown-linkblock {

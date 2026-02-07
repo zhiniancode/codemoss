@@ -3,29 +3,29 @@
 @import "../components/common/RichTextInput/richTextInput.css";
 
 .app.reduced-transparency {
-  --surface-sidebar: rgba(18, 18, 18, 0.92);
-  --surface-sidebar-opaque: rgb(18, 18, 18);
-  --surface-topbar: rgba(10, 14, 20, 0.94);
-  --surface-right-panel: rgba(9, 12, 20, 0.92);
-  --surface-composer: rgba(10, 14, 20, 0.94);
-  --surface-messages: rgba(8, 10, 16, 0.94);
-  --surface-card: rgba(30, 32, 40, 0.94);
-  --surface-card-strong: rgba(38, 40, 48, 0.96);
-  --surface-card-muted: rgba(24, 26, 34, 0.9);
-  --surface-item: rgba(28, 30, 38, 0.88);
-  --surface-control: rgba(40, 44, 55, 0.7);
-  --surface-control-hover: rgba(54, 60, 72, 0.8);
-  --surface-control-disabled: rgba(40, 44, 55, 0.5);
-  --surface-hover: rgba(46, 50, 62, 0.7);
-  --surface-active: rgba(100, 200, 255, 0.18);
-  --surface-approval: rgba(12, 16, 26, 0.92);
-  --surface-debug: rgba(12, 16, 26, 0.92);
-  --surface-command: rgba(12, 14, 20, 0.95);
-  --surface-diff-card: rgba(14, 18, 28, 0.9);
-  --surface-bubble: rgba(42, 46, 58, 0.9);
-  --surface-bubble-user: rgba(77, 153, 255, 0.55);
-  --surface-context-core: rgba(16, 20, 30, 0.96);
-  --surface-popover: rgba(16, 20, 30, 0.995);
+  --surface-sidebar: #121212;
+  --surface-sidebar-opaque: #121212;
+  --surface-topbar: #0f1118;
+  --surface-right-panel: #0e1018;
+  --surface-composer: #0f1118;
+  --surface-messages: #0d0f14;
+  --surface-card: #1f2028;
+  --surface-card-strong: #262830;
+  --surface-card-muted: #181a22;
+  --surface-item: #1c1e26;
+  --surface-control: #282c37;
+  --surface-control-hover: #363c48;
+  --surface-control-disabled: #282c37;
+  --surface-hover: #2e3240;
+  --surface-active: #1e2a38;
+  --surface-approval: #0c101a;
+  --surface-debug: #0c101a;
+  --surface-command: #0c0e14;
+  --surface-diff-card: #0e121c;
+  --surface-bubble: #2a2e3a;
+  --surface-bubble-user: #2e4a74;
+  --surface-context-core: #10141e;
+  --surface-popover: #10141e;
 }
 
 .popover-surface {

@@ -93,8 +93,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     /* 滚动条颜色 - Scrollbar colors (暗色系统模式) */
-    --scrollbar-track: transparent;
-    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+    --scrollbar-track: #1a1a1a;
+    --scrollbar-thumb: #404050;
+    --scrollbar-thumb-hover: #5a5a6a;
   }
 }

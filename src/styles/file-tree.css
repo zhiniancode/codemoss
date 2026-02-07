@@ -477,3 +477,61 @@
 .file-preview-line-text .token.class-name {
   color: #d2a8ff;
 }
+
+/* Git status colors in file tree */
+.file-tree-name.git-a {
+  color: #89d185;
+}
+
+.file-tree-name.git-m {
+  color: #6bb3f0;
+}
+
+.file-tree-name.git-d {
+  color: #ff6b6b;
+  text-decoration: line-through;
+}
+
+.file-tree-name.git-r {
+  color: #c9a3f5;
+}
+
+.file-tree-name.git-t {
+  color: #f5c363;
+}
+
+:root[data-theme="light"] .file-tree-name.git-a {
+  color: var(--status-success);
+}
+
+:root[data-theme="light"] .file-tree-name.git-m {
+  color: #2a7ab5;
+}
+
+:root[data-theme="light"] .file-tree-name.git-d {
+  color: var(--status-error);
+  text-decoration: line-through;
+}
+
+:root[data-theme="light"] .file-tree-name.git-r {
+  color: #8b5fcf;
+}
+
+:root[data-theme="light"] .file-tree-name.git-t {
+  color: var(--status-warning);
+}
+
+/* Gitignored files */
+.file-tree-row.is-gitignored {
+  opacity: 0.5;
+}
+
+.file-tree-row.is-gitignored .file-tree-name {
+  font-style: italic;
+}
+
+.file-tree-toggle.is-active {
+  color: var(--text-emphasis);
+  background: var(--surface-active);
+  border-color: var(--border-accent);
+}

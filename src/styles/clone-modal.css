@@ -7,7 +7,7 @@
 .clone-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .clone-modal-card {
@@ -16,7 +16,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(520px, calc(100vw - 48px));
-  background: rgba(8, 10, 16, 0.96);
+  background: #0a0e14;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   padding: 18px 20px;
@@ -53,7 +53,7 @@
 }
 
 .clone-modal-input:focus {
-  outline: 2px solid rgba(77, 163, 255, 0.35);
+  outline: 2px solid #2a5a8a;
   outline-offset: 1px;
 }
 
@@ -114,8 +114,8 @@
 .clone-modal-error {
   font-size: 12px;
   color: #ff8f8f;
-  background: rgba(255, 79, 79, 0.12);
-  border: 1px solid rgba(255, 79, 79, 0.4);
+  background: #2e1a1a;
+  border: 1px solid #7a3333;
   padding: 8px 10px;
   border-radius: 10px;
 }

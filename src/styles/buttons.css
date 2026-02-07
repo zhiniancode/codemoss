@@ -10,6 +10,8 @@ button {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  background: transparent;
+  color: var(--text-primary);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   -webkit-app-region: no-drag;
 }
@@ -20,14 +22,15 @@ button:disabled {
 }
 
 .primary {
-  background: linear-gradient(135deg, #62b7ff, #4fe3a3);
-  color: #0b0f1a;
-  box-shadow: 0 12px 22px var(--shadow-accent);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  box-shadow: none;
 }
 
 .secondary {
-  background: var(--surface-card-strong);
-  color: inherit;
+  background: var(--surface-control, #27272e);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
 }
 
 .ghost {

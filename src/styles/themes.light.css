@@ -71,6 +71,8 @@
   --text-tertiary: #666666;
 
   --border-primary: #d0d0d0;
+  --border-color: rgba(15, 23, 36, 0.14);
+  --border-hover: rgba(15, 23, 36, 0.25);
 
   --color-success: #107c10;
   --color-warning: #f7630c;
@@ -81,6 +83,33 @@
   --color-tool-name: #0066cc;
   --color-tool-summary: #666666;
   --color-tool-file-link: #107c10;
+}
+
+/* Kanban - softer borders in light mode */
+:root[data-theme="light"] .kanban-column {
+  border-right-color: rgba(15, 23, 36, 0.06);
+}
+
+:root[data-theme="light"] .kanban-column-header {
+  border-bottom-color: rgba(15, 23, 36, 0.06);
+}
+
+:root[data-theme="light"] .kanban-card {
+  border-bottom-color: rgba(15, 23, 36, 0.06);
+}
+
+:root[data-theme="light"] .kanban-board-header {
+  border-bottom-color: rgba(15, 23, 36, 0.08);
+}
+
+/* Kanban modal - ensure opaque background in light mode (Tauri window is transparent) */
+:root[data-theme="light"] .kanban-modal-overlay {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] .kanban-modal {
+  background: #ffffff;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme="light"] .app.reduced-transparency {

@@ -34,8 +34,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 12, 16, 0.4);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -740,12 +740,12 @@
 }
 
 .thread-row:hover {
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--surface-item, #1b1b20);
   color: var(--text-strong);
 }
 
 .thread-row.active {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--surface-hover, #212127);
   color: var(--text-strong);
   font-weight: 500;
 }

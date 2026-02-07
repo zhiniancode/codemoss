@@ -576,7 +576,7 @@ function MainApp() {
     getGlobalPromptsDir,
   } = useCustomPrompts({ activeWorkspace, onDebug: addDebugEntry });
   const { commands } = useCustomCommands({ onDebug: addDebugEntry });
-  const { files, directories, isLoading: isFilesLoading } = useWorkspaceFiles({
+  const { files, directories, gitignoredFiles, isLoading: isFilesLoading } = useWorkspaceFiles({
     activeWorkspace,
     onDebug: addDebugEntry,
   });
@@ -2368,6 +2368,7 @@ function MainApp() {
     commands,
     files,
     directories,
+    gitignoredFiles,
     onInsertComposerText: handleInsertComposerText,
     textareaRef: composerInputRef,
     composerEditorSettings,

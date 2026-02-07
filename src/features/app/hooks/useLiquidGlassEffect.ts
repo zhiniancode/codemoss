@@ -21,44 +21,15 @@ export function useLiquidGlassEffect({ reduceTransparency, onDebug }: Params) {
     const apply = async () => {
       try {
         const window = getCurrentWindow();
-        if (reduceTransparency) {
-          if (supportedRef.current === null) {
-            supportedRef.current = await isGlassSupported();
-          }
-          if (supportedRef.current) {
-            await setLiquidGlassEffect({ enabled: false });
-          }
-          await window.setEffects({ effects: [] });
-          return;
-        }
-
+        // Always disable window transparency effects (glass/vibrancy)
+        // All themes now use opaque backgrounds
         if (supportedRef.current === null) {
           supportedRef.current = await isGlassSupported();
         }
-        if (cancelled) {
-          return;
-        }
         if (supportedRef.current) {
-          await window.setEffects({ effects: [] });
-          await setLiquidGlassEffect({
-            enabled: true,
-            cornerRadius: 16,
-            variant: GlassMaterialVariant.Regular,
-          });
-          return;
+          await setLiquidGlassEffect({ enabled: false });
         }
-
-        const userAgent = navigator.userAgent ?? "";
-        const isMac = userAgent.includes("Macintosh");
-        const isLinux = userAgent.includes("Linux");
-        if (!isMac && !isLinux) {
-          return;
-        }
-        await window.setEffects({
-          effects: [Effect.HudWindow],
-          state: EffectState.Active,
-          radius: 16,
-        });
+        await window.setEffects({ effects: [] });
       } catch (error) {
         if (cancelled || !onDebug) {
           return;

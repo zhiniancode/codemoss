@@ -335,7 +335,7 @@
 }
 
 .composer-action {
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid #808080;
   background: transparent;
   color: #ffffff;
   padding: 0;
@@ -371,17 +371,17 @@
 }
 
 .composer-action--mic.is-active {
-  border-color: rgba(120, 235, 190, 0.6);
-  background: rgba(120, 235, 190, 0.12);
+  border-color: #3a7a60;
+  background: #1a2e26;
 }
 
 .composer-action--mic.is-active:hover {
-  background: rgba(120, 235, 190, 0.18);
+  background: #1e3a2e;
 }
 
 .composer-action--mic.is-processing {
-  border-color: rgba(160, 200, 255, 0.6);
-  background: rgba(160, 200, 255, 0.12);
+  border-color: #4a6a8a;
+  background: #1a2640;
 }
 
 .composer-waveform {
@@ -400,8 +400,8 @@
 .composer-waveform.is-processing {
   background: linear-gradient(
     90deg,
-    rgba(100, 200, 255, 0.15),
-    rgba(120, 235, 190, 0.15)
+    #142430,
+    #142e24
   );
 }
 
@@ -409,7 +409,7 @@
   flex: 1;
   min-width: 2px;
   border-radius: 999px;
-  background: rgba(180, 220, 255, 0.7);
+  background: #7aaccc;
   transition: height 0.12s ease;
 }
 
@@ -430,8 +430,8 @@
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 120, 120, 0.4);
-  background: rgba(255, 120, 120, 0.08);
+  border: 1px solid #7a3a3a;
+  background: #2a1a1a;
   color: var(--text-strong);
   font-size: 12px;
   display: flex;
@@ -449,8 +449,8 @@
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(120, 190, 255, 0.4);
-  background: rgba(120, 190, 255, 0.12);
+  border: 1px solid #3a5a7a;
+  background: #1a2640;
   color: var(--text-strong);
   font-size: 12px;
   display: flex;
@@ -460,8 +460,8 @@
 }
 
 .composer-action.is-stop {
-  border-color: rgba(255, 107, 107, 0.6);
-  background: rgba(255, 107, 107, 0.12);
+  border-color: #8a3a3a;
+  background: #2e1a1a;
 }
 
 .composer-action:hover {
@@ -470,7 +470,7 @@
 }
 
 .composer-action.is-stop:hover {
-  background: rgba(255, 107, 107, 0.2);
+  background: #3a2020;
 }
 
 .composer-action svg {
@@ -490,8 +490,8 @@
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  border: 2px solid rgba(255, 120, 120, 0.35);
-  border-top-color: rgba(255, 120, 120, 0.9);
+  border: 2px solid #5a2828;
+  border-top-color: #cc5555;
   animation: composer-action-spin 0.8s linear infinite;
 }
 
@@ -525,8 +525,8 @@
 .composer-action.is-stop:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  background: rgba(255, 107, 107, 0.08);
-  color: rgba(255, 196, 196, 0.4);
+  background: #261616;
+  color: #6a4a4a;
 }
 
 @keyframes composer-action-spin {

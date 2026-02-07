@@ -2,15 +2,40 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
+use git2::Repository;
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::normalize_git_path;
 
-fn should_skip_dir(name: &str) -> bool {
+fn should_always_skip(name: &str) -> bool {
+    name == ".git"
+}
+
+/// Dependency / build-output directories whose deep contents create
+/// excessive noise. We still list the directory itself in the response
+/// (so the frontend can show it grayed out) but we do NOT recurse into it.
+fn is_heavy_directory(name: &str) -> bool {
     matches!(
         name,
-        ".git" | "node_modules" | "dist" | "target" | "release-artifacts"
+        "node_modules"
+            | ".pnpm"
+            | "bower_components"
+            | "__pycache__"
+            | ".tox"
+            | ".mypy_cache"
+            | ".pytest_cache"
+            | "target"
+            | "dist"
+            | "build"
+            | ".next"
+            | ".nuxt"
+            | ".output"
+            | ".turbo"
+            | ".svelte-kit"
+            | ".parcel-cache"
+            | ".cache"
+            | ".gradle"
     )
 }
 
@@ -18,27 +43,39 @@ fn should_skip_dir(name: &str) -> bool {
 pub(crate) struct WorkspaceFilesResponse {
     pub(crate) files: Vec<String>,
     pub(crate) directories: Vec<String>,
+    #[serde(default)]
+    pub(crate) gitignored_files: Vec<String>,
+    #[serde(default)]
+    pub(crate) gitignored_directories: Vec<String>,
 }
 
-pub(crate) fn list_workspace_files_inner(root: &PathBuf, max_files: usize) -> WorkspaceFilesResponse {
+pub(crate) fn list_workspace_files_inner(
+    root: &PathBuf,
+    max_files: usize,
+) -> WorkspaceFilesResponse {
     let mut files = Vec::new();
     let mut directories = Vec::new();
+    let mut gitignored_files = Vec::new();
+    let mut gitignored_directories = Vec::new();
+
+    // Always open the repo so we can tag gitignored files for dimmed styling.
+    let repo = Repository::open(root).ok();
+
     let walker = WalkBuilder::new(root)
-        // Allow hidden entries.
         .hidden(false)
-        // Avoid crawling symlink targets.
         .follow_links(false)
-        // Don't require git to be present to apply to apply git-related ignore rules.
         .require_git(false)
+        .git_ignore(false)
         .filter_entry(|entry| {
             if entry.depth() == 0 {
                 return true;
             }
+            let name = entry.file_name().to_string_lossy();
             if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                let name = entry.file_name().to_string_lossy();
-                return !should_skip_dir(&name);
+                return !should_always_skip(&name) && !is_heavy_directory(&name);
             }
-            true
+            // Skip OS metadata files
+            name != ".DS_Store"
         })
         .build();
 
@@ -52,10 +89,20 @@ pub(crate) fn list_workspace_files_inner(root: &PathBuf, max_files: usize) -> Wo
             if normalized.is_empty() {
                 continue;
             }
+            let is_ignored = repo
+                .as_ref()
+                .and_then(|r| r.status_should_ignore(rel_path).ok())
+                .unwrap_or(false);
             if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                directories.push(normalized);
+                directories.push(normalized.clone());
+                if is_ignored {
+                    gitignored_directories.push(normalized);
+                }
             } else if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                files.push(normalized);
+                files.push(normalized.clone());
+                if is_ignored {
+                    gitignored_files.push(normalized);
+                }
                 if files.len() >= max_files {
                     break;
                 }
@@ -63,9 +110,40 @@ pub(crate) fn list_workspace_files_inner(root: &PathBuf, max_files: usize) -> Wo
         }
     }
 
+    // Re-add heavy directories that were skipped by filter_entry so
+    // they still appear in the tree (grayed out) without their contents.
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for dir_entry in entries.flatten() {
+            if dir_entry.file_type().is_ok_and(|ft| ft.is_dir()) {
+                let name = dir_entry.file_name();
+                let name_str = name.to_string_lossy();
+                if is_heavy_directory(&name_str) {
+                    let normalized = normalize_git_path(&name_str);
+                    if !directories.contains(&normalized) {
+                        let is_ignored = repo
+                            .as_ref()
+                            .and_then(|r| r.status_should_ignore(std::path::Path::new(&*name_str)).ok())
+                            .unwrap_or(false);
+                        directories.push(normalized.clone());
+                        if is_ignored {
+                            gitignored_directories.push(normalized);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     files.sort();
     directories.sort();
-    WorkspaceFilesResponse { files, directories }
+    gitignored_files.sort();
+    gitignored_directories.sort();
+    WorkspaceFilesResponse {
+        files,
+        directories,
+        gitignored_files,
+        gitignored_directories,
+    }
 }
 
 const MAX_WORKSPACE_FILE_BYTES: u64 = 400_000;

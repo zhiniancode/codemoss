@@ -114,9 +114,9 @@
   text-transform: uppercase;
   padding: 2px 6px;
   border-radius: 999px;
-  background: rgba(242, 153, 74, 0.16);
+  background: #2e2418;
   color: #f2994a;
-  border: 1px solid rgba(242, 153, 74, 0.4);
+  border: 1px solid #6a4a2a;
 }
 
 .diff-viewer-pr-body {
@@ -488,11 +488,11 @@
 }
 
 .diff-line-add {
-  background: rgba(46, 160, 67, 0.25);
+  background: #1a3022;
 }
 
 .diff-line-del {
-  background: rgba(248, 81, 73, 0.25);
+  background: #301a1a;
 }
 
 .diff-line-meta {

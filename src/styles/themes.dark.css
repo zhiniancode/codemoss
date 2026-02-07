@@ -14,53 +14,53 @@
   --code-line-height: 1.28;
   --text-primary: #e6e7ea;
   --text-strong: #ffffff;
-  --text-emphasis: rgba(255, 255, 255, 0.9);
-  --text-stronger: rgba(255, 255, 255, 0.85);
-  --text-quiet: rgba(255, 255, 255, 0.75);
-  --text-muted: rgba(255, 255, 255, 0.7);
-  --text-subtle: rgba(255, 255, 255, 0.6);
-  --text-faint: rgba(255, 255, 255, 0.5);
-  --text-fainter: rgba(255, 255, 255, 0.45);
-  --text-dim: rgba(255, 255, 255, 0.35);
-  --surface-sidebar: rgba(18, 18, 18, 0.5);
-  --surface-sidebar-opaque: rgb(18, 18, 18);
-  --surface-topbar: rgba(10, 14, 20, 0.45);
-  --surface-right-panel: rgba(9, 12, 20, 0.4);
-  --surface-composer: rgba(10, 14, 20, 0.45);
-  --surface-messages: rgba(8, 10, 16, 0.45);
-  --surface-card: rgba(255, 255, 255, 0.04);
-  --surface-card-strong: rgba(255, 255, 255, 0.12);
-  --surface-card-muted: rgba(255, 255, 255, 0.06);
-  --surface-item: rgba(255, 255, 255, 0.02);
-  --surface-control: rgba(255, 255, 255, 0.08);
-  --surface-control-hover: rgba(255, 255, 255, 0.14);
-  --surface-control-disabled: rgba(255, 255, 255, 0.05);
-  --surface-hover: rgba(255, 255, 255, 0.05);
-  --surface-active: rgba(100, 200, 255, 0.14);
-  --surface-approval: rgba(12, 16, 26, 0.6);
-  --surface-debug: rgba(10, 14, 20, 0.55);
-  --surface-command: rgba(10, 12, 18, 0.7);
-  --surface-diff-card: rgba(10, 14, 20, 0.32);
-  --surface-bubble: rgba(255, 255, 255, 0.12);
-  --surface-bubble-user: rgba(77, 153, 255, 0.45);
-  --surface-context-core: rgba(10, 14, 20, 0.9);
-  --surface-popover: rgba(10, 14, 20, 0.995);
-  --surface-review: rgba(255, 144, 200, 0.1);
-  --border-review: rgba(255, 144, 200, 0.35);
-  --surface-review-active: rgba(255, 144, 200, 0.18);
-  --text-review-active: rgba(255, 195, 226, 0.95);
-  --surface-review-done: rgba(120, 255, 200, 0.18);
-  --text-review-done: rgba(170, 255, 220, 0.95);
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-muted: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --border-stronger: rgba(255, 255, 255, 0.18);
-  --border-quiet: rgba(255, 255, 255, 0.2);
-  --border-accent: rgba(100, 200, 255, 0.6);
-  --border-accent-soft: rgba(100, 200, 255, 0.3);
-  --text-accent: rgba(164, 195, 255, 0.7);
-  --message-link-color: rgba(196, 154, 255, 0.96);
-  --shadow-accent: rgba(92, 168, 255, 0.28);
+  --text-emphasis: #e6e6e6;
+  --text-stronger: #d9d9d9;
+  --text-quiet: #bfbfbf;
+  --text-muted: #b3b3b3;
+  --text-subtle: #999999;
+  --text-faint: #808080;
+  --text-fainter: #737373;
+  --text-dim: #595959;
+  --surface-sidebar: #121212;
+  --surface-sidebar-opaque: #121212;
+  --surface-topbar: #0f1118;
+  --surface-right-panel: #0e1018;
+  --surface-composer: #0f1118;
+  --surface-messages: #0d0f14;
+  --surface-card: #1f1f25;
+  --surface-card-strong: #30303a;
+  --surface-card-muted: #232329;
+  --surface-item: #1b1b20;
+  --surface-control: #27272e;
+  --surface-control-hover: #353540;
+  --surface-control-disabled: #212127;
+  --surface-hover: #212127;
+  --surface-active: #1e2a38;
+  --surface-approval: #0e1018;
+  --surface-debug: #0e1016;
+  --surface-command: #0c0e14;
+  --surface-diff-card: #101218;
+  --surface-bubble: #30303a;
+  --surface-bubble-user: #2e4a74;
+  --surface-context-core: #0c0f16;
+  --surface-popover: #0a0e14;
+  --surface-review: #281c26;
+  --border-review: #6b3a56;
+  --surface-review-active: #3a2636;
+  --text-review-active: #f2c3e2;
+  --surface-review-done: #1e3830;
+  --text-review-done: #aafcdc;
+  --border-subtle: #252530;
+  --border-muted: #222228;
+  --border-strong: #353540;
+  --border-stronger: #3a3a46;
+  --border-quiet: #404050;
+  --border-accent: #4a8caa;
+  --border-accent-soft: #2a5570;
+  --text-accent: #7a9dcc;
+  --message-link-color: #c49aff;
+  --shadow-accent: #2a5080;
   --titlebar-inset-left: 72px;
   --titlebar-height: 24px;
   --titlebar-toggle-size: 28px;
@@ -68,18 +68,18 @@
   --titlebar-toggle-title-offset: -6px;
   --titlebar-toggle-side-gap: 12px;
   --topbar-compact-padding: 16px;
-  --status-success: rgba(120, 235, 190, 0.95);
-  --status-warning: rgba(255, 175, 85, 0.95);
-  --status-error: rgba(255, 110, 110, 0.95);
-  --status-unknown: rgba(255, 255, 255, 0.3);
-  --select-caret: rgba(255, 255, 255, 0.6);
+  --status-success: #78ebbe;
+  --status-warning: #ffaf55;
+  --status-error: #ff6e6e;
+  --status-unknown: #4d4d4d;
+  --select-caret: #999999;
   --tabbar-height: 56px;
   --ui-scale: 1;
 
   /* 滚动条颜色 - Scrollbar colors */
-  --scrollbar-track: transparent;
-  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+  --scrollbar-track: #1a1a1a;
+  --scrollbar-thumb: #404050;
+  --scrollbar-thumb-hover: #5a5a6a;
 
   /* 工具块主题变量 (参考 idea-claude-code-gui) */
   --bg-primary: #1e1e1e;
@@ -92,12 +92,14 @@
   --text-tertiary: #858585;
 
   --border-primary: #333;
+  --border-color: #353540;
+  --border-hover: #484858;
 
   --color-success: #4caf50;
   --color-warning: #ff9800;
   --color-error: #f44336;
 
-  --color-tool-bg: rgba(0, 0, 0, 0.2);
+  --color-tool-bg: #161616;
   --color-tool-icon: #64b5f6;
   --color-tool-name: #90caf9;
   --color-tool-summary: #888;
@@ -106,4 +108,14 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+}
+
+/* Kanban modal - ensure opaque background in dark mode (Tauri window is transparent) */
+.kanban-modal-overlay {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.kanban-modal {
+  background: #1e1e1e;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }

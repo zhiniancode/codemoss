@@ -11,9 +11,9 @@
 .settings-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(6, 8, 12, 0.55);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .settings-window {
@@ -195,16 +195,16 @@
 .settings-agents-textarea:focus {
   outline: none;
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+  box-shadow: 0 0 0 3px #262650;
 }
 
 .settings-agents-error {
   font-size: 12px;
   color: var(--text-danger);
-  background: rgba(236, 72, 153, 0.08);
+  background: #2a1a24;
   border-radius: 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(236, 72, 153, 0.2);
+  border: 1px solid #4a2840;
 }
 
 .settings-download-progress {
@@ -223,7 +223,7 @@
 
 .settings-download-fill {
   height: 100%;
-  background: linear-gradient(90deg, rgba(100, 200, 255, 0.7), rgba(120, 235, 190, 0.8));
+  background: linear-gradient(90deg, #4a8caa, #58b888);
 }
 
 .settings-download-meta {
@@ -634,12 +634,12 @@
 }
 
 .settings-doctor.ok {
-  border-color: rgba(120, 235, 190, 0.4);
+  border-color: #3a6a56;
   color: var(--text-strong);
 }
 
 .settings-doctor.error {
-  border-color: rgba(255, 120, 120, 0.45);
+  border-color: #7a3a3a;
   color: var(--text-strong);
 }
 
@@ -717,7 +717,7 @@
 }
 
 .settings-toggle.on {
-  background: linear-gradient(135deg, rgba(100, 200, 255, 0.6), rgba(120, 235, 190, 0.6));
+  background: linear-gradient(135deg, #3a7a9a, #4a9a78);
   border-color: var(--border-accent);
   justify-content: flex-end;
 }

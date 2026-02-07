@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
+
+const MermaidBlock = lazy(() => import("./MermaidBlock"));
 import {
   decodeFileLink,
   isFileLinkUrl,
@@ -244,6 +246,31 @@ function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
   );
 }
 
+function MermaidFallback() {
+  return (
+    <div className="markdown-codeblock markdown-mermaidblock">
+      <div className="markdown-codeblock-header">
+        <span className="markdown-codeblock-language">Mermaid</span>
+      </div>
+      <div className="markdown-mermaidblock-loading">Loading...</div>
+    </div>
+  );
+}
+
+function extractMermaidContent(languageTag: string | null, value: string): string | null {
+  // Case 1: react-markdown correctly parsed the language tag
+  if (languageTag === "mermaid" && value.trim()) {
+    return value;
+  }
+  // Case 2: fenced marker leaked into the content (e.g. ```mermaid\n...\n```)
+  const fencedMatch = value.match(/^```mermaid\s*\n([\s\S]*?)(?:\n```\s*)?$/);
+  if (fencedMatch) {
+    const inner = fencedMatch[1].trim();
+    if (inner) return inner;
+  }
+  return null;
+}
+
 function PreBlock({ node, children, copyUseModifier }: PreProps) {
   const { className, value } = extractCodeFromPre(node);
   if (!className && !value && children) {
@@ -252,6 +279,15 @@ function PreBlock({ node, children, copyUseModifier }: PreProps) {
   const urlLines = extractUrlLines(value);
   if (urlLines) {
     return <LinkBlock urls={urlLines} />;
+  }
+  const languageTag = extractLanguageTag(className);
+  const mermaidContent = extractMermaidContent(languageTag, value);
+  if (mermaidContent) {
+    return (
+      <Suspense fallback={<MermaidFallback />}>
+        <MermaidBlock value={mermaidContent} copyUseModifier={copyUseModifier} />
+      </Suspense>
+    );
   }
   const isSingleLine = !value.includes("\n");
   if (isSingleLine) {

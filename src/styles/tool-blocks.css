@@ -47,7 +47,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  background: var(--color-task-icon-bg, rgba(76, 175, 80, 0.15));
+  background: var(--color-task-icon-bg, #1a2e1e);
   flex-shrink: 0;
 }
 
@@ -60,7 +60,7 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--color-task-badge-text, #d7ba7d);
-  background: var(--color-task-badge-bg, rgba(215, 186, 125, 0.1));
+  background: var(--color-task-badge-bg, #262218);
   padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -581,7 +581,7 @@
 .tool-block-command {
   font-family: var(--code-font-family, 'SF Mono', 'SFMono-Regular', Menlo, Monaco, monospace);
   font-size: var(--code-font-size, 11px);
-  background: var(--surface-command, rgba(0, 0, 0, 0.1));
+  background: var(--surface-command, #0c0e14);
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid var(--border-subtle);

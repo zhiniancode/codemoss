@@ -401,6 +401,7 @@ type LayoutNodesOptions = {
   commands?: CustomCommandOption[];
   files: string[];
   directories: string[];
+  gitignoredFiles: Set<string>;
   onInsertComposerText: (text: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   composerEditorSettings: ComposerEditorSettings;
@@ -742,6 +743,8 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         openAppIconById={options.openAppIconById}
         selectedOpenAppId={options.selectedOpenAppId}
         onSelectOpenAppId={options.onSelectOpenAppId}
+        gitStatusFiles={options.gitStatus.files}
+        gitignoredFiles={options.gitignoredFiles}
       />
     );
   } else if (options.filePanelMode === "prompts") {

@@ -430,8 +430,8 @@
 }
 
 .diff-row-action--stage:hover {
-  background: rgba(71, 212, 136, 0.14);
-  border-color: rgba(71, 212, 136, 0.35);
+  background: #1a2e22;
+  border-color: #2a5a3a;
   color: #47d488;
 }
 
@@ -441,8 +441,8 @@
 }
 
 .diff-row-action--unstage:hover {
-  background: rgba(245, 195, 99, 0.14);
-  border-color: rgba(245, 195, 99, 0.35);
+  background: #2e2a1a;
+  border-color: #5a4a2a;
   color: #f5c363;
 }
 
@@ -452,14 +452,14 @@
 }
 
 .diff-row-action--discard:hover {
-  background: rgba(255, 107, 107, 0.14);
-  border-color: rgba(255, 107, 107, 0.35);
+  background: #2e1a1a;
+  border-color: #5a2a2a;
   color: #ff6b6b;
 }
 
 .diff-row-action--apply:hover {
-  background: rgba(90, 169, 255, 0.14);
-  border-color: rgba(90, 169, 255, 0.35);
+  background: #1a2440;
+  border-color: #2a4a6a;
   color: #5aa9ff;
 }
 

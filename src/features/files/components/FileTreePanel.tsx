@@ -20,7 +20,7 @@ import Search from "lucide-react/dist/esm/icons/search";
 import FileIcon from "../../../components/FileIcon";
 import { PanelTabs, type PanelTabId } from "../../layout/components/PanelTabs";
 import { readWorkspaceFile } from "../../../services/tauri";
-import type { OpenAppTarget } from "../../../types";
+import type { GitFileStatus, OpenAppTarget } from "../../../types";
 import { languageFromPath } from "../../../utils/syntax";
 import { FilePreviewPopover } from "./FilePreviewPopover";
 
@@ -44,6 +44,8 @@ type FileTreePanelProps = {
   openAppIconById: Record<string, string>;
   selectedOpenAppId: string;
   onSelectOpenAppId: (id: string) => void;
+  gitStatusFiles?: GitFileStatus[];
+  gitignoredFiles?: Set<string>;
 };
 
 type FileTreeBuildNode = {
@@ -152,6 +154,8 @@ export function FileTreePanel({
   openAppIconById,
   selectedOpenAppId,
   onSelectOpenAppId,
+  gitStatusFiles,
+  gitignoredFiles,
 }: FileTreePanelProps) {
   const { t } = useTranslation();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -174,7 +178,7 @@ export function FileTreePanel({
   const [isDragSelecting, setIsDragSelecting] = useState(false);
   const dragAnchorLineRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
-  const hasManualToggle = useRef(false);
+
   const showLoading = isLoading && files.length === 0;
   const deferredQuery = useDeferredValue(query);
   const normalizedQuery = deferredQuery.trim().toLowerCase();
@@ -182,6 +186,16 @@ export function FileTreePanel({
     () => (previewPath && isImagePath(previewPath) ? "image" : "text"),
     [previewPath],
   );
+
+  const gitStatusMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (gitStatusFiles) {
+      for (const entry of gitStatusFiles) {
+        map.set(entry.path, entry.status);
+      }
+    }
+    return map;
+  }, [gitStatusFiles]);
 
   const filteredFiles = useMemo(() => {
     if (!normalizedQuery) {
@@ -195,6 +209,36 @@ export function FileTreePanel({
     [files, filteredFiles, normalizedQuery],
   );
 
+  const folderGitStatusMap = useMemo(() => {
+    if (gitStatusMap.size === 0) {
+      return new Map<string, string>();
+    }
+    const priority: Record<string, number> = { D: 4, A: 3, M: 2, R: 1, T: 0 };
+    const map = new Map<string, string>();
+    const computeForNode = (node: FileTreeNode): string | null => {
+      if (node.type === "file") {
+        return gitStatusMap.get(node.path) ?? null;
+      }
+      let highest: string | null = null;
+      let highestPri = -1;
+      for (const child of node.children) {
+        const childStatus = computeForNode(child);
+        if (childStatus && (priority[childStatus] ?? -1) > highestPri) {
+          highest = childStatus;
+          highestPri = priority[childStatus] ?? -1;
+        }
+      }
+      if (highest) {
+        map.set(node.path, highest);
+      }
+      return highest;
+    };
+    for (const node of nodes) {
+      computeForNode(node);
+    }
+    return map;
+  }, [nodes, gitStatusMap]);
+
   const visibleFolderPaths = folderPaths;
   const hasFolders = visibleFolderPaths.size > 0;
   const allVisibleExpanded =
@@ -205,22 +249,16 @@ export function FileTreePanel({
       if (normalizedQuery) {
         return new Set(folderPaths);
       }
+      // Keep only folders that still exist; default is all collapsed.
       const next = new Set<string>();
       prev.forEach((path) => {
         if (folderPaths.has(path)) {
           next.add(path);
         }
       });
-      if (next.size === 0 && !hasManualToggle.current) {
-        nodes.forEach((node) => {
-          if (node.type === "folder") {
-            next.add(node.path);
-          }
-        });
-      }
       return next;
     });
-  }, [folderPaths, nodes, normalizedQuery]);
+  }, [folderPaths, normalizedQuery]);
 
   useEffect(() => {
     setPreviewPath(null);
@@ -275,7 +313,7 @@ export function FileTreePanel({
       }
       return next;
     });
-    hasManualToggle.current = true;
+
   };
 
   const toggleFolder = (path: string) => {
@@ -507,12 +545,19 @@ export function FileTreePanel({
   const renderNode = (node: FileTreeNode, depth: number) => {
     const isFolder = node.type === "folder";
     const isExpanded = isFolder && expandedFolders.has(node.path);
+    const fileGitStatus = isFolder
+      ? folderGitStatusMap.get(node.path) ?? null
+      : gitStatusMap.get(node.path) ?? null;
+    const gitStatusClass = fileGitStatus
+      ? ` git-${fileGitStatus.toLowerCase()}`
+      : "";
+    const isGitignored = gitignoredFiles?.has(node.path) ?? false;
     return (
       <div key={node.path}>
         <div className="file-tree-row-wrap">
           <button
             type="button"
-            className={`file-tree-row${isFolder ? " is-folder" : " is-file"}`}
+            className={`file-tree-row${isFolder ? " is-folder" : " is-file"}${isGitignored ? " is-gitignored" : ""}`}
             style={{ paddingLeft: `${depth * 10}px` }}
             onClick={(event) => {
               if (isFolder) {
@@ -541,7 +586,7 @@ export function FileTreePanel({
             <span className="file-tree-icon" aria-hidden>
               <FileIcon filePath={node.name} isFolder={isFolder} isOpen={isExpanded} />
             </span>
-            <span className="file-tree-name">{node.name}</span>
+            <span className={`file-tree-name${gitStatusClass}`}>{node.name}</span>
           </button>
           <button
             type="button"

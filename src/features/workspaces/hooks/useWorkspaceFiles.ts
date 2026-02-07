@@ -13,6 +13,7 @@ export function useWorkspaceFiles({
 }: UseWorkspaceFilesOptions) {
   const [files, setFiles] = useState<string[]>([]);
   const [directories, setDirectories] = useState<string[]>([]);
+  const [gitignoredFiles, setGitignoredFiles] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const lastFetchedWorkspaceId = useRef<string | null>(null);
   const inFlight = useRef<string | null>(null);
@@ -50,6 +51,8 @@ export function useWorkspaceFiles({
       if (requestWorkspaceId === workspaceId) {
         setFiles(Array.isArray(response.files) ? response.files : []);
         setDirectories(Array.isArray(response.directories) ? response.directories : []);
+        const ignored = Array.isArray(response.gitignored_files) ? response.gitignored_files : [];
+        setGitignoredFiles(new Set(ignored));
         lastFetchedWorkspaceId.current = requestWorkspaceId;
       }
     } catch (error) {
@@ -71,6 +74,7 @@ export function useWorkspaceFiles({
   useEffect(() => {
     setFiles([]);
     setDirectories([]);
+    setGitignoredFiles(new Set());
     lastFetchedWorkspaceId.current = null;
     inFlight.current = null;
     setIsLoading(Boolean(workspaceId && isConnected));
@@ -80,7 +84,10 @@ export function useWorkspaceFiles({
     if (!workspaceId || !isConnected) {
       return;
     }
-    if (lastFetchedWorkspaceId.current === workspaceId && files.length > 0) {
+    const needsRefresh =
+      lastFetchedWorkspaceId.current !== workspaceId ||
+      files.length === 0;
+    if (!needsRefresh) {
       return;
     }
     refreshFiles();
@@ -106,6 +113,7 @@ export function useWorkspaceFiles({
   return {
     files: fileOptions,
     directories: directoryOptions,
+    gitignoredFiles,
     isLoading,
     refreshFiles,
   };
