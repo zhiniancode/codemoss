@@ -198,13 +198,31 @@ then
   echo "Warning: AppleScript layout configuration failed (expected in CI). DMG will still contain Applications alias."
 fi
 
+# Close Finder windows referencing the volume to prevent busy-volume issues
+osascript -e "tell application \"Finder\" to close every window" 2>/dev/null || true
+sleep 1
+
 chmod -Rf go-w "$MOUNT_DIR" 2>/dev/null || true
 sync
 
 echo "Finalizing DMG..."
-hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force -quiet
+
+# Detach with retry - CI runners may have Finder holding the volume
+for attempt in 1 2 3 4 5; do
+  if hdiutil detach "$MOUNT_DIR" 2>/dev/null; then
+    break
+  fi
+  echo "Warning: detach attempt $attempt failed, retrying..."
+  sleep 2
+  if [ "$attempt" -eq 5 ]; then
+    echo "Force-detaching volume..."
+    hdiutil detach "$MOUNT_DIR" -force || true
+    sleep 1
+  fi
+done
 MOUNT_DIR=""
 
+sleep 1
 hdiutil convert "$TEMP_DMG" -format UDZO -o "$OUTPUT_DMG"
 
 rm -f "$TEMP_DMG"
