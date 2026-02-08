@@ -781,6 +781,7 @@ export function useThreads({
     activeThreadId,
     dispatch,
     getCustomName,
+    isAutoTitlePending,
     isThreadHidden,
     markProcessing,
     markReviewing,

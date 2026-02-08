@@ -662,6 +662,7 @@ const en = {
     generateCommitMessageStaged: "Generate commit message from staged changes",
     generateCommitMessageUnstaged: "Generate commit message from unstaged changes",
     generateCommitMessage: "Generate commit message",
+    commitMessageRequiresCodex: "AI commit message generation requires the Codex CLI. Install it with: npm install -g @openai/codex",
     // Git log and status
     noMessage: "No message",
     unknown: "unknown",
@@ -1031,6 +1032,7 @@ const en = {
     cancel: "Cancel",
     fileTooLarge: "File too large to edit",
     readOnly: "Read-only",
+    unsupportedFormat: "This file format is not supported for preview",
   },
 
   // Prompts

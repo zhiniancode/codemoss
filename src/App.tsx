@@ -63,6 +63,7 @@ import { useOpenPaths } from "./features/workspaces/hooks/useOpenPaths";
 import { useRenameWorktreePrompt } from "./features/workspaces/hooks/useRenameWorktreePrompt";
 import { useLayoutController } from "./features/app/hooks/useLayoutController";
 import { useWindowLabel } from "./features/layout/hooks/useWindowLabel";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   SidebarCollapseButton,
@@ -1441,6 +1442,18 @@ function MainApp() {
   }, [activeTab, isTablet]);
 
   useWindowDrag("titlebar");
+
+  useEffect(() => {
+    try {
+      const title = activeWorkspace
+        ? `CodeMoss - ${activeWorkspace.name}`
+        : "CodeMoss";
+      void getCurrentWindow().setTitle(title);
+    } catch {
+      // Non-Tauri environment, ignore.
+    }
+  }, [activeWorkspace]);
+
   useWorkspaceRestore({
     workspaces,
     hasLoaded,

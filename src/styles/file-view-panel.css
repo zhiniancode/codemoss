@@ -143,6 +143,51 @@
   color: var(--text-danger, #f87171);
 }
 
+/* ── Image preview ── */
+
+.fvp-image-preview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 24px;
+  background-color: var(--surface-command);
+  background-image:
+    linear-gradient(45deg, var(--surface-control) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-control) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-control) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-control) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.fvp-image-preview-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fvp-image-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  min-height: 0;
+}
+
+.fvp-image-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
 /* ── Code preview ── */
 
 .fvp-code-preview {

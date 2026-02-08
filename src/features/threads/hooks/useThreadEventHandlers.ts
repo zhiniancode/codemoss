@@ -11,6 +11,7 @@ type ThreadEventHandlersOptions = {
   activeThreadId: string | null;
   dispatch: Dispatch<ThreadAction>;
   getCustomName: (workspaceId: string, threadId: string) => string | undefined;
+  isAutoTitlePending: (workspaceId: string, threadId: string) => boolean;
   isThreadHidden: (workspaceId: string, threadId: string) => boolean;
   markProcessing: (threadId: string, isProcessing: boolean) => void;
   markReviewing: (threadId: string, isReviewing: boolean) => void;
@@ -51,6 +52,7 @@ export function useThreadEventHandlers({
   activeThreadId,
   dispatch,
   getCustomName,
+  isAutoTitlePending,
   isThreadHidden,
   markProcessing,
   markReviewing,
@@ -108,6 +110,7 @@ export function useThreadEventHandlers({
   } = useThreadTurnEvents({
     dispatch,
     getCustomName,
+    isAutoTitlePending,
     isThreadHidden,
     markProcessing,
     markReviewing,

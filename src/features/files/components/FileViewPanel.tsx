@@ -22,6 +22,7 @@ import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../../services/tauri";
 import { highlightLine, languageFromPath } from "../../../utils/syntax";
 import { Markdown } from "../../messages/components/Markdown";
@@ -48,6 +49,46 @@ const markdownExtensions = new Set(["md", "mdx"]);
 function isMarkdownPath(path: string) {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return markdownExtensions.has(ext);
+}
+
+const imageExtensions = new Set([
+  "png", "jpg", "jpeg", "gif", "svg", "webp",
+  "avif", "bmp", "heic", "heif", "tif", "tiff", "ico",
+]);
+
+const binaryExtensions = new Set([
+  // images
+  ...imageExtensions,
+  // audio
+  "mp3", "wav", "ogg", "flac", "aac", "m4a", "wma",
+  // video
+  "mp4", "mov", "avi", "mkv", "wmv", "flv", "webm",
+  // archives
+  "zip", "tar", "gz", "rar", "7z", "bz2",
+  // documents
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  // executables & binaries
+  "exe", "dll", "so", "dylib", "bin", "dmg", "iso",
+  // fonts
+  "ttf", "otf", "woff", "woff2", "eot",
+  // other
+  "class", "o", "a", "lib", "pyc", "wasm",
+]);
+
+function isImagePath(path: string) {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return imageExtensions.has(ext);
+}
+
+function isBinaryPath(path: string) {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return binaryExtensions.has(ext);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function resolveAbsolutePath(workspacePath: string, relativePath: string) {
@@ -109,6 +150,8 @@ export function FileViewPanel({
 }: FileViewPanelProps) {
   const { t } = useTranslation();
   const isMarkdown = useMemo(() => isMarkdownPath(filePath), [filePath]);
+  const isImage = useMemo(() => isImagePath(filePath), [filePath]);
+  const isBinary = useMemo(() => isBinaryPath(filePath), [filePath]);
   const [mode, setMode] = useState<"preview" | "edit">(initialMode);
   const [mdViewMode, setMdViewMode] = useState<"rendered" | "source">("rendered");
   const [content, setContent] = useState("");
@@ -126,8 +169,64 @@ export function FileViewPanel({
     [workspacePath, filePath],
   );
 
-  // Load file content
+  const imageSrc = useMemo(() => {
+    if (!isImage) return null;
+    try {
+      return convertFileSrc(absolutePath);
+    } catch {
+      return null;
+    }
+  }, [isImage, absolutePath]);
+
+  const [imageInfo, setImageInfo] = useState<{
+    width: number;
+    height: number;
+    sizeBytes: number | null;
+  } | null>(null);
+
+  // Fetch image file size when imageSrc changes
   useEffect(() => {
+    setImageInfo(null);
+    if (!imageSrc) return;
+    let cancelled = false;
+    fetch(imageSrc)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (!cancelled) {
+          setImageInfo((prev) =>
+            prev
+              ? { ...prev, sizeBytes: blob.size }
+              : { width: 0, height: 0, sizeBytes: blob.size },
+          );
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [imageSrc]);
+
+  const handleImageLoad = useCallback(
+    (e: React.SyntheticEvent<HTMLImageElement>) => {
+      const img = e.currentTarget;
+      setImageInfo((prev) => ({
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        sizeBytes: prev?.sizeBytes ?? null,
+      }));
+    },
+    [],
+  );
+
+  // Load file content (skip for binary files)
+  useEffect(() => {
+    if (isBinary) {
+      setIsLoading(false);
+      setError(null);
+      setContent("");
+      savedContentRef.current = "";
+      setTruncated(false);
+      return;
+    }
+
     let cancelled = false;
     requestIdRef.current += 1;
     const currentRequest = requestIdRef.current;
@@ -154,7 +253,7 @@ export function FileViewPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, filePath]);
+  }, [workspaceId, filePath, isBinary]);
 
   // Reset mode when file changes
   useEffect(() => {
@@ -277,56 +376,60 @@ export function FileViewPanel({
         {truncated && <span className="fvp-truncated">{t("files.truncated")}</span>}
       </div>
       <div className="fvp-topbar-right">
-        {isMarkdown && mode === "preview" && (
-          <div className="fvp-toggle-group">
-            <button
-              type="button"
-              className={`ghost fvp-toggle-btn ${mdViewMode === "rendered" ? "is-active" : ""}`}
-              onClick={() => setMdViewMode("rendered")}
-            >
-              <Eye size={14} aria-hidden />
-              <span>{t("files.preview")}</span>
-            </button>
-            <button
-              type="button"
-              className={`ghost fvp-toggle-btn ${mdViewMode === "source" ? "is-active" : ""}`}
-              onClick={() => setMdViewMode("source")}
-            >
-              <Code size={14} aria-hidden />
-              <span>{t("files.source")}</span>
-            </button>
-          </div>
-        )}
-        {mode === "preview" ? (
-          <button
-            type="button"
-            className="ghost fvp-action-btn"
-            onClick={handleEnterEdit}
-            disabled={truncated}
-            title={truncated ? t("files.fileTooLarge") : t("files.edit")}
-          >
-            <Pencil size={14} aria-hidden />
-            <span>{t("files.edit")}</span>
-          </button>
-        ) : (
+        {!isBinary && (
           <>
-            <button
-              type="button"
-              className="ghost fvp-action-btn"
-              onClick={handleEnterPreview}
-            >
-              <Eye size={14} aria-hidden />
-              <span>{t("files.preview")}</span>
-            </button>
-            <button
-              type="button"
-              className={`primary fvp-action-btn fvp-save-btn ${isDirty ? "" : "is-saved"}`}
-              onClick={handleSave}
-              disabled={!isDirty || isSaving}
-            >
-              <Save size={14} aria-hidden />
-              <span>{isSaving ? t("files.saving") : isDirty ? t("files.save") : t("files.saved")}</span>
-            </button>
+            {isMarkdown && mode === "preview" && (
+              <div className="fvp-toggle-group">
+                <button
+                  type="button"
+                  className={`ghost fvp-toggle-btn ${mdViewMode === "rendered" ? "is-active" : ""}`}
+                  onClick={() => setMdViewMode("rendered")}
+                >
+                  <Eye size={14} aria-hidden />
+                  <span>{t("files.preview")}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`ghost fvp-toggle-btn ${mdViewMode === "source" ? "is-active" : ""}`}
+                  onClick={() => setMdViewMode("source")}
+                >
+                  <Code size={14} aria-hidden />
+                  <span>{t("files.source")}</span>
+                </button>
+              </div>
+            )}
+            {mode === "preview" ? (
+              <button
+                type="button"
+                className="ghost fvp-action-btn"
+                onClick={handleEnterEdit}
+                disabled={truncated}
+                title={truncated ? t("files.fileTooLarge") : t("files.edit")}
+              >
+                <Pencil size={14} aria-hidden />
+                <span>{t("files.edit")}</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="ghost fvp-action-btn"
+                  onClick={handleEnterPreview}
+                >
+                  <Eye size={14} aria-hidden />
+                  <span>{t("files.preview")}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`primary fvp-action-btn fvp-save-btn ${isDirty ? "" : "is-saved"}`}
+                  onClick={handleSave}
+                  disabled={!isDirty || isSaving}
+                >
+                  <Save size={14} aria-hidden />
+                  <span>{isSaving ? t("files.saving") : isDirty ? t("files.save") : t("files.saved")}</span>
+                </button>
+              </>
+            )}
           </>
         )}
       </div>
@@ -340,6 +443,43 @@ export function FileViewPanel({
     }
     if (error) {
       return <div className="fvp-status fvp-error">{error}</div>;
+    }
+
+    // Image preview
+    if (isImage) {
+      return (
+        <div className="fvp-image-preview">
+          {imageSrc ? (
+            <div className="fvp-image-preview-inner">
+              <img
+                src={imageSrc}
+                alt={filePath}
+                className="fvp-image-preview-img"
+                draggable={false}
+                onLoad={handleImageLoad}
+              />
+              {imageInfo && (
+                <span className="fvp-image-info">
+                  {imageInfo.width > 0 && `${imageInfo.width} × ${imageInfo.height}`}
+                  {imageInfo.width > 0 && imageInfo.sizeBytes != null && " · "}
+                  {imageInfo.sizeBytes != null && formatFileSize(imageInfo.sizeBytes)}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="fvp-status fvp-error">
+              {t("files.imagePreview")}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Other binary files (audio, video, archives, etc.)
+    if (isBinary) {
+      return (
+        <div className="fvp-status">{t("files.unsupportedFormat")}</div>
+      );
     }
 
     // Edit mode
@@ -438,22 +578,22 @@ export function FileViewPanel({
   const renderFooter = () => (
     <div className="fvp-footer">
       <div className="fvp-footer-left">
-        {mode === "edit" && isDirty && (
+        {!isBinary && mode === "edit" && isDirty && (
           <span className="fvp-footer-hint">
             <span className="fvp-dirty-dot" />
             {t("files.unsavedChanges")}
             <span className="fvp-footer-shortcut">{t("files.saveShortcut")}</span>
           </span>
         )}
-        {mode === "edit" && !isDirty && (
+        {!isBinary && mode === "edit" && !isDirty && (
           <span className="fvp-footer-hint fvp-footer-saved">{t("files.saved")}</span>
         )}
-        {mode === "preview" && truncated && (
+        {!isBinary && mode === "preview" && truncated && (
           <span className="fvp-footer-hint">{t("files.readOnly")}</span>
         )}
       </div>
       <div className="fvp-footer-right">
-        {mode === "preview" && onInsertText && (
+        {!isBinary && mode === "preview" && onInsertText && (
           <button
             type="button"
             className="ghost fvp-action-btn"

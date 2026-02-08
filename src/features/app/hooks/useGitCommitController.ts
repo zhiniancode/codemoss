@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { WorkspaceInfo } from "../../../types";
 import {
   commitGit,
@@ -49,6 +50,7 @@ export function useGitCommitController({
   refreshGitStatus,
   refreshGitLog,
 }: GitCommitControllerOptions): GitCommitController {
+  const { t } = useTranslation();
   const [commitMessage, setCommitMessage] = useState("");
   const [commitMessageLoading, setCommitMessageLoading] = useState(false);
   const [commitMessageError, setCommitMessageError] = useState<string | null>(
@@ -97,8 +99,12 @@ export function useGitCommitController({
       if (!shouldApplyCommitMessage(activeWorkspaceIdRef.current, workspaceId)) {
         return;
       }
+      const raw = error instanceof Error ? error.message : String(error);
+      const isCodexRequired =
+        raw.includes("requires the Codex CLI") ||
+        raw.includes("workspace not connected");
       setCommitMessageError(
-        error instanceof Error ? error.message : String(error),
+        isCodexRequired ? t("git.commitMessageRequiresCodex") : raw,
       );
     } finally {
       if (shouldApplyCommitMessage(activeWorkspaceIdRef.current, workspaceId)) {

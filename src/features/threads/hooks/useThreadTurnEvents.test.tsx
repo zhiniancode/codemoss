@@ -28,6 +28,7 @@ type SetupOverrides = {
 const makeOptions = (overrides: SetupOverrides = {}) => {
   const dispatch = vi.fn();
   const getCustomName = vi.fn();
+  const isAutoTitlePending = vi.fn(() => false);
   const isThreadHidden = vi.fn(() => false);
   const markProcessing = vi.fn();
   const markReviewing = vi.fn();
@@ -46,6 +47,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
     useThreadTurnEvents({
       dispatch,
       getCustomName,
+      isAutoTitlePending,
       isThreadHidden,
       markProcessing,
       markReviewing,
@@ -64,6 +66,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
     result,
     dispatch,
     getCustomName,
+    isAutoTitlePending,
     isThreadHidden,
     markProcessing,
     markReviewing,
@@ -144,6 +147,33 @@ describe("useThreadTurnEvents", () => {
         type: "setThreadName",
         workspaceId: "ws-1",
         threadId: "thread-2",
+      }),
+    );
+  });
+
+  it("does not override thread name when auto-title generation is pending", () => {
+    const { result, dispatch, isAutoTitlePending } = makeOptions();
+    isAutoTitlePending.mockReturnValue(true);
+
+    act(() => {
+      result.current.onThreadStarted("ws-1", {
+        id: "thread-3",
+        preview: "Preview that should be ignored",
+        updatedAt: 1_700_000_000_300,
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "ensureThread",
+      workspaceId: "ws-1",
+      threadId: "thread-3",
+      engine: "codex",
+    });
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setThreadName",
+        workspaceId: "ws-1",
+        threadId: "thread-3",
       }),
     );
   });

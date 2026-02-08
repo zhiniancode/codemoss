@@ -24,6 +24,7 @@ function inferEngineFromThreadId(threadId: string): "claude" | "codex" {
 type UseThreadTurnEventsOptions = {
   dispatch: Dispatch<ThreadAction>;
   getCustomName: (workspaceId: string, threadId: string) => string | undefined;
+  isAutoTitlePending: (workspaceId: string, threadId: string) => boolean;
   isThreadHidden: (workspaceId: string, threadId: string) => boolean;
   markProcessing: (threadId: string, isProcessing: boolean) => void;
   markReviewing: (threadId: string, isReviewing: boolean) => void;
@@ -52,6 +53,7 @@ type UseThreadTurnEventsOptions = {
 export function useThreadTurnEvents({
   dispatch,
   getCustomName,
+  isAutoTitlePending,
   isThreadHidden,
   markProcessing,
   markReviewing,
@@ -85,7 +87,7 @@ export function useThreadTurnEvents({
       });
 
       const customName = getCustomName(workspaceId, threadId);
-      if (!customName) {
+      if (!customName && !isAutoTitlePending(workspaceId, threadId)) {
         const preview = asString(thread.preview).trim();
         if (preview) {
           const name = preview.length > 38 ? `${preview.slice(0, 38)}…` : preview;
@@ -94,7 +96,7 @@ export function useThreadTurnEvents({
       }
       safeMessageActivity();
     },
-    [dispatch, getCustomName, isThreadHidden, recordThreadActivity, safeMessageActivity],
+    [dispatch, getCustomName, isAutoTitlePending, isThreadHidden, recordThreadActivity, safeMessageActivity],
   );
 
   const onTurnStarted = useCallback(

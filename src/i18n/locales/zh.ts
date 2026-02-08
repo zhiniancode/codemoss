@@ -662,6 +662,7 @@ const zh = {
     generateCommitMessageStaged: "从已暂存的更改生成提交信息",
     generateCommitMessageUnstaged: "从未暂存的更改生成提交信息",
     generateCommitMessage: "生成提交信息",
+    commitMessageRequiresCodex: "AI 生成提交信息需要 Codex CLI，请先安装: npm install -g @openai/codex",
     // Git 日志和状态
     noMessage: "无消息",
     unknown: "未知",
@@ -1031,6 +1032,7 @@ const zh = {
     cancel: "取消",
     fileTooLarge: "文件过大，无法编辑",
     readOnly: "只读",
+    unsupportedFormat: "暂不支持此文件格式的预览",
   },
 
   // 提示词

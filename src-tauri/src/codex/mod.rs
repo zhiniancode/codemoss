@@ -744,13 +744,40 @@ Only output the commit message, nothing else.\n\n\
 Changes:\n{diff}"
     );
 
-    // Get the session
+    // Get the session – requires a running Codex CLI process
     let session = {
         let sessions = state.sessions.lock().await;
-        sessions
-            .get(&workspace_id)
-            .ok_or("workspace not connected")?
-            .clone()
+        match sessions.get(&workspace_id) {
+            Some(s) => s.clone(),
+            None => {
+                // Check whether the workspace is using Claude engine (no session needed)
+                let is_claude = {
+                    let workspaces = state.workspaces.lock().await;
+                    workspaces
+                        .get(&workspace_id)
+                        .map(|e| {
+                            e.settings
+                                .engine_type
+                                .as_deref()
+                                .map(|t| t.eq_ignore_ascii_case("claude"))
+                                .unwrap_or(true)
+                        })
+                        .unwrap_or(false)
+                };
+                if is_claude {
+                    return Err(
+                        "AI commit message generation requires the Codex CLI. \
+                         Please install it first: npm install -g @openai/codex"
+                            .to_string(),
+                    );
+                }
+                return Err(
+                    "Workspace not connected. Please ensure the Codex CLI is installed \
+                     and reconnect the workspace."
+                        .to_string(),
+                );
+            }
+        }
     };
 
     // Create a background thread
