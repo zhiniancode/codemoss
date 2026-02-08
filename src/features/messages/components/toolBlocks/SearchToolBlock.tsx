@@ -4,6 +4,7 @@
  * 使用 task-container 样式 + codicon 图标（匹配参考项目）
  */
 import { memo, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -31,6 +32,7 @@ export const SearchToolBlock = memo(function SearchToolBlock({
   isExpanded: _isExpanded,
   onToggle: _onToggle,
 }: SearchToolBlockProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const toolName = extractToolName(item.title);
   const isGlob = toolName.toLowerCase().includes('glob') || toolName.toLowerCase().includes('find');
@@ -43,7 +45,7 @@ export const SearchToolBlock = memo(function SearchToolBlock({
 
   const status = getStatus(item);
   const codiconClass = isGlob ? 'codicon-folder' : 'codicon-search';
-  const displayName = isGlob ? '文件匹配' : '搜索';
+  const displayName = isGlob ? t("tools.fileMatch") : t("tools.search");
   const isError = status === 'failed';
   const isCompleted = status === 'completed';
 
@@ -73,7 +75,7 @@ export const SearchToolBlock = memo(function SearchToolBlock({
           {path && (
             <div className="task-content-wrapper">
               <div className="task-field">
-                <div className="task-field-label">路径</div>
+                <div className="task-field-label">{t("tools.path")}</div>
                 <div className="task-field-content">{path}</div>
               </div>
             </div>

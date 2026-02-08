@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   RequestUserInputRequest,
   RequestUserInputResponse,
@@ -23,6 +24,7 @@ export function RequestUserInputMessage({
   activeWorkspaceId,
   onSubmit,
 }: RequestUserInputMessageProps) {
+  const { t } = useTranslation();
   const activeRequests = useMemo(
     () =>
       requests.filter((request) => {
@@ -116,13 +118,13 @@ export function RequestUserInputMessage({
       <div
         className="bubble request-user-input-card"
         role="group"
-        aria-label="User input requested"
+        aria-label={t("approval.userInputRequested")}
       >
         <div className="request-user-input-header">
-          <div className="request-user-input-title">Input requested</div>
+          <div className="request-user-input-title">{t("approval.inputRequested")}</div>
           {totalRequests > 1 ? (
             <div className="request-user-input-queue">
-              {`Request 1 of ${totalRequests}`}
+              {t("approval.requestOf", { current: 1, total: totalRequests })}
             </div>
           ) : null}
         </div>
@@ -133,10 +135,10 @@ export function RequestUserInputMessage({
               const selectedIndex = selections[questionId];
               const options = question.options ?? [];
               const notePlaceholder = question.isOther
-                ? "Type your answer (optional)"
+                ? t("approval.typeAnswerOptional")
                 : options.length
-                ? "Add notes (optional)"
-                : "Type your answer (optional)";
+                ? t("approval.addNotesOptional")
+                : t("approval.typeAnswerOptional");
               return (
                 <section key={questionId} className="request-user-input-question">
                   {question.header ? (
@@ -184,13 +186,13 @@ export function RequestUserInputMessage({
             })
           ) : (
             <div className="request-user-input-empty">
-              No questions provided.
+              {t("approval.noQuestionsProvided")}
             </div>
           )}
         </div>
         <div className="request-user-input-actions">
           <button className="primary" onClick={handleSubmit}>
-            Submit
+            {t("approval.submit")}
           </button>
         </div>
       </div>

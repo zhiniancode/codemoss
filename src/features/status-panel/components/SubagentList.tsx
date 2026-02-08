@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
 import XCircle from "lucide-react/dist/esm/icons/x-circle";
@@ -17,8 +18,9 @@ const STATUS_ICON = {
 export const SubagentList = memo(function SubagentList({
   subagents,
 }: SubagentListProps) {
+  const { t } = useTranslation();
   if (subagents.length === 0) {
-    return <div className="sp-empty">暂无子代理</div>;
+    return <div className="sp-empty">{t("statusPanel.emptySubagents")}</div>;
   }
   return (
     <div className="sp-subagent-list">

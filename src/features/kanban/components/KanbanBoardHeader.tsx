@@ -226,7 +226,7 @@ export function KanbanBoardHeader({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="搜索..."
+            placeholder={t("kanban.board.searchPlaceholder")}
             className="kanban-search-input"
           />
         </div>

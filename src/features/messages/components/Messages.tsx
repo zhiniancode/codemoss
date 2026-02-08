@@ -202,6 +202,7 @@ const ImageLightbox = memo(function ImageLightbox({
   activeIndex: number;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const activeImage = images[activeIndex];
 
   useEffect(() => {
@@ -243,7 +244,7 @@ const ImageLightbox = memo(function ImageLightbox({
           type="button"
           className="message-image-lightbox-close"
           onClick={onClose}
-          aria-label="Close image preview"
+          aria-label={t("messages.closeImagePreview")}
         >
           <X size={16} aria-hidden />
         </button>
@@ -293,6 +294,7 @@ const WorkingIndicator = memo(function WorkingIndicator({
   hasItems,
   reasoningLabel = null,
 }: WorkingIndicatorProps) {
+  const { t } = useTranslation();
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
@@ -315,14 +317,14 @@ const WorkingIndicator = memo(function WorkingIndicator({
           <div className="working-timer">
             <span className="working-timer-clock">{formatDurationMs(elapsedMs)}</span>
           </div>
-          <span className="working-text">{reasoningLabel || "正在生成响应..."}</span>
+          <span className="working-text">{reasoningLabel || t("messages.generatingResponse")}</span>
         </div>
       )}
       {!isThinking && lastDurationMs !== null && hasItems && (
         <div className="turn-complete" aria-live="polite">
           <span className="turn-complete-line" aria-hidden />
           <span className="turn-complete-label">
-            Done in {formatDurationMs(lastDurationMs)}
+            {t("messages.doneIn", { duration: formatDurationMs(lastDurationMs) })}
           </span>
           <span className="turn-complete-line" aria-hidden />
         </div>
@@ -339,6 +341,7 @@ const MessageRow = memo(function MessageRow({
   onOpenFileLink,
   onOpenFileLinkMenu,
 }: MessageRowProps) {
+  const { t } = useTranslation();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const hasText = item.text.trim().length > 0;
   const imageItems = useMemo(() => {
@@ -387,8 +390,8 @@ const MessageRow = memo(function MessageRow({
           type="button"
           className={`ghost message-copy-button${isCopied ? " is-copied" : ""}`}
           onClick={() => onCopy(item)}
-          aria-label="Copy message"
-          title="Copy message"
+          aria-label={t("messages.copyMessage")}
+          title={t("messages.copyMessage")}
         >
           <span className="message-copy-icon" aria-hidden>
             <Copy className="message-copy-icon-copy" size={14} />
@@ -408,6 +411,7 @@ const ReasoningRow = memo(function ReasoningRow({
   onOpenFileLink,
   onOpenFileLinkMenu,
 }: ReasoningRowProps) {
+  const { t } = useTranslation();
   const { summaryTitle, bodyText, hasBody } = parsed;
   const reasoningTone: StatusTone = hasBody ? "completed" : "processing";
   return (
@@ -417,7 +421,7 @@ const ReasoningRow = memo(function ReasoningRow({
         className="tool-inline-bar-toggle"
         onClick={() => onToggle(item.id)}
         aria-expanded={isExpanded}
-        aria-label="Toggle reasoning details"
+        aria-label={t("messages.toggleReasoning")}
       />
       <div className="tool-inline-content">
         <button

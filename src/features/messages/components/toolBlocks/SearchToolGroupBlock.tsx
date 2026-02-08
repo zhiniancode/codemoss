@@ -3,6 +3,7 @@
  * Groups multiple consecutive Search/Grep/Glob tool calls
  */
 import { memo, useMemo, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -58,6 +59,7 @@ function groupStatus(items: ToolItem[]): ToolStatusTone {
 export const SearchToolGroupBlock = memo(function SearchToolGroupBlock({
   items,
 }: SearchToolGroupBlockProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevCountRef = useRef(items.length);
@@ -92,7 +94,7 @@ export const SearchToolGroupBlock = memo(function SearchToolGroupBlock({
       >
         <div className="task-title-section">
           <span className="codicon codicon-search tool-title-icon" />
-          <span className="tool-title-text">{hasGlob ? '搜索/匹配' : '搜索'}</span>
+          <span className="tool-title-text">{hasGlob ? t("tools.searchMatch") : t("tools.search")}</span>
           <span className="tool-title-summary" style={{
             color: 'var(--text-secondary)',
             marginLeft: '4px',

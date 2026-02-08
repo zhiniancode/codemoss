@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import PanelLeftClose from "lucide-react/dist/esm/icons/panel-left-close";
 import PanelLeftOpen from "lucide-react/dist/esm/icons/panel-left-open";
 import PanelRightClose from "lucide-react/dist/esm/icons/panel-right-close";
@@ -18,6 +19,7 @@ export function SidebarCollapseButton({
   sidebarCollapsed,
   onCollapseSidebar,
 }: SidebarToggleProps) {
+  const { t } = useTranslation();
   if (isCompact || sidebarCollapsed) {
     return null;
   }
@@ -27,8 +29,8 @@ export function SidebarCollapseButton({
       className="ghost main-header-action"
       onClick={onCollapseSidebar}
       data-tauri-drag-region="false"
-      aria-label="Hide threads sidebar"
-      title="Hide threads sidebar"
+      aria-label={t("sidebar.hideThreadsSidebar")}
+      title={t("sidebar.hideThreadsSidebar")}
     >
       <PanelLeftClose size={14} aria-hidden />
     </button>
@@ -40,6 +42,7 @@ export function RightPanelCollapseButton({
   rightPanelCollapsed,
   onCollapseRightPanel,
 }: SidebarToggleProps) {
+  const { t } = useTranslation();
   if (isCompact || rightPanelCollapsed) {
     return null;
   }
@@ -49,8 +52,8 @@ export function RightPanelCollapseButton({
       className="ghost main-header-action"
       onClick={onCollapseRightPanel}
       data-tauri-drag-region="false"
-      aria-label="Hide git sidebar"
-      title="Hide git sidebar"
+      aria-label={t("sidebar.hideGitSidebar")}
+      title={t("sidebar.hideGitSidebar")}
     >
       <PanelRightClose size={14} aria-hidden />
     </button>
@@ -64,6 +67,7 @@ export function TitlebarExpandControls({
   onExpandSidebar,
   onExpandRightPanel,
 }: SidebarToggleProps) {
+  const { t } = useTranslation();
   if (isCompact || (!sidebarCollapsed && !rightPanelCollapsed)) {
     return null;
   }
@@ -76,8 +80,8 @@ export function TitlebarExpandControls({
             className="ghost main-header-action"
             onClick={onExpandSidebar}
             data-tauri-drag-region="false"
-            aria-label="Show threads sidebar"
-            title="Show threads sidebar"
+            aria-label={t("sidebar.showThreadsSidebar")}
+            title={t("sidebar.showThreadsSidebar")}
           >
             <PanelLeftOpen size={14} aria-hidden />
           </button>
@@ -90,8 +94,8 @@ export function TitlebarExpandControls({
             className="ghost main-header-action"
             onClick={onExpandRightPanel}
             data-tauri-drag-region="false"
-            aria-label="Show git sidebar"
-            title="Show git sidebar"
+            aria-label={t("sidebar.showGitSidebar")}
+            title={t("sidebar.showGitSidebar")}
           >
             <PanelRightOpen size={14} aria-hidden />
           </button>

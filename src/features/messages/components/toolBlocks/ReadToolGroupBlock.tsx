@@ -4,6 +4,7 @@
  * 使用 task-container 样式 + codicon 图标（匹配参考项目）
  */
 import { memo, useMemo, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -55,6 +56,7 @@ function parseReadItem(item: ToolItem): ParsedReadItem {
 export const ReadToolGroupBlock = memo(function ReadToolGroupBlock({
   items,
 }: ReadToolGroupBlockProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevCountRef = useRef(items.length);
@@ -86,7 +88,7 @@ export const ReadToolGroupBlock = memo(function ReadToolGroupBlock({
       >
         <div className="task-title-section" style={{ overflow: 'hidden' }}>
           <span className="codicon codicon-file-code tool-title-icon" />
-          <span className="tool-title-text" style={{ flexShrink: 0 }}>读取文件</span>
+          <span className="tool-title-text" style={{ flexShrink: 0 }}>{t("tools.readFile")}</span>
           <span className="tool-title-summary" style={{
             color: 'var(--text-secondary)',
             marginLeft: '4px',

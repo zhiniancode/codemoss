@@ -396,7 +396,7 @@ export function ComposerInput({
           className="composer-resize-handle"
           onMouseDown={handleResizeStart}
           onTouchStart={handleResizeStart}
-          aria-label="Drag to resize"
+          aria-label={t("composer.dragToResize")}
           role="separator"
           aria-orientation="horizontal"
         >
@@ -445,8 +445,8 @@ export function ComposerInput({
               className="composer-attach"
               onClick={onAddAttachment}
               disabled={disabled || !onAddAttachment}
-              aria-label="Add image"
-              title="Add image"
+              aria-label={t("composer.addImage")}
+              title={t("composer.addImage")}
             >
               <ImagePlus size={14} aria-hidden />
             </button>
@@ -501,7 +501,7 @@ export function ComposerInput({
                   onChange={(event) => onSelectModel(event.target.value)}
                   disabled={disabled}
                 >
-                  {models.length === 0 && <option value="">No models</option>}
+                  {models.length === 0 && <option value="">{t("composer.noModels")}</option>}
                   {models.map((model) => (
                     <option key={model.id} value={model.id}>
                       {model.displayName || model.model}

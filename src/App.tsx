@@ -574,7 +574,7 @@ function MainApp() {
     getGlobalPromptsDir,
   } = useCustomPrompts({ activeWorkspace, onDebug: addDebugEntry });
   const { commands } = useCustomCommands({ onDebug: addDebugEntry });
-  const { files, directories, gitignoredFiles, isLoading: isFilesLoading } = useWorkspaceFiles({
+  const { files, directories, gitignoredFiles, isLoading: isFilesLoading, refreshFiles } = useWorkspaceFiles({
     activeWorkspace,
     onDebug: addDebugEntry,
   });
@@ -2405,6 +2405,7 @@ function MainApp() {
     filePanelMode,
     onFilePanelModeChange: setFilePanelMode,
     fileTreeLoading: isFilesLoading,
+    onRefreshFiles: refreshFiles,
     centerMode,
     editorFilePath,
     onOpenFile: handleOpenFile,

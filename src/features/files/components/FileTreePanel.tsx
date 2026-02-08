@@ -14,12 +14,13 @@ import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import ChevronsUpDown from "lucide-react/dist/esm/icons/chevrons-up-down";
 import Search from "lucide-react/dist/esm/icons/search";
 import FileIcon from "../../../components/FileIcon";
 import { PanelTabs, type PanelTabId } from "../../layout/components/PanelTabs";
-import { readWorkspaceFile } from "../../../services/tauri";
+import { copyWorkspaceItem, readWorkspaceFile, trashWorkspaceItem, writeWorkspaceFile } from "../../../services/tauri";
 import type { GitFileStatus, OpenAppTarget } from "../../../types";
 import { languageFromPath } from "../../../utils/syntax";
 import { FilePreviewPopover } from "./FilePreviewPopover";
@@ -46,6 +47,7 @@ type FileTreePanelProps = {
   onSelectOpenAppId: (id: string) => void;
   gitStatusFiles?: GitFileStatus[];
   gitignoredFiles?: Set<string>;
+  onRefreshFiles?: () => void;
 };
 
 type FileTreeBuildNode = {
@@ -156,6 +158,7 @@ export function FileTreePanel({
   onSelectOpenAppId,
   gitStatusFiles,
   gitignoredFiles,
+  onRefreshFiles,
 }: FileTreePanelProps) {
   const { t } = useTranslation();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -178,6 +181,12 @@ export function FileTreePanel({
   const [isDragSelecting, setIsDragSelecting] = useState(false);
   const dragAnchorLineRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
+  const [selectedNodePath, setSelectedNodePath] = useState<string | null>(null);
+  const [selectedNodeType, setSelectedNodeType] = useState<"file" | "folder" | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const [newFileParent, setNewFileParent] = useState<string | null>(null);
+  const [newFileName, setNewFileName] = useState("");
+  const newFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const showLoading = isLoading && files.length === 0;
   const deferredQuery = useDeferredValue(query);
@@ -521,26 +530,181 @@ export function FileTreePanel({
     closePreview,
   ]);
 
-  const showFileMenu = useCallback(
-    async (event: MouseEvent<HTMLButtonElement>, relativePath: string) => {
+  const copyPath = useCallback(
+    async (relativePath: string) => {
+      try {
+        await navigator.clipboard.writeText(resolvePath(relativePath));
+      } catch {
+        // clipboard write is not critical
+      }
+    },
+    [resolvePath],
+  );
+
+  const trashItem = useCallback(
+    async (relativePath: string, isFolder: boolean) => {
+      const name = relativePath.split("/").pop() ?? relativePath;
+      const confirmMessage = isFolder
+        ? t("files.deleteFolderConfirm", { name })
+        : t("files.deleteFileConfirm", { name });
+
+      const confirmed = await confirm(confirmMessage, {
+        title: t("files.deleteItem"),
+        kind: "warning",
+        okLabel: t("files.deleteItem"),
+        cancelLabel: t("files.cancel"),
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await trashWorkspaceItem(workspaceId, relativePath);
+        if (selectedNodePath === relativePath) {
+          setSelectedNodePath(null);
+          setSelectedNodeType(null);
+        }
+        onRefreshFiles?.();
+      } catch {
+        // trash operation failed
+      }
+    },
+    [workspaceId, t, onRefreshFiles, selectedNodePath],
+  );
+
+  const duplicateItem = useCallback(
+    async (relativePath: string) => {
+      try {
+        await copyWorkspaceItem(workspaceId, relativePath);
+        onRefreshFiles?.();
+      } catch {
+        // copy operation failed
+      }
+    },
+    [workspaceId, onRefreshFiles],
+  );
+
+  const openNewFilePrompt = useCallback(
+    (parentFolder: string) => {
+      setNewFileParent(parentFolder);
+      setNewFileName("");
+      requestAnimationFrame(() => {
+        newFileInputRef.current?.focus();
+      });
+    },
+    [],
+  );
+
+  const confirmNewFile = useCallback(async () => {
+    const name = newFileName.trim();
+    if (!name || newFileParent === null) {
+      setNewFileParent(null);
+      setNewFileName("");
+      return;
+    }
+    const relativePath = newFileParent ? `${newFileParent}/${name}` : name;
+    try {
+      await writeWorkspaceFile(workspaceId, relativePath, "");
+      onRefreshFiles?.();
+    } catch {
+      // create file failed
+    }
+    setNewFileParent(null);
+    setNewFileName("");
+  }, [newFileName, newFileParent, workspaceId, onRefreshFiles]);
+
+  const cancelNewFile = useCallback(() => {
+    setNewFileParent(null);
+    setNewFileName("");
+  }, []);
+
+  const showContextMenu = useCallback(
+    async (event: MouseEvent<HTMLButtonElement>, relativePath: string, isFolder: boolean) => {
       event.preventDefault();
       event.stopPropagation();
-      const menu = await Menu.new({
-        items: [
-          await MenuItem.new({
-            text: t("files.revealInFinder"),
-            action: async () => {
-              await revealItemInDir(resolvePath(relativePath));
-            },
-          }),
-        ],
-      });
+
+      const parentFolder = isFolder
+        ? relativePath
+        : relativePath.includes("/")
+          ? relativePath.substring(0, relativePath.lastIndexOf("/"))
+          : "";
+
+      const menuItems = [
+        await MenuItem.new({
+          text: t("files.newFile"),
+          action: () => {
+            openNewFilePrompt(parentFolder);
+          },
+        }),
+        await MenuItem.new({
+          text: t("files.duplicateItem"),
+          action: async () => {
+            await duplicateItem(relativePath);
+          },
+        }),
+        await MenuItem.new({
+          text: t("files.copyPath"),
+          action: async () => {
+            await copyPath(relativePath);
+          },
+        }),
+        await MenuItem.new({
+          text: t("files.revealInFinder"),
+          action: async () => {
+            await revealItemInDir(resolvePath(relativePath));
+          },
+        }),
+        await MenuItem.new({
+          text: t("files.deleteItem"),
+          action: async () => {
+            await trashItem(relativePath, isFolder);
+          },
+        }),
+      ];
+
+      const menu = await Menu.new({ items: menuItems });
       const window = getCurrentWindow();
       const position = new LogicalPosition(event.clientX, event.clientY);
       await menu.popup(position, window);
     },
-    [resolvePath, t],
+    [resolvePath, copyPath, trashItem, duplicateItem, openNewFilePrompt, t],
   );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!selectedNodePath || !selectedNodeType) {
+        return;
+      }
+      const target = event.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        return;
+      }
+      // Ensure the event originates within the file tree panel
+      if (panelRef.current && !panelRef.current.contains(target)) {
+        return;
+      }
+
+      const isMac = navigator.platform.includes("Mac");
+      const primaryModifier = isMac ? event.metaKey : event.ctrlKey;
+
+      // Cmd+Delete / Ctrl+Delete → trash
+      if (primaryModifier && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        void trashItem(selectedNodePath, selectedNodeType === "folder");
+        return;
+      }
+
+      // Cmd+C / Ctrl+C → copy path
+      if (primaryModifier && !event.shiftKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        void copyPath(selectedNodePath);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodePath, selectedNodeType, trashItem, copyPath]);
 
   const renderNode = (node: FileTreeNode, depth: number) => {
     const isFolder = node.type === "folder";
@@ -557,9 +721,11 @@ export function FileTreePanel({
         <div className="file-tree-row-wrap">
           <button
             type="button"
-            className={`file-tree-row${isFolder ? " is-folder" : " is-file"}${isGitignored ? " is-gitignored" : ""}`}
+            className={`file-tree-row${isFolder ? " is-folder" : " is-file"}${isGitignored ? " is-gitignored" : ""}${selectedNodePath === node.path ? " is-selected" : ""}`}
             style={{ paddingLeft: `${depth * 10}px` }}
             onClick={(event) => {
+              setSelectedNodePath(node.path);
+              setSelectedNodeType(node.type);
               if (isFolder) {
                 toggleFolder(node.path);
                 return;
@@ -571,9 +737,9 @@ export function FileTreePanel({
               }
             }}
             onContextMenu={(event) => {
-              if (!isFolder) {
-                void showFileMenu(event, node.path);
-              }
+              setSelectedNodePath(node.path);
+              setSelectedNodeType(node.type);
+              void showContextMenu(event, node.path, isFolder);
             }}
           >
             {isFolder ? (
@@ -611,7 +777,7 @@ export function FileTreePanel({
   };
 
   return (
-    <aside className="diff-panel file-tree-panel">
+    <aside className="diff-panel file-tree-panel" ref={panelRef}>
       <div className="git-panel-header">
         <PanelTabs active={filePanelMode} onSelect={onFilePanelModeChange} />
         <div className="file-tree-meta">
@@ -703,6 +869,48 @@ export function FileTreePanel({
             document.body,
           )
         : null}
+      {newFileParent !== null && (
+        <div className="new-file-prompt" role="dialog" aria-modal="true">
+          <div className="new-file-prompt-backdrop" onClick={cancelNewFile} />
+          <div className="new-file-prompt-card">
+            <div className="new-file-prompt-title">{t("files.newFile")}</div>
+            {newFileParent && (
+              <div className="new-file-prompt-path">{newFileParent}/</div>
+            )}
+            <input
+              id="new-file-name"
+              ref={newFileInputRef}
+              className="new-file-prompt-input"
+              placeholder={t("files.newFileNamePlaceholder")}
+              value={newFileName}
+              onChange={(e) => setNewFileName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelNewFile();
+                }
+                if (e.key === "Enter" && newFileName.trim()) {
+                  e.preventDefault();
+                  void confirmNewFile();
+                }
+              }}
+            />
+            <div className="new-file-prompt-actions">
+              <button type="button" className="ghost" onClick={cancelNewFile}>
+                {t("files.cancel")}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!newFileName.trim()}
+                onClick={() => void confirmNewFile()}
+              >
+                {t("files.newFile")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

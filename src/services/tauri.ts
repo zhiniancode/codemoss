@@ -625,6 +625,20 @@ export async function writeWorkspaceFile(
   return invoke("write_workspace_file", { workspaceId, path, content });
 }
 
+export async function trashWorkspaceItem(
+  workspaceId: string,
+  path: string,
+): Promise<void> {
+  return invoke("trash_workspace_item", { workspaceId, path });
+}
+
+export async function copyWorkspaceItem(
+  workspaceId: string,
+  path: string,
+): Promise<string> {
+  return invoke("copy_workspace_item", { workspaceId, path });
+}
+
 export async function readAgentMd(workspaceId: string): Promise<AgentMdResponse> {
   return fileRead("workspace", "agents", workspaceId);
 }

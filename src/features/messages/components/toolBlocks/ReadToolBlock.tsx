@@ -4,6 +4,7 @@
  * 使用 task-container 样式 + codicon 图标（匹配参考项目）
  */
 import { memo, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -24,6 +25,7 @@ export const ReadToolBlock = memo(function ReadToolBlock({
   isExpanded: _isExpanded,
   onToggle: _onToggle,
 }: ReadToolBlockProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const args = useMemo(() => parseToolArgs(item.detail), [item.detail]);
 
@@ -36,12 +38,12 @@ export const ReadToolBlock = memo(function ReadToolBlock({
   if (typeof offset === 'number' && typeof limit === 'number') {
     const startLine = offset + 1;
     const endLine = offset + limit;
-    lineInfo = `第 ${startLine}-${endLine} 行`;
+    lineInfo = t("tools.lineRange", { start: startLine, end: endLine });
   }
 
   const isDirectory = filePath?.endsWith('/') || fileName === '.' || fileName === '..';
   const iconClass = isDirectory ? 'codicon-folder' : 'codicon-file-code';
-  const actionText = isDirectory ? '读取目录' : '读取文件';
+  const actionText = isDirectory ? t("tools.readDirectory") : t("tools.readFile");
 
   const status = resolveToolStatus(item.status, Boolean(item.output));
   const isCompleted = status === 'completed';

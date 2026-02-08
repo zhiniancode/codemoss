@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
 use super::macos::get_open_app_icon_inner;
-use super::files::{list_workspace_files_inner, read_workspace_file_inner, write_workspace_file_inner, WorkspaceFileResponse, WorkspaceFilesResponse};
+use super::files::{copy_workspace_item_inner, list_workspace_files_inner, read_workspace_file_inner, trash_workspace_item_inner, write_workspace_file_inner, WorkspaceFileResponse, WorkspaceFilesResponse};
 use super::git::{
     git_branch_exists, git_find_remote_for_branch, git_get_origin_url, git_remote_branch_exists,
     git_remote_exists, is_missing_worktree_error, run_git_command, run_git_command_bytes,
@@ -98,6 +98,60 @@ pub(crate) async fn write_workspace_file(
         &path,
         &content,
         |root, rel_path, data| write_workspace_file_inner(root, rel_path, data),
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn trash_workspace_item(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        remote_backend::call_remote(
+            &*state,
+            app,
+            "trash_workspace_item",
+            json!({ "workspaceId": workspace_id, "path": path }),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    workspaces_core::trash_workspace_item_core(
+        &state.workspaces,
+        &workspace_id,
+        &path,
+        |root, rel_path| trash_workspace_item_inner(root, rel_path),
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn copy_workspace_item(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<String, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "copy_workspace_item",
+            json!({ "workspaceId": workspace_id, "path": path }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    workspaces_core::copy_workspace_item_core(
+        &state.workspaces,
+        &workspace_id,
+        &path,
+        |root, rel_path| copy_workspace_item_inner(root, rel_path),
     )
     .await
 }

@@ -4,6 +4,7 @@
  * 使用 task-container 样式 + codicon 图标（匹配参考项目）
  */
 import { memo, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -40,6 +41,7 @@ export const EditToolBlock = memo(function EditToolBlock({
   isExpanded: _isExpanded,
   onToggle: _onToggle,
 }: EditToolBlockProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const args = useMemo(() => parseToolArgs(item.detail), [item.detail]);
 
@@ -75,7 +77,7 @@ export const EditToolBlock = memo(function EditToolBlock({
       >
         <div className="task-title-section">
           <span className="codicon codicon-edit tool-title-icon" />
-          <span className="tool-title-text">编辑文件</span>
+          <span className="tool-title-text">{t("tools.editFile")}</span>
           {fileName && (
             <span className="tool-title-summary" style={{ display: 'flex', alignItems: 'center' }}>
               <span style={{ marginRight: '4px', display: 'flex', alignItems: 'center', width: '16px', height: '16px' }}>

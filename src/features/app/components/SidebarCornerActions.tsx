@@ -149,8 +149,8 @@ export function SidebarCornerActions({
           className="ghost sidebar-corner-button"
           type="button"
           onClick={onOpenDebug}
-          aria-label="Open debug log"
-          title="Debug log"
+          aria-label={t("sidebar.openDebugLog")}
+          title={t("sidebar.debugLog")}
         >
           <ScrollText size={14} aria-hidden />
         </button>

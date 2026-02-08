@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import FileEdit from "lucide-react/dist/esm/icons/file-edit";
@@ -18,6 +19,7 @@ export const StatusPanel = memo(function StatusPanel({
   items,
   isProcessing,
 }: StatusPanelProps) {
+  const { t } = useTranslation();
   const {
     todos,
     subagents,
@@ -84,7 +86,7 @@ export const StatusPanel = memo(function StatusPanel({
             onClick={() => handleTabClick("todo")}
           >
             <ListChecks size={14} className="sp-tab-icon" />
-            <span className="sp-tab-label">任务</span>
+            <span className="sp-tab-label">{t("statusPanel.tabTodos")}</span>
             <span className="sp-tab-count">
               {todoCompleted}/{todoTotal}
             </span>
@@ -101,7 +103,7 @@ export const StatusPanel = memo(function StatusPanel({
             onClick={() => handleTabClick("subagent")}
           >
             <Bot size={14} className="sp-tab-icon" />
-            <span className="sp-tab-label">子代理</span>
+            <span className="sp-tab-label">{t("statusPanel.tabSubagents")}</span>
             <span className="sp-tab-count">
               {subagentCompleted}/{subagentTotal}
             </span>
@@ -118,7 +120,7 @@ export const StatusPanel = memo(function StatusPanel({
             onClick={() => handleTabClick("files")}
           >
             <FileEdit size={14} className="sp-tab-icon" />
-            <span className="sp-tab-label">编辑</span>
+            <span className="sp-tab-label">{t("statusPanel.tabEdits")}</span>
             <span className="sp-tab-file-stats">
               <span className="sp-stat-add">
                 {fileChanges.filter((f) => f.status === "A").length || 0}
@@ -127,7 +129,7 @@ export const StatusPanel = memo(function StatusPanel({
               <span className="sp-stat-mod">
                 {fileChanges.filter((f) => f.status === "M").length || 0}
               </span>
-              <span className="sp-stat-label">文件</span>
+              <span className="sp-stat-label">{t("statusPanel.files")}</span>
             </span>
           </button>
         )}

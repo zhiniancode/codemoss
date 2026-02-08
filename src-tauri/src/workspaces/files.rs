@@ -229,3 +229,140 @@ pub(crate) fn write_workspace_file_inner(
         .map_err(|err| format!("Failed to write file: {err}"))?;
     Ok(())
 }
+
+pub(crate) fn trash_workspace_item_inner(
+    root: &PathBuf,
+    relative_path: &str,
+) -> Result<(), String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve workspace root: {err}"))?;
+    let candidate = canonical_root.join(relative_path);
+    let canonical_path = candidate
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve path: {err}"))?;
+
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err("Invalid file path".to_string());
+    }
+
+    let normalized = relative_path.replace('\\', "/");
+    if normalized == ".git"
+        || normalized.starts_with(".git/")
+        || normalized.contains("/.git/")
+        || normalized.contains("/.git")
+    {
+        return Err("Cannot delete items in .git directory".to_string());
+    }
+
+    if !canonical_path.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    trash::delete(&canonical_path)
+        .map_err(|err| format!("Failed to move to trash: {err}"))?;
+
+    Ok(())
+}
+
+/// Copy a file or directory within the workspace, appending " copy" (or " copy N")
+/// to avoid name collisions.
+pub(crate) fn copy_workspace_item_inner(
+    root: &PathBuf,
+    relative_path: &str,
+) -> Result<String, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve workspace root: {err}"))?;
+    let candidate = canonical_root.join(relative_path);
+    let canonical_path = candidate
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve path: {err}"))?;
+
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err("Invalid file path".to_string());
+    }
+
+    let normalized = relative_path.replace('\\', "/");
+    if normalized == ".git"
+        || normalized.starts_with(".git/")
+        || normalized.contains("/.git/")
+        || normalized.contains("/.git")
+    {
+        return Err("Cannot copy items in .git directory".to_string());
+    }
+
+    if !canonical_path.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    // Build destination path with " copy" suffix
+    let parent = canonical_path
+        .parent()
+        .ok_or_else(|| "Invalid file path".to_string())?;
+
+    let stem = canonical_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let ext = canonical_path
+        .extension()
+        .and_then(|s| s.to_str());
+
+    let mut dest;
+    let mut counter = 0u32;
+    loop {
+        let suffix = if counter == 0 {
+            " copy".to_string()
+        } else {
+            format!(" copy {counter}")
+        };
+        let new_name = if canonical_path.is_dir() {
+            format!("{stem}{suffix}")
+        } else if let Some(e) = ext {
+            format!("{stem}{suffix}.{e}")
+        } else {
+            format!("{stem}{suffix}")
+        };
+        dest = parent.join(&new_name);
+        if !dest.exists() {
+            break;
+        }
+        counter += 1;
+        if counter > 999 {
+            return Err("Too many copies exist".to_string());
+        }
+    }
+
+    if canonical_path.is_dir() {
+        copy_dir_recursive(&canonical_path, &dest)?;
+    } else {
+        std::fs::copy(&canonical_path, &dest)
+            .map_err(|err| format!("Failed to copy file: {err}"))?;
+    }
+
+    // Return the relative path of the new copy
+    let new_relative = dest
+        .strip_prefix(&canonical_root)
+        .map_err(|_| "Failed to compute relative path".to_string())?;
+    Ok(normalize_git_path(&new_relative.to_string_lossy()))
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst)
+        .map_err(|err| format!("Failed to create directory: {err}"))?;
+    for entry in std::fs::read_dir(src)
+        .map_err(|err| format!("Failed to read directory: {err}"))?
+    {
+        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)
+                .map_err(|err| format!("Failed to copy file: {err}"))?;
+        }
+    }
+    Ok(())
+}

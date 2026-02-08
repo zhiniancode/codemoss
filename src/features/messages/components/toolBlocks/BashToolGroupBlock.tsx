@@ -3,6 +3,7 @@
  * Groups multiple consecutive Bash tool calls into a timeline view
  */
 import { memo, useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -64,6 +65,7 @@ export const BashToolGroupBlock = memo(function BashToolGroupBlock({
   items,
   onRequestAutoScroll,
 }: BashToolGroupBlockProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -108,7 +110,7 @@ export const BashToolGroupBlock = memo(function BashToolGroupBlock({
   }, []);
 
   const progressText = failedCount > 0
-    ? `${failedCount} failed`
+    ? t("tools.failedCount", { count: failedCount })
     : `${completedCount}/${items.length}`;
 
   const listHeight = Math.min(parsed.length, MAX_VISIBLE_ITEMS) * ITEM_HEIGHT;
@@ -125,7 +127,7 @@ export const BashToolGroupBlock = memo(function BashToolGroupBlock({
       >
         <div className="task-title-section">
           <span className="codicon codicon-terminal tool-title-icon" />
-          <span className="tool-title-text">批量运行</span>
+          <span className="tool-title-text">{t("tools.batchRun")}</span>
           <span className="tool-title-summary" style={{
             color: 'var(--text-secondary)',
             marginLeft: '4px',

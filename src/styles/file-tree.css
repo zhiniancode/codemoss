@@ -122,6 +122,10 @@
   border-color: var(--border-subtle);
 }
 
+.file-tree-row.is-selected {
+  background: var(--surface-hover);
+}
+
 .file-tree-row.is-folder {
   font-weight: 600;
 }
@@ -534,4 +538,105 @@
   color: var(--text-emphasis);
   background: var(--surface-active);
   border-color: var(--border-accent);
+}
+
+/* ── New file prompt modal ── */
+
+.new-file-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-file-prompt-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.app.reduced-transparency .new-file-prompt-backdrop {
+  backdrop-filter: none;
+}
+
+.new-file-prompt-card {
+  position: relative;
+  width: min(380px, calc(100vw - 48px));
+  background: var(--surface-card-strong);
+  border: 1px solid var(--border-stronger);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4),
+              0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  animation: new-file-prompt-enter 0.15s ease-out;
+}
+
+@keyframes new-file-prompt-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.new-file-prompt-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+}
+
+.new-file-prompt-path {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--code-font-family);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: -6px;
+}
+
+.new-file-prompt-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card-muted);
+  color: var(--text-strong);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: var(--code-font-family);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.new-file-prompt-input::placeholder {
+  color: var(--text-dim);
+}
+
+.new-file-prompt-input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--shadow-accent, rgba(42, 80, 128, 0.25));
+}
+
+.new-file-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.new-file-prompt-actions button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
 }

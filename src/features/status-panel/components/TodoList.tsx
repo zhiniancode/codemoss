@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import Circle from "lucide-react/dist/esm/icons/circle";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
@@ -15,8 +16,9 @@ const STATUS_ICON = {
 } as const;
 
 export const TodoList = memo(function TodoList({ todos }: TodoListProps) {
+  const { t } = useTranslation();
   if (todos.length === 0) {
-    return <div className="sp-empty">暂无任务</div>;
+    return <div className="sp-empty">{t("statusPanel.emptyTodos")}</div>;
   }
   return (
     <div className="sp-todo-list">

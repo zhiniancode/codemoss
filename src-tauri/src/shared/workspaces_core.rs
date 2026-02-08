@@ -1130,6 +1130,32 @@ where
     write_file(&root, path, content)
 }
 
+pub(crate) async fn trash_workspace_item_core<F>(
+    workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
+    workspace_id: &str,
+    path: &str,
+    trash_item: F,
+) -> Result<(), String>
+where
+    F: Fn(&PathBuf, &str) -> Result<(), String>,
+{
+    let root = resolve_workspace_root(workspaces, workspace_id).await?;
+    trash_item(&root, path)
+}
+
+pub(crate) async fn copy_workspace_item_core<F>(
+    workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
+    workspace_id: &str,
+    path: &str,
+    copy_item: F,
+) -> Result<String, String>
+where
+    F: Fn(&PathBuf, &str) -> Result<String, String>,
+{
+    let root = resolve_workspace_root(workspaces, workspace_id).await?;
+    copy_item(&root, path)
+}
+
 fn sort_workspaces(workspaces: &mut [WorkspaceInfo]) {
     workspaces.sort_by(|a, b| {
         let a_order = a.settings.sort_order.unwrap_or(u32::MAX);

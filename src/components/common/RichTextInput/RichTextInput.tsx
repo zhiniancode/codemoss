@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -67,6 +68,7 @@ export function RichTextInput({
   onKeyDown,
   onSelectionChange,
 }: RichTextInputProps) {
+  const { t } = useTranslation();
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = externalRef || internalRef;
   const resizeHandleRef = useRef<HTMLDivElement | null>(null);
@@ -173,7 +175,7 @@ export function RichTextInput({
           className="rich-text-resize-handle"
           onMouseDown={handleResizeStart}
           onTouchStart={handleResizeStart}
-          aria-label="Drag to resize"
+          aria-label={t("composer.dragToResize")}
           role="separator"
           aria-orientation="horizontal"
         >

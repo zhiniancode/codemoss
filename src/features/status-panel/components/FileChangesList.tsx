@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import type { FileChangeSummary } from "../types";
 import { FileIcon } from "../../messages/components/toolBlocks/FileIcon";
 
@@ -9,8 +10,9 @@ interface FileChangesListProps {
 export const FileChangesList = memo(function FileChangesList({
   fileChanges,
 }: FileChangesListProps) {
+  const { t } = useTranslation();
   if (fileChanges.length === 0) {
-    return <div className="sp-empty">暂无文件变更</div>;
+    return <div className="sp-empty">{t("statusPanel.emptyFileChanges")}</div>;
   }
   return (
     <div className="sp-file-list">

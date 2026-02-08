@@ -3,6 +3,7 @@
  * Groups multiple consecutive Edit/Write/FileChange tool calls into a collapsible file list with diff stats
  */
 import { memo, useMemo, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -116,6 +117,7 @@ function groupStatus(items: ToolItem[]): ToolStatusTone {
 export const EditToolGroupBlock = memo(function EditToolGroupBlock({
   items,
 }: EditToolGroupBlockProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevCountRef = useRef(items.length);
@@ -154,7 +156,7 @@ export const EditToolGroupBlock = memo(function EditToolGroupBlock({
       >
         <div className="task-title-section">
           <span className="codicon codicon-edit tool-title-icon" />
-          <span className="tool-title-text">编辑文件</span>
+          <span className="tool-title-text">{t("tools.editFile")}</span>
           <span className="tool-title-summary" style={{
             color: 'var(--text-secondary)',
             marginLeft: '4px',

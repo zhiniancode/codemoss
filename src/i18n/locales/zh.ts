@@ -84,6 +84,12 @@ const zh = {
     expandAllSections: "展开全部区块",
     collapseAllSections: "折叠全部区块",
     weekly: "每周",
+    openDebugLog: "打开调试日志",
+    debugLog: "调试日志",
+    hideThreadsSidebar: "隐藏对话侧边栏",
+    showThreadsSidebar: "显示对话侧边栏",
+    hideGitSidebar: "隐藏 Git 侧边栏",
+    showGitSidebar: "显示 Git 侧边栏",
   },
 
   // 首页
@@ -527,6 +533,13 @@ const zh = {
     message: "条消息",
     messages: "条消息",
     emptyThread: "开始一个对话，向智能体发送提示词。",
+    generatingResponse: "正在生成响应...",
+    doneIn: "完成，用时 {{duration}}",
+    copyMessage: "复制消息",
+    closeImagePreview: "关闭图片预览",
+    toggleReasoning: "切换推理详情",
+    copyCodeBlock: "复制代码块",
+    copy: "复制",
   },
 
   // 编辑器
@@ -554,6 +567,8 @@ const zh = {
     context: "上下文",
     contextUsageAriaLabel: "上下文使用量：已使用 {{percent}}，{{used}} / {{total}}",
     noModels: "无模型",
+    dragToResize: "拖动调整大小",
+    addImage: "添加图片",
     // 审查
     reviewAgainstBaseBranch: "对比基础分支审查",
     prStyle: "（PR 风格）",
@@ -711,6 +726,9 @@ const zh = {
     revertAllTitle: "撤销所有更改",
     revertAllConfirm: "撤销此仓库中的所有更改？",
     revertAllMessage: "这将放弃所有已暂存和未暂存的更改，包括未跟踪的文件。",
+    diffView: "差异视图",
+    dualPanelDiff: "双栏差异",
+    singleColumnDiff: "单栏差异",
   },
 
   // 终端
@@ -748,6 +766,7 @@ const zh = {
     cliNotFoundHint: "安装 Claude Code: npm install -g @anthropic-ai/claude-code\n安装 Codex: npm install -g @openai/codex",
     codexCliNotFound: "未找到 Codex CLI。请安装 Codex 并确保 `codex` 在您的 PATH 中。",
     couldntOpenWorkspace: "无法打开工作区",
+    dismissError: "关闭错误",
   },
 
   // 面板
@@ -1038,6 +1057,12 @@ const zh = {
     openFile: "打开文件",
     copyPath: "复制路径",
     revealInFinder: "在访达中显示",
+    deleteItem: "移到废纸篓",
+    deleteFileConfirm: "确定要将 \"{{name}}\" 移到废纸篓吗？",
+    deleteFolderConfirm: "确定要将文件夹 \"{{name}}\" 及其所有内容移到废纸篓吗？",
+    duplicateItem: "创建副本",
+    newFile: "新建文件",
+    newFileNamePlaceholder: "输入文件名",
     filterPlaceholder: "筛选文件和文件夹",
     truncated: "已截断",
     loadingFile: "正在加载文件...",
@@ -1141,6 +1166,18 @@ const zh = {
     reviewRequest: "审核请求",
     approvalNeeded: "需要批准",
     inputRequested: "请求输入",
+    none: "无",
+    noExtraDetails: "无额外详情。",
+    decline: "拒绝",
+    allowCommandsStartWith: "允许以 {{prefix}} 开头的命令",
+    alwaysAllow: "始终允许",
+    approveEnter: "批准 (Enter)",
+    userInputRequested: "请求用户输入",
+    requestOf: "请求 {{current}} / {{total}}",
+    typeAnswerOptional: "输入你的回答（可选）",
+    addNotesOptional: "添加备注（可选）",
+    noQuestionsProvided: "未提供问题。",
+    submit: "提交",
   },
 
   // 看板
@@ -1165,6 +1202,7 @@ const zh = {
     board: {
       back: "返回",
       addTask: "添加",
+      searchPlaceholder: "搜索...",
     },
     task: {
       createTitle: "创建任务",
@@ -1213,6 +1251,43 @@ const zh = {
       collapse: "收起",
       link: "link",
     },
+  },
+
+  // 状态面板
+  statusPanel: {
+    tabTodos: "任务",
+    tabSubagents: "子代理",
+    tabEdits: "编辑",
+    files: "文件",
+    emptyTodos: "暂无任务",
+    emptySubagents: "暂无子代理",
+    emptyFileChanges: "暂无文件变更",
+  },
+
+  // 工具
+  tools: {
+    readFile: "读取文件",
+    readDirectory: "读取目录",
+    editFile: "编辑文件",
+    writeFile: "写入文件",
+    editNotebook: "编辑笔记本",
+    runCommand: "运行命令",
+    executeCommand: "执行命令",
+    search: "搜索",
+    fileMatch: "文件匹配",
+    findFile: "查找文件",
+    webFetch: "网页获取",
+    webSearch: "网络搜索",
+    subtask: "子任务",
+    todoList: "待办列表",
+    diffCompare: "Diff对比",
+    result: "结果",
+    webRequest: "网络请求",
+    batchRun: "批量运行",
+    searchMatch: "搜索/匹配",
+    path: "路径",
+    lineRange: "第 {{start}}-{{end}} 行",
+    failedCount: "{{count}} 个失败",
   },
 
   // 使用量标签

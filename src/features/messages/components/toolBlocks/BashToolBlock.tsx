@@ -4,6 +4,7 @@
  * 使用 task-container 样式 + codicon 图标（匹配参考项目）
  */
 import { memo, useMemo, useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConversationItem } from '../../../../types';
 import {
   parseToolArgs,
@@ -52,6 +53,7 @@ export const BashToolBlock = memo(function BashToolBlock({
   onToggle,
   onRequestAutoScroll,
 }: BashToolBlockProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isPinned, setIsPinned] = useState(true);
   const [showLiveOutput, setShowLiveOutput] = useState(false);
@@ -129,7 +131,7 @@ export const BashToolBlock = memo(function BashToolBlock({
       >
         <div className="task-title-section">
           <span className="codicon codicon-terminal tool-title-icon" />
-          <span className="tool-title-text">运行命令</span>
+          <span className="tool-title-text">{t("tools.runCommand")}</span>
           {description ? (
             <span className="tool-title-summary" title={description}>
               {truncateText(description, 60)}

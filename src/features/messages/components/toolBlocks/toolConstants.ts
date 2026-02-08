@@ -57,31 +57,58 @@ export const TOOL_ICON_MAP: Record<string, string> = {
   diff: 'Diff',
 };
 
-// 工具显示名称映射 (中文)
-export const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  // 读取
+// 工具显示名称映射 - 工厂函数，接受 t 翻译函数
+export function getToolDisplayNames(t: (key: string) => string): Record<string, string> {
+  return {
+    // 读取
+    read: t("tools.readFile"),
+    read_file: t("tools.readFile"),
+    // 编辑
+    edit: t("tools.editFile"),
+    write: t("tools.writeFile"),
+    notebookedit: t("tools.editNotebook"),
+    // 终端
+    bash: t("tools.runCommand"),
+    shell: t("tools.runCommand"),
+    terminal: t("tools.runCommand"),
+    shell_command: t("tools.runCommand"),
+    run_terminal_cmd: t("tools.runCommand"),
+    execute_command: t("tools.executeCommand"),
+    // 搜索
+    grep: t("tools.search"),
+    glob: t("tools.fileMatch"),
+    search: t("tools.search"),
+    find: t("tools.findFile"),
+    // 网络
+    webfetch: t("tools.webFetch"),
+    websearch: t("tools.webSearch"),
+    // 其他
+    task: t("tools.subtask"),
+    todowrite: t("tools.todoList"),
+    diff: t("tools.diffCompare"),
+    result: t("tools.result"),
+  };
+}
+
+// 静态回退映射 (中文，当 t 函数不可用时使用)
+const TOOL_DISPLAY_NAMES_FALLBACK: Record<string, string> = {
   read: '读取文件',
   read_file: '读取文件',
-  // 编辑
   edit: '编辑文件',
   write: '写入文件',
   notebookedit: '编辑笔记本',
-  // 终端
   bash: '运行命令',
   shell: '运行命令',
   terminal: '运行命令',
   shell_command: '运行命令',
   run_terminal_cmd: '运行命令',
   execute_command: '执行命令',
-  // 搜索
   grep: '搜索',
   glob: '文件匹配',
   search: '搜索',
   find: '查找文件',
-  // 网络
   webfetch: '网页获取',
   websearch: '网络搜索',
-  // 其他
   task: '子任务',
   todowrite: '待办列表',
   diff: 'Diff对比',
@@ -200,20 +227,36 @@ export function isWebTool(toolName: string): boolean {
 /**
  * 获取工具的显示名称
  */
-export function getToolDisplayName(toolName: string, title?: string): string {
+export function getToolDisplayName(toolName: string, title?: string, t?: (key: string) => string): string {
   const lower = toolName.toLowerCase();
 
-  // 先查找精确匹配
-  if (TOOL_DISPLAY_NAMES[lower]) {
-    return TOOL_DISPLAY_NAMES[lower];
+  // 当 t 函数存在时使用翻译
+  if (t) {
+    const translatedNames = getToolDisplayNames(t);
+    if (translatedNames[lower]) {
+      return translatedNames[lower];
+    }
+  } else {
+    // 回退到静态映射
+    if (TOOL_DISPLAY_NAMES_FALLBACK[lower]) {
+      return TOOL_DISPLAY_NAMES_FALLBACK[lower];
+    }
   }
 
   // 基于类型返回通用名称
-  if (isReadTool(lower)) return '读取文件';
-  if (isEditTool(lower)) return '编辑文件';
-  if (isBashTool(lower)) return '运行命令';
-  if (isSearchTool(lower)) return '搜索';
-  if (isWebTool(lower)) return '网络请求';
+  if (t) {
+    if (isReadTool(lower)) return t("tools.readFile");
+    if (isEditTool(lower)) return t("tools.editFile");
+    if (isBashTool(lower)) return t("tools.runCommand");
+    if (isSearchTool(lower)) return t("tools.search");
+    if (isWebTool(lower)) return t("tools.webRequest");
+  } else {
+    if (isReadTool(lower)) return '读取文件';
+    if (isEditTool(lower)) return '编辑文件';
+    if (isBashTool(lower)) return '运行命令';
+    if (isSearchTool(lower)) return '搜索';
+    if (isWebTool(lower)) return '网络请求';
+  }
 
   // MCP 工具特殊处理
   if (title && isMcpTool(title)) {

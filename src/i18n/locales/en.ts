@@ -84,6 +84,12 @@ const en = {
     expandAllSections: "Expand all sections",
     collapseAllSections: "Collapse all sections",
     weekly: "Weekly",
+    openDebugLog: "Open debug log",
+    debugLog: "Debug log",
+    hideThreadsSidebar: "Hide threads sidebar",
+    showThreadsSidebar: "Show threads sidebar",
+    hideGitSidebar: "Hide git sidebar",
+    showGitSidebar: "Show git sidebar",
   },
 
   // Home
@@ -527,6 +533,13 @@ const en = {
     message: "message",
     messages: "messages",
     emptyThread: "Start a thread and send a prompt to the agent.",
+    generatingResponse: "Generating response...",
+    doneIn: "Done in {{duration}}",
+    copyMessage: "Copy message",
+    closeImagePreview: "Close image preview",
+    toggleReasoning: "Toggle reasoning details",
+    copyCodeBlock: "Copy code block",
+    copy: "Copy",
   },
 
   // Composer
@@ -554,6 +567,8 @@ const en = {
     context: "Context",
     contextUsageAriaLabel: "Context usage: {{percent}} used, {{used}} / {{total}}",
     noModels: "No models",
+    dragToResize: "Drag to resize",
+    addImage: "Add image",
     // Review
     reviewAgainstBaseBranch: "Review against a base branch",
     prStyle: "(PR Style)",
@@ -711,6 +726,9 @@ const en = {
     revertAllTitle: "Revert all changes",
     revertAllConfirm: "Revert all changes in this repo?",
     revertAllMessage: "This will discard all staged and unstaged changes, including untracked files.",
+    diffView: "Diff view",
+    dualPanelDiff: "Dual-panel diff",
+    singleColumnDiff: "Single-column diff",
   },
 
   // Terminal
@@ -748,6 +766,7 @@ const en = {
     cliNotFoundHint: "Install Claude Code: npm install -g @anthropic-ai/claude-code\nInstall Codex: npm install -g @openai/codex",
     codexCliNotFound: "Codex CLI not found. Install Codex and ensure `codex` is on your PATH.",
     couldntOpenWorkspace: "Couldn't open workspace",
+    dismissError: "Dismiss error",
   },
 
   // Panels
@@ -1038,6 +1057,12 @@ const en = {
     openFile: "Open File",
     copyPath: "Copy Path",
     revealInFinder: "Reveal in Finder",
+    deleteItem: "Move to Trash",
+    deleteFileConfirm: "Are you sure you want to move \"{{name}}\" to the trash?",
+    deleteFolderConfirm: "Are you sure you want to move the folder \"{{name}}\" and all its contents to the trash?",
+    duplicateItem: "Duplicate",
+    newFile: "New File",
+    newFileNamePlaceholder: "Enter file name",
     filterPlaceholder: "Filter files and folders",
     truncated: "Truncated",
     loadingFile: "Loading file...",
@@ -1141,6 +1166,18 @@ const en = {
     reviewRequest: "Review Request",
     approvalNeeded: "Approval needed",
     inputRequested: "Input requested",
+    none: "None",
+    noExtraDetails: "No extra details.",
+    decline: "Decline",
+    allowCommandsStartWith: "Allow commands that start with {{prefix}}",
+    alwaysAllow: "Always allow",
+    approveEnter: "Approve (Enter)",
+    userInputRequested: "User input requested",
+    requestOf: "Request {{current}} of {{total}}",
+    typeAnswerOptional: "Type your answer (optional)",
+    addNotesOptional: "Add notes (optional)",
+    noQuestionsProvided: "No questions provided.",
+    submit: "Submit",
   },
 
   // Kanban
@@ -1165,6 +1202,7 @@ const en = {
     board: {
       back: "Back",
       addTask: "Add",
+      searchPlaceholder: "Search...",
     },
     task: {
       createTitle: "Create Task",
@@ -1213,6 +1251,43 @@ const en = {
       collapse: "Collapse",
       link: "link",
     },
+  },
+
+  // Status Panel
+  statusPanel: {
+    tabTodos: "Tasks",
+    tabSubagents: "Subagents",
+    tabEdits: "Edits",
+    files: "files",
+    emptyTodos: "No tasks",
+    emptySubagents: "No subagents",
+    emptyFileChanges: "No file changes",
+  },
+
+  // Tools
+  tools: {
+    readFile: "Read file",
+    readDirectory: "Read directory",
+    editFile: "Edit file",
+    writeFile: "Write file",
+    editNotebook: "Edit notebook",
+    runCommand: "Run command",
+    executeCommand: "Execute command",
+    search: "Search",
+    fileMatch: "File match",
+    findFile: "Find file",
+    webFetch: "Web fetch",
+    webSearch: "Web search",
+    subtask: "Subtask",
+    todoList: "Todo list",
+    diffCompare: "Diff",
+    result: "Result",
+    webRequest: "Web request",
+    batchRun: "Batch run",
+    searchMatch: "Search/Match",
+    path: "Path",
+    lineRange: "Line {{start}}-{{end}}",
+    failedCount: "{{count}} failed",
   },
 
   // Usage labels
