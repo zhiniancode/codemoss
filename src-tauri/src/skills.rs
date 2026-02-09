@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -66,6 +67,42 @@ fn default_skills_dir_for_workspace(
     entry: &WorkspaceEntry,
 ) -> Option<PathBuf> {
     resolve_codex_home_for_workspace(workspaces, entry).map(|home| home.join("skills"))
+}
+
+fn normalize_home_path(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed == "~" {
+        return dirs::home_dir();
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        return dirs::home_dir().map(|home| home.join(rest));
+    }
+    if trimmed == "$HOME" || trimmed == "${HOME}" {
+        return dirs::home_dir();
+    }
+    if let Some(rest) = trimmed.strip_prefix("$HOME/") {
+        return dirs::home_dir().map(|home| home.join(rest));
+    }
+    if let Some(rest) = trimmed.strip_prefix("${HOME}/") {
+        return dirs::home_dir().map(|home| home.join(rest));
+    }
+    Some(PathBuf::from(trimmed))
+}
+
+fn resolve_default_claude_home() -> Option<PathBuf> {
+    if let Ok(value) = env::var("CLAUDE_HOME") {
+        if let Some(path) = normalize_home_path(&value) {
+            return Some(path);
+        }
+    }
+    dirs::home_dir().map(|home| home.join(".claude"))
+}
+
+fn default_claude_skills_dir() -> Option<PathBuf> {
+    resolve_default_claude_home().map(|home| home.join("skills"))
 }
 
 fn workspace_skills_dir(state: &AppState, entry: &WorkspaceEntry) -> Result<PathBuf, String> {
@@ -168,6 +205,40 @@ fn discover_skills_in(dir: &Path) -> Result<Vec<SkillEntry>, SkillScanError> {
                 continue;
             }
         };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        if metadata.is_dir() {
+            let nested_skill_path = path.join("SKILL.md");
+            let nested_metadata = match fs::symlink_metadata(&nested_skill_path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if nested_metadata.file_type().is_symlink() || !nested_metadata.is_file() {
+                continue;
+            }
+            if nested_metadata.len() > MAX_SKILL_FILE_SIZE {
+                log::warn!(
+                    "Skipping oversized nested skill file {:?} ({} bytes)",
+                    nested_skill_path,
+                    nested_metadata.len()
+                );
+                continue;
+            }
+            let name = match path.file_name().and_then(|s| s.to_str()).map(str::to_string) {
+                Some(n) if !n.is_empty() => n,
+                _ => continue,
+            };
+            let description = extract_description(&nested_skill_path);
+            out.push(SkillEntry {
+                name,
+                path: nested_skill_path.to_string_lossy().to_string(),
+                description,
+            });
+            continue;
+        }
+
         if !metadata.is_file() {
             continue;
         }
@@ -208,47 +279,136 @@ fn discover_skills_in(dir: &Path) -> Result<Vec<SkillEntry>, SkillScanError> {
     Ok(out)
 }
 
+fn merge_skills_by_priority(sources: Vec<Vec<SkillEntry>>) -> Vec<SkillEntry> {
+    let mut merged: Vec<SkillEntry> = Vec::new();
+    let mut seen_names: HashSet<String> = HashSet::new();
+
+    for source in sources {
+        for skill in source {
+            if seen_names.contains(&skill.name) {
+                continue;
+            }
+            seen_names.insert(skill.name.clone());
+            merged.push(skill);
+        }
+    }
+
+    merged.sort_by(|a, b| a.name.cmp(&b.name));
+    merged
+}
+
 /// Scan local skills directories for a specific workspace.
-/// Workspace skills override global skills with the same name.
+/// Priority order: workspace > global claude skills > global codex skills.
 pub(crate) async fn skills_list_local_for_workspace(
     state: &AppState,
     workspace_id: &str,
 ) -> Result<Vec<SkillEntry>, SkillScanError> {
-    let (workspace_dir, global_dir) = {
+    let (workspace_dir, claude_global_dir, codex_global_dir) = {
         let workspaces = state.workspaces.lock().await;
         let entry = workspaces
             .get(workspace_id)
             .ok_or_else(|| SkillScanError::WorkspaceNotFound(workspace_id.to_string()))?;
         let ws_dir = workspace_skills_dir(state, entry).ok();
-        let gl_dir = default_skills_dir_for_workspace(&workspaces, entry);
-        (ws_dir, gl_dir)
+        let codex_dir = default_skills_dir_for_workspace(&workspaces, entry);
+        let claude_dir = default_claude_skills_dir();
+        (ws_dir, claude_dir, codex_dir)
     };
 
     task::spawn_blocking(move || {
-        let mut workspace_skills = match &workspace_dir {
+        let workspace_skills = match &workspace_dir {
             Some(dir) => discover_skills_in(dir)?,
             None => Vec::new(),
         };
 
-        let global_skills = match &global_dir {
+        let claude_skills = match &claude_global_dir {
             Some(dir) => discover_skills_in(dir)?,
             None => Vec::new(),
         };
 
-        // Dedup: workspace skills override global skills with the same name
-        let workspace_names: HashSet<String> =
-            workspace_skills.iter().map(|s| s.name.clone()).collect();
+        let codex_skills = match &codex_global_dir {
+            Some(dir) => discover_skills_in(dir)?,
+            None => Vec::new(),
+        };
 
-        let filtered_global: Vec<SkillEntry> = global_skills
-            .into_iter()
-            .filter(|s| !workspace_names.contains(&s.name))
-            .collect();
-
-        workspace_skills.extend(filtered_global);
-        workspace_skills.sort_by(|a, b| a.name.cmp(&b.name));
-
-        Ok(workspace_skills)
+        Ok(merge_skills_by_priority(vec![
+            workspace_skills,
+            claude_skills,
+            codex_skills,
+        ]))
     })
     .await
     .map_err(|_| SkillScanError::Join)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn new_temp_dir(prefix: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time is before unix epoch")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("codemoss-{prefix}-{nonce}"));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn discover_skills_supports_flat_and_one_level_nested_layouts() {
+        let root = new_temp_dir("skills-discovery");
+        let flat_skill = root.join("flat.md");
+        fs::write(&flat_skill, "---\ndescription: flat skill\n---\nbody").expect("write flat");
+
+        let nested_dir = root.join("nested-tool");
+        fs::create_dir_all(&nested_dir).expect("create nested dir");
+        fs::write(
+            nested_dir.join("SKILL.md"),
+            "---\ndescription: nested skill\n---\nbody",
+        )
+        .expect("write nested skill");
+
+        let deep_dir = root.join("deep").join("inner");
+        fs::create_dir_all(&deep_dir).expect("create deep dir");
+        fs::write(deep_dir.join("SKILL.md"), "deep body").expect("write deep skill");
+
+        let entries = discover_skills_in(&root).expect("discover skills");
+        let names: Vec<String> = entries.iter().map(|entry| entry.name.clone()).collect();
+
+        assert!(names.contains(&"flat".to_string()));
+        assert!(names.contains(&"nested-tool".to_string()));
+        assert!(!names.contains(&"inner".to_string()));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn merge_skills_by_priority_prefers_higher_priority_sources() {
+        let workspace_skill = SkillEntry {
+            name: "shared".to_string(),
+            path: "/workspace/shared.md".to_string(),
+            description: None,
+        };
+        let claude_skill = SkillEntry {
+            name: "shared".to_string(),
+            path: "/home/.claude/skills/shared.md".to_string(),
+            description: None,
+        };
+        let codex_skill = SkillEntry {
+            name: "shared".to_string(),
+            path: "/home/.codex/skills/shared.md".to_string(),
+            description: None,
+        };
+
+        let merged = merge_skills_by_priority(vec![
+            vec![workspace_skill.clone()],
+            vec![claude_skill],
+            vec![codex_skill],
+        ]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].name, "shared");
+        assert_eq!(merged[0].path, workspace_skill.path);
+    }
 }
