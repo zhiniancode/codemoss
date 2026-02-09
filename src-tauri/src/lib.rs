@@ -41,6 +41,7 @@ mod types;
 mod utils;
 mod window;
 mod workspaces;
+mod vendors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -221,6 +222,17 @@ pub fn run() {
             input_history::input_history_record,
             input_history::input_history_delete,
             input_history::input_history_clear,
+            // Vendors
+            vendors::vendor_get_claude_providers,
+            vendors::vendor_add_claude_provider,
+            vendors::vendor_update_claude_provider,
+            vendors::vendor_delete_claude_provider,
+            vendors::vendor_switch_claude_provider,
+            vendors::vendor_get_codex_providers,
+            vendors::vendor_add_codex_provider,
+            vendors::vendor_update_codex_provider,
+            vendors::vendor_delete_codex_provider,
+            vendors::vendor_switch_codex_provider,
             // Open paths
             get_pending_open_paths
         ])
@@ -282,6 +294,15 @@ pub fn run() {
                     let _ = window.emit("open-paths", paths);
                 }
             }
+        }
+
+        // Clean up active AI processes on app exit to prevent orphaned CLI processes
+        if let RunEvent::ExitRequested { .. } = &event {
+            let state = app_handle.state::<state::AppState>();
+            let manager = &state.engine_manager;
+            tauri::async_runtime::block_on(async {
+                manager.claude_manager.interrupt_all().await;
+            });
         }
     });
 }

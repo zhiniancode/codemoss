@@ -315,8 +315,9 @@ pub async fn engine_interrupt(
             Ok(())
         }
         EngineType::Codex => {
-            // Delegate to existing turn_interrupt command
-            // Frontend should call turn_interrupt for Codex
+            // Codex interrupts are handled via turn_interrupt RPC from the frontend.
+            // This path is a fallback; log for diagnostic visibility.
+            log::info!("engine_interrupt called for Codex workspace: {}", workspace_id);
             Ok(())
         }
         _ => Err(format!("{} is not supported yet", active_engine.display_name())),

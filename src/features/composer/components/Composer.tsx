@@ -42,6 +42,10 @@ import {
   assembleSinglePrompt,
   shouldAssemblePrompt,
 } from "../utils/promptAssembler";
+import {
+  extractInlineSelections,
+  mergeUniqueNames,
+} from "../utils/inlineSelections";
 
 type ComposerProps = {
   kanbanContextMode?: "new" | "inherit";
@@ -207,132 +211,6 @@ function splitGroupsForColumns(groups: PrefixGroup[]): [PrefixGroup[], PrefixGro
     }
   }
   return [left, right];
-}
-
-function normalizeSlashToken(value: string) {
-  return value.trim().replace(/^\/+/, "").replace(/\s+/g, "-").toLowerCase();
-}
-
-function toAliasCandidates(name: string) {
-  const raw = name.trim().replace(/^\/+/, "");
-  if (!raw) {
-    return [];
-  }
-  const collapsedSpace = raw.replace(/\s+/g, " ");
-  return Array.from(
-    new Set([
-      raw,
-      raw.replace(/\s+/g, "-"),
-      raw.replace(/\s+/g, "_"),
-      collapsedSpace,
-      collapsedSpace.replace(/\s+/g, "-"),
-      collapsedSpace.replace(/\s+/g, "_"),
-    ]),
-  );
-}
-
-function buildSlashAliasMap(options: { name: string }[]) {
-  const aliasMap = new Map<string, string>();
-  for (const option of options) {
-    for (const alias of toAliasCandidates(option.name)) {
-      aliasMap.set(normalizeSlashToken(alias), option.name);
-    }
-  }
-  return aliasMap;
-}
-
-function getMaxAliasWordCount(aliasMap: Map<string, string>) {
-  let maxCount = 1;
-  for (const alias of aliasMap.keys()) {
-    const count = alias.split("-").filter(Boolean).length;
-    if (count > maxCount) {
-      maxCount = count;
-    }
-  }
-  return maxCount;
-}
-
-function mergeUniqueNames(previous: string[], incoming: string[]) {
-  if (incoming.length === 0) {
-    return previous;
-  }
-  const seen = new Set(previous);
-  const merged = [...previous];
-  for (const name of incoming) {
-    if (seen.has(name)) {
-      continue;
-    }
-    seen.add(name);
-    merged.push(name);
-  }
-  return merged;
-}
-
-function extractInlineSelections(
-  text: string,
-  skills: { name: string }[],
-  commons: { name: string }[],
-) {
-  const tokenMatches = text.match(/\/[^\s]+/g) ?? [];
-  if (tokenMatches.length === 0) {
-    return { cleanedText: text, matchedSkillNames: [] as string[], matchedCommonsNames: [] as string[] };
-  }
-  const skillMap = buildSlashAliasMap(skills);
-  const commonsMap = buildSlashAliasMap(commons);
-  const maxWordCount = Math.max(getMaxAliasWordCount(skillMap), getMaxAliasWordCount(commonsMap));
-  const matchedSkillNames: string[] = [];
-  const matchedCommonsNames: string[] = [];
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0) {
-    return { cleanedText: text, matchedSkillNames, matchedCommonsNames };
-  }
-  const consumedWordIndexes = new Set<number>();
-
-  for (let index = 0; index < words.length; index += 1) {
-    if (consumedWordIndexes.has(index)) {
-      continue;
-    }
-    if (!words[index]?.startsWith("/")) {
-      continue;
-    }
-    let matched = false;
-    for (let wordCount = maxWordCount; wordCount >= 1; wordCount -= 1) {
-      const endIndex = index + wordCount;
-      if (endIndex > words.length) {
-        continue;
-      }
-      const candidate = words.slice(index, endIndex).join(" ");
-      const normalized = normalizeSlashToken(candidate);
-      const skillName = skillMap.get(normalized);
-      if (skillName) {
-        matchedSkillNames.push(skillName);
-        for (let i = index; i < endIndex; i += 1) {
-          consumedWordIndexes.add(i);
-        }
-        matched = true;
-        break;
-      }
-      const commonsName = commonsMap.get(normalized);
-      if (commonsName) {
-        matchedCommonsNames.push(commonsName);
-        for (let i = index; i < endIndex; i += 1) {
-          consumedWordIndexes.add(i);
-        }
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      continue;
-    }
-  }
-  if (consumedWordIndexes.size === 0) {
-    return { cleanedText: text, matchedSkillNames, matchedCommonsNames };
-  }
-  const cleanedText = words
-    .filter((_, index) => !consumedWordIndexes.has(index))
-    .join(" ");
-  return { cleanedText, matchedSkillNames, matchedCommonsNames };
 }
 
 function filterOptionsByQuery<T extends { name: string; description?: string }>(

@@ -973,3 +973,51 @@ export async function deleteClaudeSession(
 export async function getPendingOpenPaths(): Promise<string[]> {
   return invoke<string[]>("get_pending_open_paths");
 }
+
+// ==================== Vendor/Provider API ====================
+
+export async function getClaudeProviders(): Promise<any[]> {
+  return invoke<any[]>("vendor_get_claude_providers");
+}
+
+export async function addClaudeProvider(provider: any): Promise<void> {
+  return invoke("vendor_add_claude_provider", { provider });
+}
+
+export async function updateClaudeProvider(
+  id: string,
+  updates: any,
+): Promise<void> {
+  return invoke("vendor_update_claude_provider", { id, updates });
+}
+
+export async function deleteClaudeProvider(id: string): Promise<void> {
+  return invoke("vendor_delete_claude_provider", { id });
+}
+
+export async function switchClaudeProvider(id: string): Promise<void> {
+  return invoke("vendor_switch_claude_provider", { id });
+}
+
+export async function getCodexProviders(): Promise<any[]> {
+  return invoke<any[]>("vendor_get_codex_providers");
+}
+
+export async function addCodexProvider(provider: any): Promise<void> {
+  return invoke("vendor_add_codex_provider", { provider });
+}
+
+export async function updateCodexProvider(
+  id: string,
+  updates: any,
+): Promise<void> {
+  return invoke("vendor_update_codex_provider", { id, updates });
+}
+
+export async function deleteCodexProvider(id: string): Promise<void> {
+  return invoke("vendor_delete_codex_provider", { id });
+}
+
+export async function switchCodexProvider(id: string): Promise<void> {
+  return invoke("vendor_switch_codex_provider", { id });
+}
