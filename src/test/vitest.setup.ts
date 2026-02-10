@@ -241,6 +241,7 @@ vi.mock("react-i18next", () => ({
         "settings.panelsSubDescription": "Toggle sidebars and panels.",
         "settings.toggleProjectsSidebar": "Toggle projects sidebar",
         "settings.toggleGitSidebar": "Toggle git sidebar",
+        "settings.toggleGlobalSearch": "Toggle global search",
         "settings.toggleDebugPanel": "Toggle debug panel",
         "settings.toggleTerminalPanel": "Toggle terminal panel",
         "settings.navigationSubtitle": "Navigation",

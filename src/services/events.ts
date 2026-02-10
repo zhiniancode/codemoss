@@ -88,6 +88,7 @@ const menuAddWorkspaceHub = createEventHub<void>("menu-add-workspace");
 const menuOpenSettingsHub = createEventHub<void>("menu-open-settings");
 const menuToggleProjectsSidebarHub = createEventHub<void>("menu-toggle-projects-sidebar");
 const menuToggleGitSidebarHub = createEventHub<void>("menu-toggle-git-sidebar");
+const menuToggleGlobalSearchHub = createEventHub<void>("menu-toggle-global-search");
 const menuToggleDebugPanelHub = createEventHub<void>("menu-toggle-debug-panel");
 const menuToggleTerminalHub = createEventHub<void>("menu-toggle-terminal");
 const menuNextAgentHub = createEventHub<void>("menu-next-agent");
@@ -202,6 +203,15 @@ export function subscribeMenuToggleGitSidebar(
   options?: SubscriptionOptions,
 ): Unsubscribe {
   return menuToggleGitSidebarHub.subscribe(() => {
+    onEvent();
+  }, options);
+}
+
+export function subscribeMenuToggleGlobalSearch(
+  onEvent: () => void,
+  options?: SubscriptionOptions,
+): Unsubscribe {
+  return menuToggleGlobalSearchHub.subscribe(() => {
     onEvent();
   }, options);
 }

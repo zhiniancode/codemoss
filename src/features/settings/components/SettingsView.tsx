@@ -209,6 +209,7 @@ type ShortcutSettingKey =
   | "archiveThreadShortcut"
   | "toggleProjectsSidebarShortcut"
   | "toggleGitSidebarShortcut"
+  | "toggleGlobalSearchShortcut"
   | "toggleDebugPanelShortcut"
   | "toggleTerminalShortcut"
   | "cycleAgentNextShortcut"
@@ -227,6 +228,7 @@ type ShortcutDraftKey =
   | "archiveThread"
   | "projectsSidebar"
   | "gitSidebar"
+  | "globalSearch"
   | "debugPanel"
   | "terminal"
   | "cycleAgentNext"
@@ -248,6 +250,7 @@ const shortcutDraftKeyBySetting: Record<ShortcutSettingKey, ShortcutDraftKey> = 
   archiveThreadShortcut: "archiveThread",
   toggleProjectsSidebarShortcut: "projectsSidebar",
   toggleGitSidebarShortcut: "gitSidebar",
+  toggleGlobalSearchShortcut: "globalSearch",
   toggleDebugPanelShortcut: "debugPanel",
   toggleTerminalShortcut: "terminal",
   cycleAgentNextShortcut: "cycleAgentNext",
@@ -379,6 +382,7 @@ export function SettingsView({
     archiveThread: appSettings.archiveThreadShortcut ?? "",
     projectsSidebar: appSettings.toggleProjectsSidebarShortcut ?? "",
     gitSidebar: appSettings.toggleGitSidebarShortcut ?? "",
+    globalSearch: appSettings.toggleGlobalSearchShortcut ?? "",
     debugPanel: appSettings.toggleDebugPanelShortcut ?? "",
     terminal: appSettings.toggleTerminalShortcut ?? "",
     cycleAgentNext: appSettings.cycleAgentNextShortcut ?? "",
@@ -529,6 +533,7 @@ export function SettingsView({
       archiveThread: appSettings.archiveThreadShortcut ?? "",
       projectsSidebar: appSettings.toggleProjectsSidebarShortcut ?? "",
       gitSidebar: appSettings.toggleGitSidebarShortcut ?? "",
+      globalSearch: appSettings.toggleGlobalSearchShortcut ?? "",
       debugPanel: appSettings.toggleDebugPanelShortcut ?? "",
       terminal: appSettings.toggleTerminalShortcut ?? "",
       cycleAgentNext: appSettings.cycleAgentNextShortcut ?? "",
@@ -548,6 +553,7 @@ export function SettingsView({
     appSettings.archiveThreadShortcut,
     appSettings.toggleProjectsSidebarShortcut,
     appSettings.toggleGitSidebarShortcut,
+    appSettings.toggleGlobalSearchShortcut,
     appSettings.toggleDebugPanelShortcut,
     appSettings.toggleTerminalShortcut,
     appSettings.cycleAgentNextShortcut,
@@ -2316,6 +2322,30 @@ export function SettingsView({
                   </div>
                   <div className="settings-help">
                     {t("settings.defaultColon")} {formatShortcut("cmd+shift+g")}
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <div className="settings-field-label">{t("settings.toggleGlobalSearch")}</div>
+                  <div className="settings-field-row">
+                    <input
+                      className="settings-input settings-input--shortcut"
+                      value={formatShortcut(shortcutDrafts.globalSearch)}
+                      onKeyDown={(event) =>
+                        handleShortcutKeyDown(event, "toggleGlobalSearchShortcut")
+                      }
+                      placeholder={t("settings.typeShortcut")}
+                      readOnly
+                    />
+                    <button
+                      type="button"
+                      className="ghost settings-button-compact"
+                      onClick={() => void updateShortcut("toggleGlobalSearchShortcut", null)}
+                    >
+                      {t("settings.clear")}
+                    </button>
+                  </div>
+                  <div className="settings-help">
+                    {t("settings.defaultColon")} {formatShortcut("cmd+o")}
                   </div>
                 </div>
                 <div className="settings-field">

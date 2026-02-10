@@ -33,6 +33,7 @@ import "./styles/compact-tablet.css";
 import "./styles/tool-blocks.css";
 import "./styles/status-panel.css";
 import "./styles/kanban.css";
+import "./styles/search-palette.css";
 import successSoundUrl from "./assets/success-notification.mp3";
 import errorSoundUrl from "./assets/error-notification.mp3";
 import { AppLayout } from "./features/app/components/AppLayout";
@@ -95,6 +96,7 @@ import { useWorkspaceCycling } from "./features/app/hooks/useWorkspaceCycling";
 import { useThreadRows } from "./features/app/hooks/useThreadRows";
 import { useInterruptShortcut } from "./features/app/hooks/useInterruptShortcut";
 import { useArchiveShortcut } from "./features/app/hooks/useArchiveShortcut";
+import { useGlobalSearchShortcut } from "./features/app/hooks/useGlobalSearchShortcut";
 import { useLiquidGlassEffect } from "./features/app/hooks/useLiquidGlassEffect";
 import { useCopyThread } from "./features/threads/hooks/useCopyThread";
 import { useTerminalController } from "./features/terminal/hooks/useTerminalController";
@@ -111,7 +113,13 @@ import { useWorkspaceLaunchScripts } from "./features/app/hooks/useWorkspaceLaun
 import { useWorktreeSetupScript } from "./features/app/hooks/useWorktreeSetupScript";
 import { useGitCommitController } from "./features/app/hooks/useGitCommitController";
 import { WorkspaceHome } from "./features/workspaces/components/WorkspaceHome";
-import { pickWorkspacePath } from "./services/tauri";
+import { SearchPalette } from "./features/search/components/SearchPalette";
+import { useUnifiedSearch } from "./features/search/hooks/useUnifiedSearch";
+import { loadHistoryWithImportance } from "./features/composer/hooks/useInputHistoryStore";
+import { recordSearchResultOpen } from "./features/search/ranking/recencyStore";
+import type { SearchContentFilter, SearchResult, SearchScope } from "./features/search/types";
+import { toggleSearchContentFilters } from "./features/search/utils/contentFilters";
+import { getWorkspaceFiles, pickWorkspacePath } from "./services/tauri";
 import type {
   AccessMode,
   ComposerEditorSettings,
@@ -272,6 +280,15 @@ function MainApp() {
     openSettings,
     closeSettings,
   } = useSettingsModalState();
+  const [isSearchPaletteOpen, setIsSearchPaletteOpen] = useState(false);
+  const [searchScope, setSearchScope] = useState<SearchScope>("active-workspace");
+  const [searchContentFilters, setSearchContentFilters] =
+    useState<SearchContentFilter[]>(["all"]);
+  const [searchPaletteQuery, setSearchPaletteQuery] = useState("");
+  const [searchPaletteSelectedIndex, setSearchPaletteSelectedIndex] = useState(0);
+  const [globalSearchFilesByWorkspace, setGlobalSearchFilesByWorkspace] = useState<
+    Record<string, string[]>
+  >({});
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const {
@@ -721,6 +738,7 @@ function MainApp() {
     setActiveThreadId,
     activeThreadId,
     activeItems,
+    threadItemsByThread,
     approvals,
     userInputRequests,
     threadsByWorkspace,
@@ -1173,6 +1191,124 @@ function MainApp() {
     textareaRef: composerInputRef,
   });
 
+  const activeWorkspaceKanbanTasks = useMemo(
+    () => (activeWorkspaceId ? kanbanTasks.filter((task) => task.workspaceId === activeWorkspaceId) : []),
+    [activeWorkspaceId, kanbanTasks],
+  );
+  const activeWorkspaceThreads = useMemo(
+    () => (activeWorkspaceId ? threadsByWorkspace[activeWorkspaceId] ?? [] : []),
+    [activeWorkspaceId, threadsByWorkspace],
+  );
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      return;
+    }
+    setGlobalSearchFilesByWorkspace((prev) => {
+      const nextFiles = files;
+      const prevFiles = prev[activeWorkspaceId];
+      if (prevFiles === nextFiles) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [activeWorkspaceId]: nextFiles,
+      };
+    });
+  }, [activeWorkspaceId, files]);
+
+  useEffect(() => {
+    if (!isSearchPaletteOpen || searchScope !== "global") {
+      return;
+    }
+    const targetWorkspaceIds = workspaces.map((workspace) => workspace.id);
+    const uncachedWorkspaceIds = targetWorkspaceIds.filter(
+      (workspaceId) => !(workspaceId in globalSearchFilesByWorkspace),
+    );
+    if (uncachedWorkspaceIds.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      uncachedWorkspaceIds.map(async (workspaceId) => {
+        try {
+          const response = await getWorkspaceFiles(workspaceId);
+          return [
+            workspaceId,
+            Array.isArray(response.files) ? response.files : ([] as string[]),
+          ] as const;
+        } catch {
+          return [workspaceId, [] as string[]] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled || entries.length === 0) {
+        return;
+      }
+      setGlobalSearchFilesByWorkspace((prev) => {
+        const next = { ...prev };
+        for (const [workspaceId, workspaceFiles] of entries) {
+          next[workspaceId] = workspaceFiles;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [globalSearchFilesByWorkspace, isSearchPaletteOpen, searchScope, workspaces]);
+
+  const workspaceSearchSources = useMemo(() => {
+    if (searchScope === "global") {
+      return workspaces.map((workspace) => ({
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        files: globalSearchFilesByWorkspace[workspace.id] ?? [],
+        threads: threadsByWorkspace[workspace.id] ?? [],
+      }));
+    }
+    if (!activeWorkspaceId || !activeWorkspace) {
+      return [];
+    }
+    return [
+      {
+        workspaceId: activeWorkspaceId,
+        workspaceName: activeWorkspace.name,
+        files,
+        threads: activeWorkspaceThreads,
+      },
+    ];
+  }, [
+    activeWorkspace,
+    activeWorkspaceId,
+    activeWorkspaceThreads,
+    files,
+    globalSearchFilesByWorkspace,
+    searchScope,
+    threadsByWorkspace,
+    workspaces,
+  ]);
+
+  const scopedKanbanTasks = useMemo(
+    () => (searchScope === "global" ? kanbanTasks : activeWorkspaceKanbanTasks),
+    [activeWorkspaceKanbanTasks, kanbanTasks, searchScope],
+  );
+  const historySearchItems = useMemo(
+    () => (isSearchPaletteOpen ? loadHistoryWithImportance() : []),
+    [isSearchPaletteOpen],
+  );
+  const searchResults = useUnifiedSearch({
+    query: searchPaletteQuery,
+    contentFilters: searchContentFilters,
+    workspaceSources: workspaceSearchSources,
+    kanbanTasks: scopedKanbanTasks,
+    threadItemsByThread,
+    historyItems: historySearchItems,
+    skills,
+    commands,
+    activeWorkspaceId,
+  });
+
   const RECENT_THREAD_LIMIT = 8;
   const { recentThreads } = useMemo(() => {
     if (!activeWorkspaceId) {
@@ -1481,6 +1617,152 @@ function MainApp() {
     removeImagesForThread,
     removeThread,
   ]);
+
+  useGlobalSearchShortcut({
+    isEnabled: true,
+    shortcut: appSettings.toggleGlobalSearchShortcut,
+    onTrigger: () => {
+      setIsSearchPaletteOpen((prev) => {
+        const next = !prev;
+        if (!next) {
+          setSearchPaletteQuery("");
+          setSearchPaletteSelectedIndex(0);
+        }
+        return next;
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (!isSearchPaletteOpen) {
+      return;
+    }
+    setSearchPaletteSelectedIndex(0);
+  }, [isSearchPaletteOpen, searchPaletteQuery]);
+
+  const handleSearchPaletteMoveSelection = useCallback(
+    (direction: "up" | "down") => {
+      if (!searchResults.length) {
+        return;
+      }
+      setSearchPaletteSelectedIndex((prev) => {
+        if (direction === "down") {
+          return (prev + 1) % searchResults.length;
+        }
+        return (prev - 1 + searchResults.length) % searchResults.length;
+      });
+    },
+    [searchResults.length],
+  );
+
+  const handleToggleSearchContentFilter = useCallback((nextFilter: SearchContentFilter) => {
+    setSearchContentFilters((prev) => toggleSearchContentFilters(prev, nextFilter));
+    setSearchPaletteSelectedIndex(0);
+  }, []);
+
+  const handleSelectSearchResult = useCallback(
+    (result: SearchResult) => {
+      switch (result.kind) {
+        case "file":
+          if (result.filePath) {
+            handleOpenFile(result.filePath);
+          }
+          break;
+        case "thread":
+          if (result.workspaceId && result.threadId) {
+            exitDiffView();
+            setSelectedPullRequest(null);
+            setSelectedCommitSha(null);
+            setDiffSource("local");
+            selectWorkspace(result.workspaceId);
+            setActiveThreadId(result.threadId, result.workspaceId);
+          }
+          break;
+        case "kanban":
+          if (result.taskId) {
+            const task = kanbanTasks.find((entry) => entry.id === result.taskId);
+            if (task) {
+              setAppMode("kanban");
+              setSelectedKanbanTaskId(task.id);
+              selectWorkspace(task.workspaceId);
+              setKanbanViewState({
+                view: "board",
+                workspaceId: task.workspaceId,
+                panelId: task.panelId,
+              });
+            }
+          }
+          break;
+        case "history":
+          if (result.historyText) {
+            handleDraftChange(result.historyText);
+            if (isCompact) {
+              setActiveTab("codex");
+            }
+          }
+          break;
+        case "message":
+          if (result.workspaceId && result.threadId) {
+            exitDiffView();
+            setSelectedPullRequest(null);
+            setSelectedCommitSha(null);
+            setDiffSource("local");
+            selectWorkspace(result.workspaceId);
+            setActiveThreadId(result.threadId, result.workspaceId);
+            if (isCompact) {
+              setActiveTab("codex");
+            }
+          }
+          break;
+        case "skill":
+          if (result.skillName) {
+            const slashToken = `/${result.skillName}`;
+            const nextDraft = activeDraft.trim()
+              ? `${activeDraft.trim()} ${slashToken} `
+              : `${slashToken} `;
+            handleDraftChange(nextDraft);
+            if (isCompact) {
+              setActiveTab("codex");
+            }
+          }
+          break;
+        case "command":
+          if (result.commandName) {
+            const slashToken = `/${result.commandName}`;
+            const nextDraft = activeDraft.trim()
+              ? `${activeDraft.trim()} ${slashToken} `
+              : `${slashToken} `;
+            handleDraftChange(nextDraft);
+            if (isCompact) {
+              setActiveTab("codex");
+            }
+          }
+          break;
+        default:
+          break;
+      }
+      recordSearchResultOpen(result.id);
+      setIsSearchPaletteOpen(false);
+      setSearchPaletteQuery("");
+      setSearchPaletteSelectedIndex(0);
+    },
+    [
+      exitDiffView,
+      handleDraftChange,
+      handleOpenFile,
+      activeDraft,
+      isCompact,
+      kanbanTasks,
+      selectWorkspace,
+      setActiveTab,
+      setAppMode,
+      setDiffSource,
+      setActiveThreadId,
+      setKanbanViewState,
+      setSelectedCommitSha,
+      setSelectedPullRequest,
+    ],
+  );
 
   useInterruptShortcut({
     isEnabled: canInterrupt,
@@ -2224,6 +2506,16 @@ function MainApp() {
     onCycleWorkspace: handleCycleWorkspace,
     onToggleDebug: handleDebugClick,
     onToggleTerminal: handleToggleTerminal,
+    onToggleGlobalSearch: () => {
+      setIsSearchPaletteOpen((prev) => {
+        const next = !prev;
+        if (!next) {
+          setSearchPaletteQuery("");
+          setSearchPaletteSelectedIndex(0);
+        }
+        return next;
+      });
+    },
     sidebarCollapsed,
     rightPanelCollapsed,
     onExpandSidebar: expandSidebar,
@@ -2841,6 +3133,30 @@ function MainApp() {
         onSidebarResizeStart={onSidebarResizeStart}
         onRightPanelResizeStart={onRightPanelResizeStart}
         onPlanPanelResizeStart={onPlanPanelResizeStart}
+      />
+      <SearchPalette
+        isOpen={isSearchPaletteOpen}
+        scope={searchScope}
+        contentFilters={searchContentFilters}
+        workspaceName={activeWorkspace?.name ?? null}
+        query={searchPaletteQuery}
+        results={searchResults}
+        selectedIndex={searchPaletteSelectedIndex}
+        onQueryChange={setSearchPaletteQuery}
+        onMoveSelection={handleSearchPaletteMoveSelection}
+        onSelect={(result) => {
+          void handleSelectSearchResult(result);
+        }}
+        onScopeChange={(nextScope) => {
+          setSearchScope(nextScope);
+          setSearchPaletteSelectedIndex(0);
+        }}
+        onContentFilterToggle={handleToggleSearchContentFilter}
+        onClose={() => {
+          setIsSearchPaletteOpen(false);
+          setSearchPaletteQuery("");
+          setSearchPaletteSelectedIndex(0);
+        }}
       />
       <AppModals
         renamePrompt={renamePrompt}
