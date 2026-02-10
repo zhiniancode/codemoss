@@ -254,6 +254,10 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
     let toggle_git_sidebar_item =
         MenuItemBuilder::with_id("view_toggle_git_sidebar", "切换 Git 侧边栏")
             .build(handle)?;
+    let toggle_global_search_item =
+        MenuItemBuilder::with_id("view_toggle_global_search", "切换全局搜索")
+            .accelerator("CmdOrCtrl+O")
+            .build(handle)?;
     let toggle_debug_panel_item = MenuItemBuilder::with_id(
         "view_toggle_debug_panel",
         "切换调试面板",
@@ -273,6 +277,7 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
         MenuItemBuilder::with_id("view_prev_workspace", "上一个工作区").build(handle)?;
     registry.register("view_toggle_projects_sidebar", &toggle_projects_sidebar_item);
     registry.register("view_toggle_git_sidebar", &toggle_git_sidebar_item);
+    registry.register("view_toggle_global_search", &toggle_global_search_item);
     registry.register("view_toggle_debug_panel", &toggle_debug_panel_item);
     registry.register("view_toggle_terminal", &toggle_terminal_item);
     registry.register("view_next_agent", &next_agent_item);
@@ -289,6 +294,7 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
             .items(&[
                 &toggle_projects_sidebar_item,
                 &toggle_git_sidebar_item,
+                &toggle_global_search_item,
                 &PredefinedMenuItem::separator(handle)?,
                 &toggle_debug_panel_item,
                 &toggle_terminal_item,
@@ -310,6 +316,7 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
             .items(&[
                 &toggle_projects_sidebar_item,
                 &toggle_git_sidebar_item,
+                &toggle_global_search_item,
                 &PredefinedMenuItem::separator(handle)?,
                 &toggle_debug_panel_item,
                 &toggle_terminal_item,
@@ -438,6 +445,7 @@ pub(crate) fn handle_menu_event<R: tauri::Runtime>(
         }
         "view_toggle_projects_sidebar" => emit_menu_event(app, "menu-toggle-projects-sidebar"),
         "view_toggle_git_sidebar" => emit_menu_event(app, "menu-toggle-git-sidebar"),
+        "view_toggle_global_search" => emit_menu_event(app, "menu-toggle-global-search"),
         "view_toggle_debug_panel" => emit_menu_event(app, "menu-toggle-debug-panel"),
         "view_toggle_terminal" => emit_menu_event(app, "menu-toggle-terminal"),
         "view_next_agent" => emit_menu_event(app, "menu-next-agent"),

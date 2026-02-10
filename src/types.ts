@@ -158,6 +158,7 @@ export type AppSettings = {
   archiveThreadShortcut: string | null;
   toggleProjectsSidebarShortcut: string | null;
   toggleGitSidebarShortcut: string | null;
+  toggleGlobalSearchShortcut: string | null;
   toggleDebugPanelShortcut: string | null;
   toggleTerminalShortcut: string | null;
   cycleAgentNextShortcut: string | null;

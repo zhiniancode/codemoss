@@ -31,6 +31,10 @@ export function useMenuAcceleratorController({ appSettings, onDebug }: Params) {
         shortcut: appSettings.toggleGitSidebarShortcut,
       },
       {
+        id: "view_toggle_global_search",
+        shortcut: appSettings.toggleGlobalSearchShortcut,
+      },
+      {
         id: "view_toggle_debug_panel",
         shortcut: appSettings.toggleDebugPanelShortcut,
       },
@@ -87,6 +91,7 @@ export function useMenuAcceleratorController({ appSettings, onDebug }: Params) {
       appSettings.newCloneAgentShortcut,
       appSettings.newWorktreeAgentShortcut,
       appSettings.toggleGitSidebarShortcut,
+      appSettings.toggleGlobalSearchShortcut,
       appSettings.toggleDebugPanelShortcut,
       appSettings.toggleProjectsSidebarShortcut,
       appSettings.toggleTerminalShortcut,

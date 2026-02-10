@@ -12,6 +12,7 @@ import {
   subscribeMenuNextWorkspace,
   subscribeMenuToggleDebugPanel,
   subscribeMenuToggleGitSidebar,
+  subscribeMenuToggleGlobalSearch,
   subscribeMenuToggleProjectsSidebar,
   subscribeMenuToggleTerminal,
 } from "../../../services/events";
@@ -29,6 +30,7 @@ type Params = {
   onCycleWorkspace: (direction: "next" | "prev") => void;
   onToggleDebug: () => void;
   onToggleTerminal: () => void;
+  onToggleGlobalSearch: () => void;
   sidebarCollapsed: boolean;
   rightPanelCollapsed: boolean;
   onExpandSidebar: () => void;
@@ -49,6 +51,7 @@ export function useAppMenuEvents({
   onCycleWorkspace,
   onToggleDebug,
   onToggleTerminal,
+  onToggleGlobalSearch,
   sidebarCollapsed,
   rightPanelCollapsed,
   onExpandSidebar,
@@ -107,6 +110,10 @@ export function useAppMenuEvents({
 
   useTauriEvent(subscribeMenuToggleTerminal, () => {
     onToggleTerminal();
+  });
+
+  useTauriEvent(subscribeMenuToggleGlobalSearch, () => {
+    onToggleGlobalSearch();
   });
 
   useTauriEvent(subscribeMenuToggleProjectsSidebar, () => {

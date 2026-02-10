@@ -18,6 +18,26 @@ import { normalizeOpenAppTargets } from "../../app/utils/openApp";
 import { getDefaultInterruptShortcut } from "../../../utils/shortcuts";
 
 const allowedThemes = new Set(["system", "light", "dark", "dim"]);
+const SEARCH_SHORTCUT_DISALLOWED = new Set(["cmd+p", "ctrl+p"]);
+
+function normalizeShortcutValue(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  return normalized || null;
+}
+
+function normalizeGlobalSearchShortcut(value: string | null | undefined): string {
+  const normalized = normalizeShortcutValue(value);
+  if (!normalized || SEARCH_SHORTCUT_DISALLOWED.has(normalized)) {
+    return "cmd+o";
+  }
+  return normalized;
+}
 
 const defaultSettings: AppSettings = {
   codexBin: null,
@@ -37,6 +57,7 @@ const defaultSettings: AppSettings = {
   archiveThreadShortcut: "cmd+ctrl+a",
   toggleProjectsSidebarShortcut: "cmd+shift+p",
   toggleGitSidebarShortcut: "cmd+shift+g",
+  toggleGlobalSearchShortcut: "cmd+o",
   toggleDebugPanelShortcut: "cmd+shift+d",
   toggleTerminalShortcut: "cmd+shift+t",
   cycleAgentNextShortcut: "cmd+ctrl+down",
@@ -108,6 +129,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
       DEFAULT_CODE_FONT_FAMILY,
     ),
     codeFontSize: clampCodeFontSize(settings.codeFontSize),
+    toggleGlobalSearchShortcut: normalizeGlobalSearchShortcut(settings.toggleGlobalSearchShortcut),
     openAppTargets: normalizedTargets,
     selectedOpenAppId,
   };

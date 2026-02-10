@@ -372,6 +372,11 @@ pub(crate) struct AppSettings {
     )]
     pub(crate) toggle_git_sidebar_shortcut: Option<String>,
     #[serde(
+        default = "default_toggle_global_search_shortcut",
+        rename = "toggleGlobalSearchShortcut"
+    )]
+    pub(crate) toggle_global_search_shortcut: Option<String>,
+    #[serde(
         default = "default_toggle_debug_panel_shortcut",
         rename = "toggleDebugPanelShortcut"
     )]
@@ -585,6 +590,10 @@ fn default_toggle_git_sidebar_shortcut() -> Option<String> {
     Some("cmd+shift+g".to_string())
 }
 
+fn default_toggle_global_search_shortcut() -> Option<String> {
+    Some("cmd+o".to_string())
+}
+
 fn default_toggle_debug_panel_shortcut() -> Option<String> {
     Some("cmd+shift+d".to_string())
 }
@@ -764,6 +773,7 @@ impl Default for AppSettings {
             archive_thread_shortcut: default_archive_thread_shortcut(),
             toggle_projects_sidebar_shortcut: default_toggle_projects_sidebar_shortcut(),
             toggle_git_sidebar_shortcut: default_toggle_git_sidebar_shortcut(),
+            toggle_global_search_shortcut: default_toggle_global_search_shortcut(),
             toggle_debug_panel_shortcut: default_toggle_debug_panel_shortcut(),
             toggle_terminal_shortcut: default_toggle_terminal_shortcut(),
             cycle_agent_next_shortcut: default_cycle_agent_next_shortcut(),
@@ -904,6 +914,10 @@ mod tests {
         assert_eq!(
             settings.toggle_terminal_shortcut.as_deref(),
             Some("cmd+shift+t")
+        );
+        assert_eq!(
+            settings.toggle_global_search_shortcut.as_deref(),
+            Some("cmd+o")
         );
         assert_eq!(
             settings.cycle_agent_next_shortcut.as_deref(),
