@@ -1355,6 +1355,8 @@ const zh = {
       linked: "已关联",
       processing: "处理中...",
       generateTitle: "生成标题",
+      generateTitleFailed: "生成标题失败",
+      generateTitleTimeout: "生成标题超时，请稍后重试",
     },
     conversation: {
       close: "关闭",

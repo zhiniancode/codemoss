@@ -4,6 +4,7 @@ import { X, ImagePlus, Sparkles, Loader2 } from "lucide-react";
 import type { EngineStatus, EngineType } from "../../../types";
 import type { KanbanTaskStatus } from "../types";
 import { pickImageFiles, generateThreadTitle } from "../../../services/tauri";
+import { pushErrorToast } from "../../../services/toasts";
 import { RichTextInput } from "../../../components/common/RichTextInput";
 import { useInlineHistoryCompletion } from "../../composer/hooks/useInlineHistoryCompletion";
 import { recordHistory as recordInputHistory } from "../../composer/hooks/useInputHistoryStore";
@@ -24,6 +25,7 @@ type CreateTaskInput = {
 type TaskCreateModalProps = {
   isOpen: boolean;
   workspaceId: string;
+  workspaceBackendId: string;
   panelId: string;
   defaultStatus: KanbanTaskStatus;
   engineStatuses: EngineStatus[];
@@ -34,6 +36,7 @@ type TaskCreateModalProps = {
 export function TaskCreateModal({
   isOpen,
   workspaceId,
+  workspaceBackendId,
   panelId,
   defaultStatus,
   engineStatuses,
@@ -144,21 +147,29 @@ export function TaskCreateModal({
     const trimmedDesc = description.trim();
     if (!trimmedDesc || isGeneratingTitle) return;
     setIsGeneratingTitle(true);
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     try {
       const language = i18n.language.toLowerCase().startsWith("zh") ? "zh" : "en";
-      const generated = await generateThreadTitle(
-        workspaceId,
-        "temp-title-gen",
-        trimmedDesc,
-        language,
-      );
+      const generated = await Promise.race([
+        generateThreadTitle(workspaceBackendId, "temp-title-gen", trimmedDesc, language),
+        new Promise<never>((_, reject) =>
+          timeoutHandle = setTimeout(() => reject(new Error("timeout")), 15_000),
+        ),
+      ]);
       const result = generated.trim();
       if (result) {
         setTitle(result);
       }
-    } catch {
-      // generation failed silently
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      pushErrorToast({
+        title: t("kanban.task.generateTitleFailed"),
+        message: msg === "timeout" ? t("kanban.task.generateTitleTimeout") : msg,
+      });
     } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
       setIsGeneratingTitle(false);
     }
   };

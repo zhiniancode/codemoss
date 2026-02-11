@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode, type MouseEvent } from 
 import { useTranslation } from "react-i18next";
 import { DragDropContext } from "@hello-pangea/dnd";
 import type { DropResult } from "@hello-pangea/dnd";
-import { X } from "lucide-react";
+import { Terminal, X } from "lucide-react";
 import type { AppMode, EngineStatus, EngineType, WorkspaceInfo } from "../../../types";
 import type {
   KanbanColumnDef,
@@ -55,6 +55,8 @@ type KanbanBoardProps = {
   kanbanConversationWidth?: number;
   onKanbanConversationResizeStart?: (event: MouseEvent<HTMLDivElement>) => void;
   gitPanelNode: ReactNode | null;
+  terminalOpen?: boolean;
+  onToggleTerminal?: () => void;
 };
 
 export function KanbanBoard({
@@ -81,6 +83,8 @@ export function KanbanBoard({
   kanbanConversationWidth,
   onKanbanConversationResizeStart,
   gitPanelNode,
+  terminalOpen = false,
+  onToggleTerminal,
 }: KanbanBoardProps) {
   const { t } = useTranslation();
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -267,9 +271,24 @@ export function KanbanBoard({
         )}
       </div>
 
+      {onToggleTerminal && (
+        <div className="kanban-terminal-bar">
+          <button
+            className={`kanban-terminal-btn${terminalOpen ? " is-active" : ""}`}
+            type="button"
+            onClick={onToggleTerminal}
+            aria-label={t("common.terminal")}
+          >
+            <Terminal size={14} aria-hidden />
+            <span>{t("common.terminal")}</span>
+          </button>
+        </div>
+      )}
+
       <TaskCreateModal
         isOpen={createModalOpen}
         workspaceId={workspace.path}
+        workspaceBackendId={workspace.id}
         panelId={panel.id}
         defaultStatus={createDefaultStatus}
         engineStatuses={engineStatuses}
