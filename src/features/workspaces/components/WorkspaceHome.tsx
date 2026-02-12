@@ -11,6 +11,8 @@ import MessagesSquare from "lucide-react/dist/esm/icons/messages-square";
 import Search from "lucide-react/dist/esm/icons/search";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles";
 import type { WorkspaceInfo } from "../../../types";
+import type { EngineType } from "../../../types";
+import { EngineIcon } from "../../engine/components/EngineIcon";
 import { formatRelativeTimeShort } from "../../../utils/time";
 
 export type WorkspaceHomeThreadSummary = {
@@ -41,11 +43,22 @@ type WorkspaceHomeProps = {
   currentBranch: string | null;
   recentThreads: WorkspaceHomeThreadSummary[];
   onSelectConversation: (workspaceId: string, threadId: string) => void;
-  onStartConversation: () => Promise<void>;
+  onStartConversation: (engine: EngineType) => Promise<void>;
   onContinueLatestConversation: () => void;
-  onStartGuidedConversation: (prompt: string) => Promise<void>;
+  onStartGuidedConversation: (prompt: string, engine: EngineType) => Promise<void>;
   onRevealWorkspace: () => Promise<void>;
 };
+
+const START_CONVERSATION_ENGINE_OPTIONS: Array<{
+  type: EngineType;
+  labelKey: string;
+  disabled?: boolean;
+}> = [
+  { type: "claude", labelKey: "workspace.engineClaudeCode" },
+  { type: "codex", labelKey: "workspace.engineCodex" },
+  { type: "gemini", labelKey: "workspace.engineGemini", disabled: true },
+  { type: "opencode", labelKey: "workspace.engineOpenCode", disabled: true },
+];
 
 export function WorkspaceHome({
   workspace,
@@ -61,6 +74,7 @@ export function WorkspaceHome({
   const [copiedPath, setCopiedPath] = useState(false);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [pendingGuideId, setPendingGuideId] = useState<string | null>(null);
+  const [startConversationEngine, setStartConversationEngine] = useState<EngineType>("claude");
   const latestThread = recentThreads[0] ?? null;
 
   const guides = useMemo<WorkspaceGuide[]>(
@@ -129,7 +143,7 @@ export function WorkspaceHome({
     }
     setIsStartingConversation(true);
     try {
-      await onStartConversation();
+      await onStartConversation(startConversationEngine);
     } finally {
       setIsStartingConversation(false);
     }
@@ -148,7 +162,7 @@ export function WorkspaceHome({
     }
     setPendingGuideId(guide.id);
     try {
-      await onStartGuidedConversation(guide.prompt);
+      await onStartGuidedConversation(guide.prompt, startConversationEngine);
     } finally {
       setPendingGuideId(null);
     }
@@ -194,21 +208,45 @@ export function WorkspaceHome({
       </header>
 
       <div className="workspace-home-primary-actions">
-        <button
-          type="button"
-          className="workspace-home-primary-button"
-          onClick={() => {
-            void handleStartConversation();
-          }}
-          disabled={isStartingConversation}
-        >
-          <MessagesSquare size={16} aria-hidden />
-          <span>
-            {isStartingConversation
-              ? t("workspace.startingConversation")
-              : t("workspace.startConversation")}
+        <div className="workspace-home-start-conversation-group">
+          <span
+            className="workspace-home-engine-select-label"
+            aria-label={t("workspace.conversationType")}
+            title={t("workspace.conversationType")}
+          >
+            <EngineIcon engine={startConversationEngine} size={14} />
           </span>
-        </button>
+          <select
+            id="workspace-home-engine-select"
+            className="workspace-home-engine-select"
+            value={startConversationEngine}
+            onChange={(event) => {
+              setStartConversationEngine(event.target.value as EngineType);
+            }}
+          >
+            {START_CONVERSATION_ENGINE_OPTIONS.map((option) => (
+              <option key={option.type} value={option.type} disabled={Boolean(option.disabled)}>
+                {t(option.labelKey)}
+                {option.disabled ? ` (${t("workspace.engineComingSoon")})` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="workspace-home-primary-button workspace-home-start-create-button"
+            onClick={() => {
+              void handleStartConversation();
+            }}
+            disabled={isStartingConversation}
+          >
+            <MessagesSquare size={16} aria-hidden />
+            <span>
+              {isStartingConversation
+                ? t("workspace.startingConversation")
+                : t("workspace.startConversation")}
+            </span>
+          </button>
+        </div>
         <button
           type="button"
           className="workspace-home-primary-button workspace-home-primary-button-secondary"

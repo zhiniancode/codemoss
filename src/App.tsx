@@ -2085,7 +2085,7 @@ function MainApp() {
     ],
   );
 
-  const handleStartWorkspaceConversation = useCallback(async () => {
+  const handleStartWorkspaceConversation = useCallback(async (engine: EngineType = "claude") => {
     if (!activeWorkspace) {
       return;
     }
@@ -2093,9 +2093,10 @@ function MainApp() {
       if (!activeWorkspace.connected) {
         await connectWorkspace(activeWorkspace);
       }
+      await setActiveEngine(engine);
       const threadId = await startThreadForWorkspace(activeWorkspace.id, {
         activate: true,
-        engine: activeEngine,
+        engine,
       });
       if (!threadId) {
         return;
@@ -2108,11 +2109,11 @@ function MainApp() {
       alertError(error);
     }
   }, [
-    activeEngine,
     activeWorkspace,
     alertError,
     connectWorkspace,
     isCompact,
+    setActiveEngine,
     setActiveTab,
     setActiveThreadId,
     startThreadForWorkspace,
@@ -2127,7 +2128,7 @@ function MainApp() {
   }, [handleSelectWorkspaceInstance, recentThreads]);
 
   const handleStartGuidedConversation = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, engine: EngineType = "claude") => {
       const normalizedPrompt = prompt.trim();
       if (!activeWorkspace || !normalizedPrompt) {
         return;
@@ -2136,9 +2137,10 @@ function MainApp() {
         if (!activeWorkspace.connected) {
           await connectWorkspace(activeWorkspace);
         }
+        await setActiveEngine(engine);
         const threadId = await startThreadForWorkspace(activeWorkspace.id, {
           activate: true,
-          engine: activeEngine,
+          engine,
         });
         if (!threadId) {
           return;
@@ -2153,12 +2155,12 @@ function MainApp() {
       }
     },
     [
-      activeEngine,
       activeWorkspace,
       alertError,
       connectWorkspace,
       isCompact,
       sendUserMessageToThread,
+      setActiveEngine,
       setActiveTab,
       setActiveThreadId,
       startThreadForWorkspace,
