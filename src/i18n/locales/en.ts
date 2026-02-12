@@ -693,6 +693,8 @@ const en = {
     contextUsageAriaLabel: "Context usage: {{percent}} used, {{used}} / {{total}}",
     noModels: "No models",
     dragToResize: "Drag to resize",
+    expandInput: "Expand input",
+    collapsedProcessing: "Running, tap to expand",
     addImage: "Add image",
     // Review
     reviewAgainstBaseBranch: "Review against a base branch",
@@ -720,6 +722,11 @@ const en = {
     optionalLabel: "Optional label",
     new: "New",
     saving: "Saving...",
+    fileReference: "File reference",
+    activeFile: "Active file",
+    fileReferenceHint: "Toggle injecting active file path into message",
+    fileReferencePathOn: "Path linked",
+    fileReferencePathOff: "Path off",
   },
 
   // Git
@@ -1229,6 +1236,7 @@ const en = {
     saveShortcut: "⌘S to save",
     discardChanges: "Discard changes?",
     discardChangesMessage: "You have unsaved changes. Discard them?",
+    closeAllTabs: "Close all tabs",
     discard: "Discard",
     cancel: "Cancel",
     fileTooLarge: "File too large to edit",

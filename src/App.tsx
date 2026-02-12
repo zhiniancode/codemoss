@@ -378,8 +378,12 @@ function MainApp() {
     handleSelectCommit,
     handleActiveDiffPath,
     handleGitPanelModeChange,
-    editorFilePath,
+    activeEditorFilePath,
+    openFileTabs,
     handleOpenFile,
+    handleActivateFileTab,
+    handleCloseFileTab,
+    handleCloseAllFileTabs,
     handleExitEditor,
     activeWorkspaceIdRef,
     activeWorkspaceRef,
@@ -395,6 +399,18 @@ function MainApp() {
     prDiffsLoading: gitPullRequestDiffsLoading,
     prDiffsError: gitPullRequestDiffsError,
   });
+  const [activeEditorLineRange, setActiveEditorLineRange] = useState<{
+    startLine: number;
+    endLine: number;
+  } | null>(null);
+  const [fileReferenceMode, setFileReferenceMode] = useState<"path" | "none">("path");
+
+  useEffect(() => {
+    if (!activeEditorFilePath) {
+      setActiveEditorLineRange(null);
+    }
+  }, [activeEditorFilePath]);
+
 
   const shouldLoadGitHubPanelData =
     gitPanelMode === "issues" ||
@@ -1766,6 +1782,7 @@ function MainApp() {
       activeDraft,
       isCompact,
       kanbanTasks,
+      workspacesByPath,
       selectWorkspace,
       setActiveTab,
       setAppMode,
@@ -2026,6 +2043,26 @@ function MainApp() {
       kanbanCreateTask,
       kanbanUpdateTask,
     ],
+  );
+
+  const handleComposerSendWithEditorFallback = useCallback(
+    async (text: string, images: string[]) => {
+      await handleComposerSendWithKanban(text, images);
+      if (!isCompact && centerMode === "editor") {
+        setCenterMode("chat");
+      }
+    },
+    [centerMode, handleComposerSendWithKanban, isCompact, setCenterMode],
+  );
+
+  const handleComposerQueueWithEditorFallback = useCallback(
+    async (text: string, images: string[]) => {
+      await handleComposerQueue(text, images);
+      if (!isCompact && centerMode === "editor") {
+        setCenterMode("chat");
+      }
+    },
+    [centerMode, handleComposerQueue, isCompact, setCenterMode],
   );
 
   const handleSelectWorkspaceInstance = useCallback(
@@ -2305,7 +2342,7 @@ function MainApp() {
         kanbanUpdateTask(task.id, { threadId: newThread.id });
       }
     }
-  }, [kanbanTasks, threadStatusById, threadsByWorkspace, kanbanUpdateTask]);
+  }, [kanbanTasks, threadStatusById, threadsByWorkspace, kanbanUpdateTask, workspacesByPath]);
 
   useEffect(() => {
     if (appMode !== "kanban") {
@@ -2477,7 +2514,7 @@ function MainApp() {
   };
 
   const showComposer = Boolean(selectedKanbanTaskId) || ((!isCompact
-    ? centerMode === "chat" || centerMode === "diff"
+    ? centerMode === "chat" || centerMode === "diff" || centerMode === "editor"
     : (isTablet ? tabletTab : activeTab) === "codex") && !showWorkspaceHome);
   const showGitDetail = Boolean(selectedDiffPath) && isPhone;
   const isThreadOpen = Boolean(activeThreadId && showComposer);
@@ -2615,6 +2652,7 @@ function MainApp() {
     onSelectWorkspace: (workspaceId) => {
       exitDiffView();
       resetPullRequestSelection();
+      setCenterMode("chat");
       selectWorkspace(workspaceId);
       setActiveThreadId(null, workspaceId);
     },
@@ -2639,6 +2677,7 @@ function MainApp() {
     onSelectThread: (workspaceId, threadId) => {
       exitDiffView();
       resetPullRequestSelection();
+      setCenterMode("chat");
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
       // Auto-switch engine based on thread's engineSource
@@ -2782,7 +2821,12 @@ function MainApp() {
     fileTreeLoading: isFilesLoading,
     onRefreshFiles: refreshFiles,
     centerMode,
-    editorFilePath,
+    editorFilePath: activeEditorFilePath,
+    openEditorTabs: openFileTabs,
+    onActivateEditorTab: handleActivateFileTab,
+    onCloseEditorTab: handleCloseFileTab,
+    onCloseAllEditorTabs: handleCloseAllFileTabs,
+    onActiveEditorLineRangeChange: setActiveEditorLineRange,
     onOpenFile: handleOpenFile,
     onExitEditor: handleExitEditor,
     onExitDiff: () => {
@@ -2891,8 +2935,8 @@ function MainApp() {
     onRevealWorkspacePrompts: handleRevealWorkspacePrompts,
     onRevealGeneralPrompts: handleRevealGeneralPrompts,
     canRevealGeneralPrompts: Boolean(activeWorkspace),
-    onSend: handleComposerSendWithKanban,
-    onQueue: handleComposerQueue,
+    onSend: handleComposerSendWithEditorFallback,
+    onQueue: handleComposerQueueWithEditorFallback,
     onStop: interruptTurn,
     canStop: canInterrupt,
     isReviewing,
@@ -2984,6 +3028,10 @@ function MainApp() {
     onSelectComposerKanbanPanel: setSelectedComposerKanbanPanelId,
     onComposerKanbanContextModeChange: setComposerKanbanContextMode,
     onOpenComposerKanbanPanel: handleOpenComposerKanbanPanel,
+    activeComposerFilePath: activeEditorFilePath,
+    activeComposerFileLineRange: activeEditorLineRange,
+    fileReferenceMode,
+    onFileReferenceModeChange: setFileReferenceMode,
     showComposer,
     plan: activePlan,
     debugEntries,
