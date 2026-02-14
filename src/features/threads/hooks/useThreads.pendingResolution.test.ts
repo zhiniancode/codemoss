@@ -4,7 +4,7 @@ import { resolvePendingThreadIdForSession } from "./useThreads";
 describe("resolvePendingThreadIdForSession", () => {
   const workspaceId = "ws-1";
 
-  it("returns null when only active thread can disambiguate pending", () => {
+  it("prefers active pending thread when only active thread can disambiguate", () => {
     const resolved = resolvePendingThreadIdForSession({
       workspaceId,
       engine: "opencode",
@@ -16,7 +16,7 @@ describe("resolvePendingThreadIdForSession", () => {
       activeTurnIdByThread: {},
     });
 
-    expect(resolved).toBeNull();
+    expect(resolved).toBe("opencode-pending-b");
   });
 
   it("falls back to single processing pending thread", () => {
@@ -68,7 +68,7 @@ describe("resolvePendingThreadIdForSession", () => {
     expect(resolved).toBe("claude-pending-a");
   });
 
-  it("returns null for ambiguous pending candidates", () => {
+  it("returns null for ambiguous pending candidates without active/timestamp hints", () => {
     const resolved = resolvePendingThreadIdForSession({
       workspaceId,
       engine: "opencode",
@@ -81,5 +81,23 @@ describe("resolvePendingThreadIdForSession", () => {
     });
 
     expect(resolved).toBeNull();
+  });
+
+  it("falls back to latest pending timestamp when ambiguous", () => {
+    const resolved = resolvePendingThreadIdForSession({
+      workspaceId,
+      engine: "opencode",
+      threadsByWorkspace: {
+        "ws-1": [
+          { id: "opencode-pending-1700000000001-aaaaaa" },
+          { id: "opencode-pending-1700000000002-bbbbbb" },
+        ],
+      },
+      activeThreadIdByWorkspace: { "ws-1": "thread-neutral" },
+      threadStatusById: {},
+      activeTurnIdByThread: {},
+    });
+
+    expect(resolved).toBe("opencode-pending-1700000000002-bbbbbb");
   });
 });

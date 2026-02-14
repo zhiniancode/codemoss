@@ -661,6 +661,7 @@ const en = {
     messages: "messages",
     emptyThread: "Start a thread and send a prompt to the agent.",
     generatingResponse: "Generating response...",
+    nonStreamingHint: "This model may return non-streaming output, or the network may be unreachable. Please wait...",
     doneIn: "Done in {{duration}}",
     copyMessage: "Copy message",
     closeImagePreview: "Close image preview",

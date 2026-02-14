@@ -575,6 +575,49 @@ describe("useThreadTurnEvents", () => {
     expect(renameThreadTitleMapping).not.toHaveBeenCalled();
   });
 
+  it("uses engine hint to reconcile non-prefixed source thread id", () => {
+    const {
+      result,
+      dispatch,
+      renameCustomNameKey,
+      renameAutoTitlePendingKey,
+      renameThreadTitleMapping,
+      resolvePendingThreadForSession,
+    } = makeOptions();
+    resolvePendingThreadForSession.mockReturnValue(null);
+
+    act(() => {
+      result.current.onThreadSessionIdUpdated(
+        "ws-1",
+        "2112",
+        "ses_abc",
+        "opencode",
+      );
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "renameThreadId",
+      workspaceId: "ws-1",
+      oldThreadId: "2112",
+      newThreadId: "opencode:ses_abc",
+    });
+    expect(renameCustomNameKey).toHaveBeenCalledWith(
+      "ws-1",
+      "2112",
+      "opencode:ses_abc",
+    );
+    expect(renameAutoTitlePendingKey).toHaveBeenCalledWith(
+      "ws-1",
+      "2112",
+      "opencode:ses_abc",
+    );
+    expect(renameThreadTitleMapping).toHaveBeenCalledWith(
+      "ws-1",
+      "2112",
+      "opencode:ses_abc",
+    );
+  });
+
   it("dispatches normalized plan updates", () => {
     const { result, dispatch } = makeOptions();
     const normalized = { id: "turn-3", steps: [] };

@@ -99,6 +99,7 @@ describe("OpenCodeControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "打开状态面板" }));
     expect(screen.getByRole("dialog", { name: "OpenCode 管理面板" })).toBeTruthy();
+    expect(screen.getByText("连接引导")).toBeTruthy();
     expect(screen.getByText("Connect a provider")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
@@ -112,7 +113,7 @@ describe("OpenCodeControlPanel", () => {
     expect(screen.getByText("Debug / Console / Heap 入口已下沉到 Advanced。")).toBeTruthy();
   });
 
-  it("closes provider modal first, then drawer on Escape", () => {
+  it("closes drawer on Escape", () => {
     render(
       <OpenCodeControlPanel
         visible
@@ -125,13 +126,6 @@ describe("OpenCodeControlPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "打开状态面板" }));
-    fireEvent.click(screen.getByRole("button", { name: /openai/i }));
-    expect(screen.getByRole("dialog", { name: "Connect a provider" })).toBeTruthy();
-
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Connect a provider" })).toBeNull();
-    expect(screen.getByRole("dialog", { name: "OpenCode 管理面板" })).toBeTruthy();
-
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "OpenCode 管理面板" })).toBeNull();
   });

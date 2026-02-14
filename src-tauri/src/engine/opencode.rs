@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -19,6 +20,7 @@ use super::{EngineConfig, EngineType, SendMessageParams};
 const OPENCODE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const OPENCODE_POST_RESPONSE_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 const OPENCODE_TOTAL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+const OPENCODE_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone)]
 pub struct OpenCodeTurnEvent {
@@ -36,10 +38,57 @@ pub struct OpenCodeSession {
     home_dir: Option<String>,
     custom_args: Option<String>,
     active_processes: Mutex<HashMap<String, Child>>,
+    session_model_hints: Mutex<HashMap<String, String>>,
     interrupted: AtomicBool,
 }
 
 impl OpenCodeSession {
+    fn has_proxy_env() -> bool {
+        std::env::var("HTTPS_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
+            || std::env::var("https_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
+            || std::env::var("HTTP_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
+            || std::env::var("http_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
+            || std::env::var("ALL_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
+            || std::env::var("all_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
+    }
+
+    fn requires_openai_connectivity_probe(model: Option<&str>) -> bool {
+        let raw = model.unwrap_or_default().trim().to_lowercase();
+        if raw.is_empty() {
+            return true;
+        }
+        if raw.starts_with("openai/") {
+            return true;
+        }
+        raw.starts_with("gpt-")
+            || raw.starts_with("o1")
+            || raw.starts_with("o3")
+            || raw.starts_with("o4")
+            || raw.starts_with("codex")
+    }
+
+    async fn run_connectivity_preflight(model: Option<&str>) -> Result<(), String> {
+        // Direct TCP probe is not reliable in proxy networks; let CLI handle connectivity.
+        if Self::has_proxy_env() {
+            return Ok(());
+        }
+        if !Self::requires_openai_connectivity_probe(model) {
+            return Ok(());
+        }
+        match timeout(OPENCODE_PREFLIGHT_TIMEOUT, TcpStream::connect(("api.openai.com", 443))).await
+        {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(err)) => Err(format!(
+                "Error: Unable to connect. Is the computer able to access the url? ({})",
+                err
+            )),
+            Err(_) => Err(
+                "Error: Unable to connect. Is the computer able to access the url? (preflight timeout)"
+                    .to_string(),
+            ),
+        }
+    }
+
     pub fn new(
         workspace_id: String,
         workspace_path: PathBuf,
@@ -56,8 +105,17 @@ impl OpenCodeSession {
             home_dir: config.home_dir,
             custom_args: config.custom_args,
             active_processes: Mutex::new(HashMap::new()),
+            session_model_hints: Mutex::new(HashMap::new()),
             interrupted: AtomicBool::new(false),
         }
+    }
+
+    fn normalize_model_key(model: Option<&str>) -> Option<String> {
+        let value = model?.trim();
+        if value.is_empty() {
+            return None;
+        }
+        Some(value.to_lowercase())
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<OpenCodeTurnEvent> {
@@ -159,7 +217,40 @@ impl OpenCodeSession {
         params: SendMessageParams,
         turn_id: &str,
     ) -> Result<String, String> {
-        let mut cmd = self.build_command(&params);
+        let mut effective_params = params;
+        let requested_model_key = Self::normalize_model_key(effective_params.model.as_deref());
+        if effective_params.continue_session {
+            if let (Some(session_id), Some(model_key)) =
+                (effective_params.session_id.as_deref(), requested_model_key.as_deref())
+            {
+                let known_model_for_session = {
+                    let hints = self.session_model_hints.lock().await;
+                    hints.get(session_id).cloned()
+                };
+                if let Some(known) = known_model_for_session {
+                    if known != *model_key {
+                        log::info!(
+                            "OpenCode model switched for session {} ({} -> {}), forcing new session",
+                            session_id,
+                            known,
+                            model_key
+                        );
+                        effective_params.continue_session = false;
+                        effective_params.session_id = None;
+                    }
+                }
+            }
+        }
+
+        if let Err(preflight_error) =
+            Self::run_connectivity_preflight(effective_params.model.as_deref()).await
+        {
+            // Keep preflight advisory only. Blocking here can cause false negatives
+            // in constrained or transient network environments.
+            log::warn!("OpenCode connectivity preflight warning: {}", preflight_error);
+        }
+
+        let mut cmd = self.build_command(&effective_params);
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn opencode: {}", e))?;
@@ -340,8 +431,17 @@ impl OpenCodeSession {
             return Err(error_msg);
         }
 
-        if let Some(sid) = new_session_id {
-            self.set_session_id(Some(sid)).await;
+        if let Some(ref sid) = new_session_id {
+            self.set_session_id(Some(sid.clone())).await;
+        }
+
+        if let Some(model_key) = requested_model_key {
+            let mut hints = self.session_model_hints.lock().await;
+            if let Some(new_sid) = new_session_id.as_ref() {
+                hints.insert(new_sid.clone(), model_key.clone());
+            } else if let Some(existing_sid) = effective_params.session_id.as_ref() {
+                hints.insert(existing_sid.clone(), model_key.clone());
+            }
         }
 
         if !saw_turn_completed {
@@ -431,6 +531,53 @@ fn extract_text_delta(event: &Value) -> Option<String> {
     Some(text.to_string())
 }
 
+fn extract_text_from_message(event: &Value) -> Option<String> {
+    let text = first_non_empty_str(&[
+        event
+            .get("message")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str()),
+        event
+            .get("message")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str()),
+        event
+            .get("output")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str()),
+        event
+            .get("result")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str()),
+    ]);
+    if let Some(text) = text {
+        return Some(text.to_string());
+    }
+
+    let content_parts = event
+        .get("message")
+        .and_then(|v| v.get("content"))
+        .and_then(|v| v.as_array());
+    let mut merged = String::new();
+    if let Some(parts) = content_parts {
+        for part in parts {
+            if let Some(segment) = first_non_empty_str(&[
+                part.get("text").and_then(|v| v.as_str()),
+                part.get("delta").and_then(|v| v.as_str()),
+                part.get("content").and_then(|v| v.as_str()),
+            ]) {
+                merged.push_str(segment);
+            }
+        }
+    }
+    let merged = merged.trim();
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged.to_string())
+    }
+}
+
 pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<EngineEvent> {
     let event_type = event.get("type").and_then(|v| v.as_str())?;
     match event_type {
@@ -451,6 +598,20 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
         "reasoning_delta" => {
             let text = extract_text_delta(event)?;
             Some(EngineEvent::ReasoningDelta {
+                workspace_id: workspace_id.to_string(),
+                text,
+            })
+        }
+        "text_delta" | "output_text_delta" | "assistant_message_delta" | "message_delta" => {
+            let text = extract_text_delta(event).or_else(|| extract_text_from_message(event))?;
+            Some(EngineEvent::TextDelta {
+                workspace_id: workspace_id.to_string(),
+                text,
+            })
+        }
+        "assistant_message" | "message" => {
+            let text = extract_text_from_message(event)?;
+            Some(EngineEvent::TextDelta {
                 workspace_id: workspace_id.to_string(),
                 text,
             })
@@ -627,6 +788,19 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                     result: Some(event.clone()),
                 });
             }
+            let lower = event_type.to_ascii_lowercase();
+            if (lower.contains("delta") || lower.contains("message") || lower.contains("text"))
+                && !lower.contains("tool")
+            {
+                if let Some(text) =
+                    extract_text_delta(event).or_else(|| extract_text_from_message(event))
+                {
+                    return Some(EngineEvent::TextDelta {
+                        workspace_id: workspace_id.to_string(),
+                        text,
+                    });
+                }
+            }
             Some(EngineEvent::Raw {
                 workspace_id: workspace_id.to_string(),
                 engine: EngineType::OpenCode,
@@ -758,6 +932,43 @@ mod tests {
             Some(EngineEvent::TextDelta { workspace_id, text }) => {
                 assert_eq!(workspace_id, "ws-1");
                 assert_eq!(text, "func");
+            }
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn parse_output_text_delta_event() {
+        let event = json!({
+            "type": "output_text_delta",
+            "delta": "hello"
+        });
+        let parsed = parse_opencode_event("ws-1", &event);
+        match parsed {
+            Some(EngineEvent::TextDelta { workspace_id, text }) => {
+                assert_eq!(workspace_id, "ws-1");
+                assert_eq!(text, "hello");
+            }
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn parse_message_event_with_content_parts() {
+        let event = json!({
+            "type": "message",
+            "message": {
+                "content": [
+                    { "type": "text", "text": "hello " },
+                    { "type": "text", "text": "world" }
+                ]
+            }
+        });
+        let parsed = parse_opencode_event("ws-1", &event);
+        match parsed {
+            Some(EngineEvent::TextDelta { workspace_id, text }) => {
+                assert_eq!(workspace_id, "ws-1");
+                assert_eq!(text, "helloworld");
             }
             _ => panic!("expected TextDelta"),
         }

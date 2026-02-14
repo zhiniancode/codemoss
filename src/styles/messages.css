@@ -157,6 +157,12 @@
   animation: working-shimmer 2.2s ease-in-out infinite;
 }
 
+.working-hint {
+  margin-left: 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 :root[data-theme="light"] .working-text {
   color: var(--text-muted);
   background: none;

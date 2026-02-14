@@ -26,6 +26,7 @@ import Wrench from "lucide-react/dist/esm/icons/wrench";
 import FileText from "lucide-react/dist/esm/icons/file-text";
 import Plug from "lucide-react/dist/esm/icons/plug";
 import Lock from "lucide-react/dist/esm/icons/lock";
+import Cpu from "lucide-react/dist/esm/icons/cpu";
 import FileIcon from "../../../components/FileIcon";
 import { EngineSelector } from "../../engine/components/EngineSelector";
 import { useComposerImageDrop } from "../hooks/useComposerImageDrop";
@@ -35,7 +36,6 @@ import { DictationWaveform } from "../../dictation/components/DictationWaveform"
 import { ReviewInlinePrompt } from "./ReviewInlinePrompt";
 import type { ReviewPromptState, ReviewPromptStep } from "../../threads/hooks/useReviewPrompt";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
-import { inferOpenCodeModelBadges } from "../../opencode/store/modelMetadata";
 
 type ComposerInputProps = {
   text: string;
@@ -263,8 +263,6 @@ export function ComposerInput({
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resizeHandleRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [openCodeModelPickerOpen, setOpenCodeModelPickerOpen] = useState(false);
-  const [openCodeModelQuery, setOpenCodeModelQuery] = useState("");
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
 
@@ -434,29 +432,11 @@ export function ComposerInput({
     selectedEngine === "opencode"
       ? selectedModelLabelRaw.split("/").pop() || selectedModelLabelRaw
       : selectedModelLabelRaw;
-  const openCodeModelBadges =
-    selectedEngine === "opencode"
-      ? inferOpenCodeModelBadges(
-          selectedModel?.model ?? selectedModelLabelRaw,
-        )
-      : [];
   const sortedOpenCodeAgents = useMemo(() => {
     const primary = opencodeAgents.filter((agent) => agent.isPrimary);
     const others = opencodeAgents.filter((agent) => !agent.isPrimary);
     return [...primary, ...others];
   }, [opencodeAgents]);
-  const filteredOpenCodeModels = useMemo(() => {
-    if (!models) {
-      return [];
-    }
-    const keyword = openCodeModelQuery.trim().toLowerCase();
-    if (!keyword) {
-      return models;
-    }
-    return models.filter((model) =>
-      `${model.displayName} ${model.model} ${model.id}`.toLowerCase().includes(keyword),
-    );
-  }, [models, openCodeModelQuery]);
 
   return (
     <div className={`composer-input${isDragging ? " is-resizing" : ""}`}>
@@ -544,34 +524,20 @@ export function ComposerInput({
             )}
 
             {openCodeDock}
+
+            {selectedEngine === "opencode" && (
+              <div className="composer-select-wrap composer-opencode-model-indicator" title={selectedModelLabelRaw}>
+                <span className="composer-icon" aria-hidden>
+                  <Cpu size={14} />
+                </span>
+                <span className="composer-select-value">{selectedModelDisplay}</span>
+              </div>
+            )}
             
-            {models && onSelectModel && (
+            {models && onSelectModel && selectedEngine !== "opencode" && (
               <div
-                className={`composer-select-wrap${selectedEngine === "opencode" ? " is-opencode-model-picker" : ""}`}
+                className="composer-select-wrap"
                 title={selectedModelLabelRaw}
-                role={selectedEngine === "opencode" ? "button" : undefined}
-                tabIndex={selectedEngine === "opencode" ? 0 : undefined}
-                onClick={
-                  selectedEngine === "opencode"
-                    ? () => {
-                        if (disabled) return;
-                        setOpenCodeModelQuery("");
-                        setOpenCodeModelPickerOpen(true);
-                      }
-                    : undefined
-                }
-                onKeyDown={
-                  selectedEngine === "opencode"
-                    ? (event) => {
-                        if (disabled) return;
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setOpenCodeModelQuery("");
-                          setOpenCodeModelPickerOpen(true);
-                        }
-                      }
-                    : undefined
-                }
               >
                 <span className="composer-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none">
@@ -601,40 +567,22 @@ export function ComposerInput({
                   </svg>
                 </span>
                 <span className="composer-select-value">
-                  {selectedModelDisplay}
-                  {selectedEngine === "opencode" && openCodeModelBadges.length > 0 && (
-                    <span className="composer-opencode-model-badges" aria-hidden>
-                      {openCodeModelBadges.map((badge) => (
-                        <span
-                          key={badge.label}
-                          className={`composer-opencode-model-badge composer-opencode-model-badge--${badge.tone}`}
-                        >
-                          {badge.label}
-                        </span>
-                      ))}
-                    </span>
-                  )}
+                  {selectedModelLabelRaw}
                 </span>
-                {selectedEngine === "opencode" ? (
-                  <span className="composer-select-picker-trigger" aria-hidden>
-                    ▾
-                  </span>
-                ) : (
-                  <select
-                    className="composer-select composer-select--model"
-                    aria-label={t("composer.model")}
-                    value={selectedModelId ?? ""}
-                    onChange={(event) => onSelectModel(event.target.value)}
-                    disabled={disabled}
-                  >
-                    {models.length === 0 && <option value="">{t("composer.noModels")}</option>}
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.displayName || model.model}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <select
+                  className="composer-select composer-select--model"
+                  aria-label={t("composer.model")}
+                  value={selectedModelId ?? ""}
+                  onChange={(event) => onSelectModel(event.target.value)}
+                  disabled={disabled}
+                >
+                  {models.length === 0 && <option value="">{t("composer.noModels")}</option>}
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.displayName || model.model}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -870,57 +818,6 @@ export function ComposerInput({
             </button>
           </div>
         </div>
-
-        {selectedEngine === "opencode" && openCodeModelPickerOpen && (
-          <div
-            className="composer-picker-backdrop"
-            onClick={() => setOpenCodeModelPickerOpen(false)}
-          >
-            <div className="composer-picker-modal" onClick={(event) => event.stopPropagation()}>
-              <div className="composer-picker-header">
-                <strong>Select model</strong>
-                <button
-                  type="button"
-                  className="composer-picker-close"
-                  onClick={() => setOpenCodeModelPickerOpen(false)}
-                >
-                  esc
-                </button>
-              </div>
-              <input
-                className="composer-picker-search"
-                placeholder="Search model"
-                value={openCodeModelQuery}
-                onChange={(event) => setOpenCodeModelQuery(event.target.value)}
-                autoFocus
-              />
-              <div className="composer-picker-list">
-                {filteredOpenCodeModels.length === 0 && (
-                  <div className="composer-picker-empty">{t("composer.noModels")}</div>
-                )}
-                {filteredOpenCodeModels.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    className={`composer-picker-item${model.id === selectedModelId ? " is-selected" : ""}`}
-                    onClick={() => {
-                      onSelectModel?.(model.id);
-                      setOpenCodeModelPickerOpen(false);
-                    }}
-                  >
-                    <span>{model.displayName || model.model}</span>
-                    <span className="composer-picker-item-meta">
-                      {inferOpenCodeModelBadges(model.model || model.displayName || model.id)
-                        .map((badge) => badge.label)
-                        .join(" · ")}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {isDictationBusy && (
           <DictationWaveform
             active={isDictating}

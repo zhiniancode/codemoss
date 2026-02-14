@@ -3,6 +3,7 @@ export type OpenCodeProviderHealth = {
   connected: boolean;
   credentialCount: number;
   matched: boolean;
+  authenticatedProviders?: string[];
   error?: string | null;
 };
 

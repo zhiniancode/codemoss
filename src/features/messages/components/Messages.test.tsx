@@ -294,6 +294,40 @@ describe("Messages", () => {
     expect(label).toMatch(/Working|Generating response|messages\.generatingResponse/);
   });
 
+  it("shows non-streaming hint for opencode when waiting long for first chunk", () => {
+    vi.useFakeTimers();
+    try {
+      const items: ConversationItem[] = [
+        {
+          id: "user-latest",
+          kind: "message",
+          role: "user",
+          text: "请解释一下",
+        },
+      ];
+
+      const { container } = render(
+        <Messages
+          items={items}
+          threadId="thread-1"
+          workspaceId="ws-1"
+          isThinking
+          processingStartedAt={Date.now() - 13_000}
+          activeEngine="opencode"
+          openTargets={[]}
+          selectedOpenAppId=""
+        />,
+      );
+
+      const hint = container.querySelector(".working-hint");
+      expect(hint).toBeTruthy();
+      const hintText = (hint?.textContent ?? "").trim();
+      expect(hintText.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the latest title-only reasoning label without rendering a reasoning row", () => {
     const items: ConversationItem[] = [
       {

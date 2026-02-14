@@ -45,6 +45,7 @@ type MessagesProps = {
     request: RequestUserInputRequest,
     response: RequestUserInputResponse,
   ) => void;
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
 };
 
 type StatusTone = "completed" | "processing" | "failed" | "unknown";
@@ -55,6 +56,8 @@ type WorkingIndicatorProps = {
   lastDurationMs?: number | null;
   hasItems: boolean;
   reasoningLabel?: string | null;
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  waitingForFirstChunk?: boolean;
 };
 
 type MessageRowProps = {
@@ -95,6 +98,7 @@ type MessageImage = {
 };
 
 const SCROLL_THRESHOLD_PX = 120;
+const OPENCODE_NON_STREAMING_HINT_DELAY_MS = 12_000;
 
 function sanitizeReasoningTitle(title: string) {
   return title
@@ -294,6 +298,8 @@ const WorkingIndicator = memo(function WorkingIndicator({
   lastDurationMs = null,
   hasItems,
   reasoningLabel = null,
+  activeEngine = "claude",
+  waitingForFirstChunk = false,
 }: WorkingIndicatorProps) {
   const { t } = useTranslation();
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -310,6 +316,17 @@ const WorkingIndicator = memo(function WorkingIndicator({
     return () => window.clearInterval(interval);
   }, [isThinking, processingStartedAt]);
 
+  const showNonStreamingHint =
+    activeEngine === "opencode" &&
+    isThinking &&
+    waitingForFirstChunk &&
+    elapsedMs >= OPENCODE_NON_STREAMING_HINT_DELAY_MS;
+  const nonStreamingHintText = t("messages.nonStreamingHint");
+  const resolvedNonStreamingHint =
+    nonStreamingHintText === "messages.nonStreamingHint"
+      ? "This model may return non-streaming output, or the network may be unreachable. Please wait..."
+      : nonStreamingHintText;
+
   return (
     <>
       {isThinking && (
@@ -319,6 +336,9 @@ const WorkingIndicator = memo(function WorkingIndicator({
             <span className="working-timer-clock">{formatDurationMs(elapsedMs)}</span>
           </div>
           <span className="working-text">{reasoningLabel || t("messages.generatingResponse")}</span>
+          {showNonStreamingHint && (
+            <span className="working-hint">{resolvedNonStreamingHint}</span>
+          )}
         </div>
       )}
       {!isThinking && lastDurationMs !== null && hasItems && (
@@ -563,6 +583,7 @@ export const Messages = memo(function Messages({
   codeBlockCopyUseModifier = false,
   userInputRequests = [],
   onUserInputSubmit,
+  activeEngine = "claude",
 }: MessagesProps) {
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -707,6 +728,33 @@ export const Messages = memo(function Messages({
     }
     return null;
   }, [items, reasoningMetaById]);
+
+  const waitingForFirstChunk = useMemo(() => {
+    if (!isThinking || items.length === 0) {
+      return false;
+    }
+    let lastUserIndex = -1;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    if (lastUserIndex < 0) {
+      return false;
+    }
+    for (let index = lastUserIndex + 1; index < items.length; index += 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.role === "assistant") {
+        return false;
+      }
+      if (item.kind !== "message") {
+        return false;
+      }
+    }
+    return true;
+  }, [isThinking, items]);
 
   const visibleItems = useMemo(
     () =>
@@ -968,6 +1016,8 @@ export const Messages = memo(function Messages({
           lastDurationMs={lastDurationMs}
           hasItems={items.length > 0}
           reasoningLabel={latestReasoningLabel}
+          activeEngine={activeEngine}
+          waitingForFirstChunk={waitingForFirstChunk}
         />
         {!items.length && !userInputNode && (
           <div className="empty messages-empty">

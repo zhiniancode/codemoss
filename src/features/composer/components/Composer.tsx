@@ -49,6 +49,7 @@ import {
   extractInlineSelections,
   mergeUniqueNames,
 } from "../utils/inlineSelections";
+import { pushErrorToast } from "../../../services/toasts";
 
 type ComposerProps = {
   kanbanContextMode?: "new" | "inherit";
@@ -355,6 +356,7 @@ export function Composer({
   const [openCodeProviderTone, setOpenCodeProviderTone] = useState<
     "is-ok" | "is-runtime" | "is-fail"
   >("is-fail");
+  const [openCodeProviderToneReady, setOpenCodeProviderToneReady] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [commonsMenuOpen, setCommonsMenuOpen] = useState(false);
@@ -484,6 +486,9 @@ export function Composer({
     text.trim().length > 0 ||
     attachedImages.length > 0 ||
     Boolean(selectedOpenCodeDirectCommand);
+  const opencodeDisconnected =
+    selectedEngine === "opencode" && openCodeProviderToneReady && openCodeProviderTone === "is-fail";
+  const canSendEffective = canSend && !opencodeDisconnected;
   const contextCollapsed = manualContextCollapsed;
   const showOpenCodeControlPanel = selectedEngine === "opencode";
   const collapsedSkillPreview = selectedSkills.slice(0, 2);
@@ -613,6 +618,13 @@ export function Composer({
     if (disabled) {
       return;
     }
+    if (opencodeDisconnected) {
+      pushErrorToast({
+        title: "OpenCode 未连接",
+        message: "当前连接状态为红色，请先在 OpenCode 管理面板完成连接后再发送。",
+      });
+      return;
+    }
     const trimmed = text.trim();
     if (!trimmed && attachedImages.length === 0 && !selectedOpenCodeDirectCommand) {
       return;
@@ -651,6 +663,7 @@ export function Composer({
   }, [
     attachedImages,
     disabled,
+    opencodeDisconnected,
     selectedOpenCodeDirectCommand,
     selectedCommons,
     selectedSkills,
@@ -664,6 +677,13 @@ export function Composer({
 
   const handleQueue = useCallback(() => {
     if (disabled) {
+      return;
+    }
+    if (opencodeDisconnected) {
+      pushErrorToast({
+        title: "OpenCode 未连接",
+        message: "当前连接状态为红色，请先在 OpenCode 管理面板完成连接后再发送。",
+      });
       return;
     }
     const trimmed = text.trim();
@@ -703,6 +723,7 @@ export function Composer({
   }, [
     attachedImages,
     disabled,
+    opencodeDisconnected,
     selectedOpenCodeDirectCommand,
     selectedCommons,
     selectedSkills,
@@ -1461,7 +1482,7 @@ export function Composer({
           sendLabel={sendLabel}
           canStop={canStop}
           ghostTextSuffix={inlineCompletion.suffix}
-          canSend={canSend}
+          canSend={canSendEffective}
           isProcessing={isProcessing}
           onStop={onStop}
           onSend={handleSend}
@@ -1697,7 +1718,10 @@ export function Composer({
               selectedVariant={selectedOpenCodeVariant}
               variantOptions={opencodeVariantOptions}
               onSelectVariant={onSelectOpenCodeVariant}
-              onProviderStatusToneChange={setOpenCodeProviderTone}
+              onProviderStatusToneChange={(tone) => {
+                setOpenCodeProviderToneReady(true);
+                setOpenCodeProviderTone(tone);
+              }}
             />
           }
         />

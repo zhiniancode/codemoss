@@ -68,10 +68,15 @@ describe("useThreadMessaging", () => {
       activeTurnIdByThread?: Record<string, string | null>;
       threadEngineById?: Record<string, "claude" | "codex" | "opencode" | undefined>;
       autoNameThread?: ReturnType<typeof vi.fn>;
+      startThreadForWorkspace?: ReturnType<typeof vi.fn>;
     } = {},
   ) {
     const activeThreadId = overrides.activeThreadId ?? "thread-1";
     const ensuredThreadId = overrides.ensuredThreadId ?? activeThreadId;
+
+    const startThreadForWorkspace =
+      overrides.startThreadForWorkspace ??
+      vi.fn(async () => ensuredThreadId);
 
     return renderHook(() =>
       useThreadMessaging({
@@ -104,7 +109,7 @@ describe("useThreadMessaging", () => {
         refreshThread: async () => null,
         forkThreadForWorkspace: async () => null,
         updateThreadParent: vi.fn(),
-        startThreadForWorkspace: async () => ensuredThreadId,
+        startThreadForWorkspace,
         autoNameThread: overrides.autoNameThread,
         onDebug: vi.fn(),
       }),
@@ -266,5 +271,31 @@ describe("useThreadMessaging", () => {
 
     expect(engineInterrupt).toHaveBeenCalledWith("ws-1");
     expect(interruptTurn).not.toHaveBeenCalled();
+  });
+
+  it("creates new opencode pending thread when active thread id is not opencode-prefixed", async () => {
+    const startThreadForWorkspace = vi.fn(async () => "opencode-pending-new");
+    const { result } = makeHook("opencode", {
+      activeThreadId: "thread-legacy",
+      ensuredThreadId: "thread-legacy",
+      threadEngineById: { "thread-legacy": "opencode" },
+      startThreadForWorkspace,
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello");
+    });
+
+    expect(startThreadForWorkspace).toHaveBeenCalledWith("ws-1", {
+      activate: true,
+      engine: "opencode",
+    });
+    expect(engineSendMessage).toHaveBeenCalledWith(
+      "ws-1",
+      expect.objectContaining({
+        engine: "opencode",
+        threadId: "opencode-pending-new",
+      }),
+    );
   });
 });

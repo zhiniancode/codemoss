@@ -60,6 +60,7 @@ export function resolvePendingThreadIdForSession({
   workspaceId,
   engine,
   threadsByWorkspace,
+  activeThreadIdByWorkspace,
   threadStatusById,
   activeTurnIdByThread,
 }: PendingResolutionInput): string | null {
@@ -70,13 +71,47 @@ export function resolvePendingThreadIdForSession({
     return null;
   }
 
-  // Concurrency hardening: do not prefer "active" pending thread.
-  // Under fast thread switching, active pointer can drift and cause wrong reconciliation.
+  const parsePendingTimestamp = (threadId: string): number | null => {
+    const match = threadId.match(/^[a-z]+-pending-(\d+)-/);
+    if (!match) {
+      return null;
+    }
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const pickNewestPending = (candidates: Array<{ id: string }>): string | null => {
+    let selected: string | null = null;
+    let maxTimestamp = -1;
+    for (const candidate of candidates) {
+      const timestamp = parsePendingTimestamp(candidate.id);
+      if (timestamp === null || timestamp <= maxTimestamp) {
+        continue;
+      }
+      maxTimestamp = timestamp;
+      selected = candidate.id;
+    }
+    return selected;
+  };
+
+  const activePendingId = activeThreadIdByWorkspace[workspaceId] ?? null;
+  const pickActivePending = (candidates: Array<{ id: string }>): string | null => {
+    if (!activePendingId || !activePendingId.startsWith(prefix)) {
+      return null;
+    }
+    return candidates.some((candidate) => candidate.id === activePendingId)
+      ? activePendingId
+      : null;
+  };
+
   const processingPending = pendingThreads.filter((thread) =>
     Boolean(threadStatusById[thread.id]?.isProcessing),
   );
   if (processingPending.length === 1) {
     return processingPending[0].id;
+  }
+  if (processingPending.length > 1) {
+    return pickActivePending(processingPending) ?? pickNewestPending(processingPending);
   }
 
   const turnBoundPending = pendingThreads.filter(
@@ -85,12 +120,15 @@ export function resolvePendingThreadIdForSession({
   if (turnBoundPending.length === 1) {
     return turnBoundPending[0].id;
   }
+  if (turnBoundPending.length > 1) {
+    return pickActivePending(turnBoundPending) ?? pickNewestPending(turnBoundPending);
+  }
 
   if (pendingThreads.length === 1) {
     return pendingThreads[0].id;
   }
 
-  return null;
+  return pickActivePending(pendingThreads) ?? pickNewestPending(pendingThreads);
 }
 
 export function useThreads({

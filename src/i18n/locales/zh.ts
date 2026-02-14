@@ -660,6 +660,7 @@ const zh = {
     messages: "条消息",
     emptyThread: "开始一个对话，向智能体发送提示词。",
     generatingResponse: "正在生成响应...",
+    nonStreamingHint: "该模型可能非流式返回，或网络暂不可达，请稍候...",
     doneIn: "完成，用时 {{duration}}",
     copyMessage: "复制消息",
     closeImagePreview: "关闭图片预览",

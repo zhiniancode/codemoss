@@ -304,7 +304,12 @@ export function useThreadTurnEvents({
   );
 
   const onThreadSessionIdUpdated = useCallback(
-    (workspaceId: string, threadId: string, sessionId: string) => {
+    (
+      workspaceId: string,
+      threadId: string,
+      sessionId: string,
+      engineHint?: "claude" | "opencode" | "codex" | "gemini" | null,
+    ) => {
       const explicitEnginePrefix = threadId.startsWith("claude:")
         || threadId.startsWith("claude-pending-")
         ? "claude"
@@ -312,11 +317,16 @@ export function useThreadTurnEvents({
           || threadId.startsWith("opencode-pending-")
           ? "opencode"
           : null;
+      const hintedEngine =
+        engineHint === "claude" || engineHint === "opencode"
+          ? engineHint
+          : null;
       const pendingOpenCode = resolvePendingThreadForSession?.(workspaceId, "opencode") ?? null;
       const pendingClaude = resolvePendingThreadForSession?.(workspaceId, "claude") ?? null;
 
       const enginePrefix =
         explicitEnginePrefix
+        ?? hintedEngine
         ?? (pendingOpenCode && !pendingClaude
           ? "opencode"
           : pendingClaude && !pendingOpenCode
@@ -331,11 +341,15 @@ export function useThreadTurnEvents({
         ? threadId
         : enginePrefix === "opencode"
           ? pendingOpenCode
-            ?? (threadId.startsWith("opencode:") && threadId !== newThreadId
+            ?? (threadId !== newThreadId &&
+              !threadId.startsWith("claude:") &&
+              !threadId.startsWith("claude-pending-")
               ? threadId
               : null)
           : pendingClaude
-            ?? (threadId.startsWith("claude:") && threadId !== newThreadId
+            ?? (threadId !== newThreadId &&
+              !threadId.startsWith("opencode:") &&
+              !threadId.startsWith("opencode-pending-")
               ? threadId
               : null);
 

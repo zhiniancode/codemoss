@@ -45,6 +45,7 @@ pub struct OpenCodeProviderHealth {
     pub connected: bool,
     pub credential_count: usize,
     pub matched: bool,
+    pub authenticated_providers: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -876,42 +877,18 @@ async fn fetch_opencode_provider_ids_from_models(
     parse_opencode_models_provider_ids(&stdout)
 }
 
-fn provider_selection_order() -> Vec<String> {
-    vec![
-        "opencode-zen",
-        "anthropic",
-        "github-copilot",
-        "openai",
-        "google",
-        "minimax-cn-coding-plan",
-        "minimax-cn",
-        "z-ai",
-        "zenmux",
-        "io-net",
-        "nvidia",
-        "fastrouter",
-        "iflow",
-        "modelscope",
-        "llama",
-    ]
-    .into_iter()
-    .map(ToOwned::to_owned)
-    .collect()
-}
-
-fn build_provider_prefill_escape(provider_id: &str) -> Option<String> {
+fn build_provider_prefill_query(provider_id: &str) -> Option<String> {
     let normalized = slugify_provider_label(provider_id);
     if normalized.is_empty() {
         return None;
     }
-    let order = provider_selection_order();
-    let index = order.iter().position(|item| item == &normalized)?;
-    let mut seq = String::new();
-    for _ in 0..index {
-        seq.push_str("\\033[B");
-    }
-    seq.push_str("\\r");
-    Some(seq)
+    let query = match normalized.as_str() {
+        "minimax-cn-coding-plan" | "minimax-coding-plan" | "minimax-cn" => "minimax",
+        "z-ai" | "zhipuai-coding-plan" | "zhipu-ai-coding-plan" => "zhipu",
+        "github-models" | "github-token" => "github",
+        other => other,
+    };
+    Some(query.to_string())
 }
 
 fn shell_quote(value: &str) -> String {
@@ -1507,11 +1484,12 @@ pub async fn opencode_provider_connect(
     let quoted_opencode_bin = shell_quote(&opencode_bin);
     let prefill = provider_id
         .as_ref()
-        .and_then(|id| build_provider_prefill_escape(id));
-    let auth_command = if let Some(prefill_seq) = prefill {
+        .and_then(|id| build_provider_prefill_query(id));
+    let auth_command = if let Some(prefill_query) = prefill {
+        let quoted_query = shell_quote(&prefill_query);
         format!(
-            "{{ printf \"{}\"; cat; }} | {} auth login",
-            prefill_seq, quoted_opencode_bin
+            "{{ printf \"%s\\r\" {}; cat; }} | {} auth login",
+            quoted_query, quoted_opencode_bin
         )
     } else {
         format!("{} auth login", quoted_opencode_bin)
@@ -1574,6 +1552,7 @@ async fn load_opencode_provider_health(
             connected: false,
             credential_count: 0,
             matched: false,
+            authenticated_providers: Vec::new(),
             error: Some(stderr.trim().to_string()),
         });
     }
@@ -1583,14 +1562,17 @@ async fn load_opencode_provider_health(
         .as_ref()
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty());
-    let matched = normalized_target
+    let resolved_provider = normalized_target
+        .clone()
+        .or_else(|| providers.first().cloned());
+    let matched = resolved_provider
         .as_ref()
         .map(|target| {
             providers
                 .iter()
                 .any(|name| provider_keys_match(target, name))
         })
-        .unwrap_or(!providers.is_empty());
+        .unwrap_or(false);
     let connected = if normalized_target.is_some() {
         matched
     } else {
@@ -1598,10 +1580,11 @@ async fn load_opencode_provider_health(
     };
 
     Ok(OpenCodeProviderHealth {
-        provider: normalized_target.unwrap_or_else(|| "unknown".to_string()),
+        provider: resolved_provider.unwrap_or_else(|| "unknown".to_string()),
         connected,
         credential_count: providers.len(),
         matched,
+        authenticated_providers: providers,
         error: None,
     })
 }
@@ -2209,10 +2192,11 @@ pub async fn delete_claude_session(
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_opencode_agents, normalize_provider_key, parse_imported_session_id, parse_json_value,
-        parse_opencode_agent_list, parse_opencode_auth_providers, parse_opencode_help_commands,
-        parse_opencode_debug_config_agents, parse_opencode_mcp_servers, parse_opencode_session_list,
-        provider_keys_match, OpenCodeAgentEntry,
+        build_provider_prefill_query, merge_opencode_agents, normalize_provider_key,
+        parse_imported_session_id, parse_json_value, parse_opencode_agent_list,
+        parse_opencode_auth_providers, parse_opencode_help_commands, parse_opencode_debug_config_agents,
+        parse_opencode_mcp_servers, parse_opencode_session_list, provider_keys_match,
+        OpenCodeAgentEntry,
     };
     use serde_json::json;
 
@@ -2374,5 +2358,21 @@ ses_3aaf6e47cffesEP8ro2EePcJAQ  New session - 2026-02-13T02:24:24.582Z          
             "minimax-cn-coding-plan",
             "MiniMax Coding Plan"
         ));
+    }
+
+    #[test]
+    fn build_provider_prefill_query_uses_search_keywords() {
+        assert_eq!(
+            build_provider_prefill_query("minimax-cn-coding-plan"),
+            Some("minimax".to_string())
+        );
+        assert_eq!(
+            build_provider_prefill_query("z-ai"),
+            Some("zhipu".to_string())
+        );
+        assert_eq!(
+            build_provider_prefill_query("openai"),
+            Some("openai".to_string())
+        );
     }
 }

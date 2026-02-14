@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Activity from "lucide-react/dist/esm/icons/activity";
-import PanelRightOpen from "lucide-react/dist/esm/icons/panel-right-open";
+import SlidersHorizontal from "lucide-react/dist/esm/icons/sliders-horizontal";
 import { useOpenCodeControlPanel } from "../hooks/useOpenCodeControlPanel";
 import { OpenCodeProviderSection } from "./OpenCodeProviderSection";
 import { OpenCodeMcpSection } from "./OpenCodeMcpSection";
@@ -51,19 +51,19 @@ export function OpenCodeControlPanel({
   const [activeTab, setActiveTab] = useState<"provider" | "mcp" | "sessions" | "advanced">(
     "provider",
   );
-  const [selectedProviderId, setSelectedProviderId] = useState<string>("openai");
-  const [providerQuery, setProviderQuery] = useState("");
-  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [authExpanded, setAuthExpanded] = useState(false);
+  const panelRootRef = useRef<HTMLElement | null>(null);
+  const panelToggleRef = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const [drawerStyle, setDrawerStyle] = useState<CSSProperties | undefined>(undefined);
 
-  const shouldLoadProviderCatalog =
-    visible && detailOpen && (activeTab === "provider" || providerPickerOpen);
+  const shouldLoadProviderCatalog = visible && detailOpen && activeTab === "provider";
   const {
     error,
     snapshot,
     providerHealth,
     testingProvider,
     sessions,
-    providerOptions,
     connectingProvider,
     favoriteSessionIds,
     testProvider,
@@ -119,17 +119,31 @@ export function OpenCodeControlPanel({
     return filtered.slice(0, 8);
   }, [favoriteSessionIds, sessionFilter, sessionQuery, sessions]);
 
-  useEffect(() => {
-    if (providerOptions.length === 0) {
-      return;
+  const normalizeDisplayValue = (value?: string | null) => {
+    const normalized = value?.trim();
+    if (!normalized) {
+      return null;
     }
-    if (providerOptions.some((item) => item.id === selectedProviderId)) {
-      return;
+    const lower = normalized.toLowerCase();
+    if (
+      normalized === "-" ||
+      lower === "unknown" ||
+      lower === "none" ||
+      lower === "null" ||
+      lower === "undefined"
+    ) {
+      return null;
     }
-    setSelectedProviderId(providerOptions[0].id);
-  }, [providerOptions, selectedProviderId]);
+    return normalized;
+  };
+  const snapshotProviderValue = normalizeDisplayValue(snapshot?.provider);
+  const snapshotModelValue = normalizeDisplayValue(snapshot?.model);
+  const selectedModelValue = normalizeDisplayValue(selectedModel);
+  const resolvedModelValue = snapshotModelValue ?? selectedModelValue;
+  const resolvedProviderValue =
+    snapshotProviderValue ?? normalizeDisplayValue(providerHealth.provider);
   const providerConnectedFromSession = Boolean(
-    snapshot?.sessionId && (snapshot?.provider || snapshot?.model),
+    snapshot?.sessionId && (snapshotProviderValue || snapshotModelValue),
   );
   const providerStatusTone = providerHealth.connected
     ? "is-ok"
@@ -137,26 +151,101 @@ export function OpenCodeControlPanel({
       ? "is-runtime"
       : "is-fail";
   const providerStatusLabel = providerHealth.connected
-    ? "Connected"
+    ? "Auth Ready"
     : providerConnectedFromSession
       ? "Session Active"
       : "Disconnected";
+  const completedAuthSummary =
+    (providerHealth.authenticatedProviders?.length ?? providerHealth.credentialCount) > 0
+      ? `${providerHealth.authenticatedProviders?.length ?? providerHealth.credentialCount} 项`
+      : "0 项";
+  const onboardingNextStep = providerHealth.connected
+    ? "认证可用。发送时会尝试网络连通性探测（不阻断发送）。"
+    : "请先选择 Provider 并完成认证，再开始发送消息。";
+  const authExpandRows = useMemo(() => {
+    const providerName = resolvedProviderValue;
+    const authenticatedProviders = providerHealth.authenticatedProviders ?? [];
+    const rows: string[] = [];
+    if (providerName) {
+      rows.push(`当前 Provider：${providerName}${providerHealth.connected ? "（已连接）" : "（未连接）"}`);
+    }
+    if (authenticatedProviders.length > 0) {
+      rows.push(`已认证 Provider：${authenticatedProviders.join("、")}`);
+    } else {
+      rows.push("已认证 Provider：无");
+    }
+    if (providerName) {
+      rows.push(
+        providerHealth.matched
+          ? `模型/Provider 匹配：是（${providerName}）`
+          : `模型/Provider 匹配：否（当前模型可能不是 ${providerName}）`,
+      );
+    }
+    return rows;
+  }, [
+    providerHealth.connected,
+    providerHealth.credentialCount,
+    providerHealth.authenticatedProviders,
+    providerHealth.matched,
+    resolvedProviderValue,
+  ]);
   const formatOpenCodeModelName = (value: string) => value.split("/").pop() || value;
+  const inferModelProvider = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return "unknown";
+    }
+    if (normalized.includes("/")) {
+      return normalized.split("/")[0] || "unknown";
+    }
+    if (normalized.startsWith("gpt-") || normalized.startsWith("o1") || normalized.startsWith("o3") || normalized.startsWith("o4")) {
+      return "openai";
+    }
+    if (normalized.startsWith("claude-")) {
+      return "anthropic";
+    }
+    if (normalized.startsWith("gemini-")) {
+      return "google";
+    }
+    if (normalized.startsWith("mistral-") || normalized.startsWith("ministral-") || normalized.startsWith("codestral-")) {
+      return "mistral";
+    }
+    if (normalized.startsWith("deepseek-")) {
+      return "deepseek";
+    }
+    if (normalized.startsWith("qwen-")) {
+      return "qwen";
+    }
+    if (normalized.startsWith("llama-") || normalized.startsWith("meta-llama-")) {
+      return "meta";
+    }
+    if (normalized.startsWith("phi-")) {
+      return "microsoft";
+    }
+    if (normalized.startsWith("cohere-")) {
+      return "cohere";
+    }
+    if (normalized.startsWith("jais-")) {
+      return "jais";
+    }
+    return "unknown";
+  };
+  const formatModelOptionLabel = (value: string) => {
+    const provider = inferModelProvider(value);
+    const model = formatOpenCodeModelName(value);
+    return provider === "unknown" ? model : `[${provider}] ${model}`;
+  };
 
   useEffect(() => {
     onProviderStatusToneChange?.(providerStatusTone);
   }, [onProviderStatusToneChange, providerStatusTone]);
 
   useEffect(() => {
-    if (!visible || (!detailOpen && !providerPickerOpen)) {
+    if (!visible || !detailOpen) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") {
-        return;
-      }
-      if (providerPickerOpen) {
-        setProviderPickerOpen(false);
         return;
       }
       if (detailOpen) {
@@ -167,7 +256,79 @@ export function OpenCodeControlPanel({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [detailOpen, providerPickerOpen, visible]);
+  }, [detailOpen, visible]);
+
+  useEffect(() => {
+    if (!visible || !detailOpen) {
+      return;
+    }
+    const updateDrawerPlacement = () => {
+      const toggleRect = panelToggleRef.current?.getBoundingClientRect();
+      if (!toggleRect) {
+        setDrawerStyle(undefined);
+        return;
+      }
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const edge = 8;
+      const width = Math.max(360, Math.min(460, viewportWidth - edge * 2));
+      const left = Math.min(
+        Math.max(toggleRect.right - width, edge),
+        Math.max(edge, viewportWidth - width - edge),
+      );
+      const preferredTop = toggleRect.top - edge;
+      const estimatedDrawerHeight = 520;
+      const hasSpaceAbove = preferredTop - estimatedDrawerHeight >= edge;
+      let top: number;
+      let maxHeight: number;
+      if (hasSpaceAbove) {
+        top = Math.max(edge, preferredTop - estimatedDrawerHeight);
+        maxHeight = Math.max(320, Math.min(820, preferredTop - edge));
+      } else {
+        const belowTop = toggleRect.bottom + edge;
+        const maxHeightBelow = Math.max(320, Math.min(820, viewportHeight - belowTop - edge));
+        top = belowTop;
+        maxHeight = maxHeightBelow;
+      }
+      setDrawerStyle({
+        position: "fixed",
+        left,
+        top,
+        width,
+        maxHeight,
+      });
+    };
+    updateDrawerPlacement();
+    window.addEventListener("resize", updateDrawerPlacement);
+    window.addEventListener("scroll", updateDrawerPlacement, true);
+    return () => {
+      window.removeEventListener("resize", updateDrawerPlacement);
+      window.removeEventListener("scroll", updateDrawerPlacement, true);
+    };
+  }, [detailOpen, visible]);
+
+  useEffect(() => {
+    if (!visible || !detailOpen) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+      if (drawerRef.current?.contains(target)) {
+        return;
+      }
+      if (panelRootRef.current?.contains(target)) {
+        return;
+      }
+      setDetailOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [detailOpen, visible]);
 
   if (!visible) {
     return null;
@@ -175,6 +336,7 @@ export function OpenCodeControlPanel({
 
   return (
     <section
+      ref={panelRootRef}
       className={`opencode-panel${embedded ? " is-embedded" : ""}${dock ? " is-dock" : ""}`}
       data-testid="opencode-control-panel"
     >
@@ -204,24 +366,27 @@ export function OpenCodeControlPanel({
         )}
         <div className="opencode-panel-actions">
           <button
+            ref={panelToggleRef}
             type="button"
             className="opencode-panel-toggle"
             onClick={() => setDetailOpen((prev) => !prev)}
             title={detailOpen ? "关闭状态面板" : "打开状态面板"}
             aria-label={detailOpen ? "关闭状态面板" : "打开状态面板"}
           >
-            <PanelRightOpen size={12} aria-hidden />
+            <SlidersHorizontal size={13} aria-hidden />
           </button>
         </div>
       </header>
 
       {detailOpen && (
-        <div className="opencode-drawer-backdrop" onClick={() => setDetailOpen(false)}>
+        <div className="opencode-drawer-layer" onClick={() => setDetailOpen(false)}>
           <aside
+            ref={drawerRef}
             className="opencode-drawer"
             role="dialog"
             aria-modal="true"
             aria-label="OpenCode 管理面板"
+            style={drawerStyle}
             onClick={(event) => event.stopPropagation()}
           >
             <header className="opencode-drawer-header">
@@ -276,91 +441,111 @@ export function OpenCodeControlPanel({
               </button>
             </div>
             <div className="opencode-drawer-content">
-      <div className="opencode-panel-grid">
+      <section className="opencode-onboarding-card" aria-label="OpenCode 连接引导">
+        <h4>连接引导</h4>
+        <p>默认不预选连接。请先确认状态，再选择 Provider 进行认证。</p>
+        <div className="opencode-onboarding-metrics">
+          <span>认证状态：{providerStatusLabel}</span>
+          <button
+            type="button"
+            className={`opencode-onboarding-chip${authExpanded ? " is-open" : ""}`}
+            onClick={() => setAuthExpanded((prev) => !prev)}
+            aria-expanded={authExpanded}
+            aria-label="展开已完成认证详情"
+          >
+            已完成认证：{completedAuthSummary}
+          </button>
+        </div>
+        {authExpanded && (
+          <div className="opencode-auth-expand">
+            {authExpandRows.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )}
+        <p className="opencode-onboarding-next-step">{onboardingNextStep}</p>
+      </section>
+      <section className="opencode-overview-layout">
         {hasSessionValue && (
-          <div className="opencode-panel-item is-session" title={sessionIdValue ?? "-"}>
+          <div className="opencode-panel-item is-session is-hero" title={sessionIdValue ?? "-"}>
             <span>Session</span>
             <strong>{sessionLabel}</strong>
           </div>
         )}
-        <div className="opencode-panel-item is-control" title={snapshot?.agent ?? selectedAgent ?? "default"}>
-          <span>Agent</span>
-          {onSelectAgent ? (
-            <select
-              className="opencode-panel-select"
-              value={selectedAgent ?? ""}
-              onChange={(event) => onSelectAgent(event.target.value || null)}
-            >
-              <option value="">default</option>
-              {sortedAgentOptions.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.isPrimary ? `🔥 ${agent.id}` : agent.id}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <strong>{snapshot?.agent ?? selectedAgent ?? "default"}</strong>
-          )}
-        </div>
-        <div className="opencode-panel-item is-control" title={snapshot?.model ?? selectedModel ?? "-"}>
-          <span>Model</span>
-          {onSelectModel ? (
-            <select
-              className="opencode-panel-select"
-              value={selectedModelId ?? ""}
-              onChange={(event) => onSelectModel(event.target.value)}
-            >
-              {modelOptions.length === 0 && (
-                <option value={selectedModelId ?? ""}>
-                  {formatOpenCodeModelName(snapshot?.model ?? selectedModel ?? "-")}
-                </option>
-              )}
-              {modelOptions.map((item) => {
-                const fullLabel = item.displayName || item.model || item.id;
-                return (
-                  <option key={item.id} value={item.id} title={fullLabel}>
-                    {formatOpenCodeModelName(fullLabel)}
+        <div className="opencode-panel-grid">
+          <div className="opencode-panel-item is-control" title={snapshot?.agent ?? selectedAgent ?? "default"}>
+            <span>Agent</span>
+            {onSelectAgent ? (
+              <select
+                className="opencode-panel-select"
+                value={selectedAgent ?? ""}
+                onChange={(event) => onSelectAgent(event.target.value || null)}
+              >
+                <option value="">default</option>
+                {sortedAgentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.isPrimary ? `🔥 ${agent.id}` : agent.id}
                   </option>
-                );
-              })}
-            </select>
-          ) : (
-            <strong>{snapshot?.model ?? selectedModel ?? "-"}</strong>
-          )}
+                ))}
+              </select>
+            ) : (
+              <strong>{snapshot?.agent ?? selectedAgent ?? "default"}</strong>
+            )}
+          </div>
+          <div className="opencode-panel-item is-control" title={resolvedModelValue ?? "未选择模型"}>
+            <span>Model</span>
+            {onSelectModel ? (
+              <select
+                className="opencode-panel-select"
+                value={selectedModelId ?? ""}
+                onChange={(event) => onSelectModel(event.target.value)}
+              >
+                {modelOptions.length === 0 && (
+                  <option value={selectedModelId ?? ""}>
+                    {resolvedModelValue ? formatModelOptionLabel(resolvedModelValue) : "无可用模型"}
+                  </option>
+                )}
+                {modelOptions.map((item) => {
+                  const fullLabel = item.displayName || item.model || item.id;
+                  return (
+                    <option key={item.id} value={item.id} title={fullLabel}>
+                      {formatModelOptionLabel(fullLabel)}
+                    </option>
+                  );
+                })}
+              </select>
+            ) : (
+              <strong>{resolvedModelValue ?? "未选择模型"}</strong>
+            )}
+          </div>
+          <div className="opencode-panel-item is-control" title={snapshot?.variant ?? selectedVariant ?? "default"}>
+            <span>Variant</span>
+            {onSelectVariant ? (
+              <select
+                className="opencode-panel-select"
+                value={selectedVariant ?? ""}
+                onChange={(event) => onSelectVariant(event.target.value || null)}
+              >
+                <option value="">default</option>
+                {variantOptions.map((variant) => (
+                  <option key={variant} value={variant}>
+                    {variant}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <strong>{snapshot?.variant ?? selectedVariant ?? "default"}</strong>
+            )}
+          </div>
         </div>
-        <div className="opencode-panel-item is-control" title={snapshot?.variant ?? selectedVariant ?? "default"}>
-          <span>Variant</span>
-          {onSelectVariant ? (
-            <select
-              className="opencode-panel-select"
-              value={selectedVariant ?? ""}
-              onChange={(event) => onSelectVariant(event.target.value || null)}
-            >
-              <option value="">default</option>
-              {variantOptions.map((variant) => (
-                <option key={variant} value={variant}>
-                  {variant}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <strong>{snapshot?.variant ?? selectedVariant ?? "default"}</strong>
-          )}
-        </div>
-      </div>
+      </section>
 
       {activeTab === "provider" && (
       <OpenCodeProviderSection
         providerHealth={providerHealth}
         providerStatusTone={providerStatusTone}
         providerStatusLabel={providerStatusLabel}
-        providerOptions={providerOptions}
-        selectedProviderId={selectedProviderId}
-        onSelectedProviderIdChange={setSelectedProviderId}
-        providerQuery={providerQuery}
-        onProviderQueryChange={setProviderQuery}
-        providerPickerOpen={providerPickerOpen}
-        onProviderPickerOpenChange={setProviderPickerOpen}
+        showHeader={false}
         connectingProvider={connectingProvider}
         testingProvider={testingProvider}
         onConnectProvider={connectProvider}

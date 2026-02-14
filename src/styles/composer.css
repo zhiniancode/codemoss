@@ -402,6 +402,18 @@
   display: none;
 }
 
+.composer-opencode-model-indicator {
+  cursor: default;
+  color: #1d4ed8;
+  background: color-mix(in srgb, #dbeafe 78%, transparent);
+  border: 1px solid #bfdbfe;
+}
+
+.composer-opencode-model-indicator:hover {
+  color: #1e40af;
+  background: color-mix(in srgb, #dbeafe 90%, transparent);
+}
+
 .composer-engine-status-dot {
   width: 10px;
   height: 10px;

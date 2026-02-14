@@ -27,6 +27,7 @@ type AppServerEventHandlers = {
     workspaceId: string,
     threadId: string,
     sessionId: string,
+    engine?: "claude" | "opencode" | "codex" | "gemini" | null,
   ) => void;
   onBackgroundThreadAction?: (
     workspaceId: string,
@@ -185,10 +186,23 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         const thread = (params.thread as Record<string, unknown> | undefined) ?? null;
         const threadId = String(thread?.id ?? params.threadId ?? params.thread_id ?? "");
         const sessionId = String(params.sessionId ?? params.session_id ?? "");
+        const rawEngine = String(params.engine ?? "").toLowerCase();
+        const eventEngine =
+          rawEngine === "claude" ||
+          rawEngine === "opencode" ||
+          rawEngine === "codex" ||
+          rawEngine === "gemini"
+            ? rawEngine
+            : null;
 
         // If we have a real sessionId (not "pending"), notify for thread ID update
         if (threadId && sessionId && sessionId !== "pending") {
-          handlers.onThreadSessionIdUpdated?.(workspace_id, threadId, sessionId);
+          handlers.onThreadSessionIdUpdated?.(
+            workspace_id,
+            threadId,
+            sessionId,
+            eventEngine,
+          );
         }
 
         if (thread && threadId) {

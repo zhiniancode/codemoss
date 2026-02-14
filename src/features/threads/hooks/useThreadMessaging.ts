@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { Dispatch, MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -34,6 +34,7 @@ import {
 import type { ThreadAction, ThreadState } from "./useThreadsReducer";
 import { useReviewPrompt } from "./useReviewPrompt";
 import { formatRelativeTime } from "../../../utils/time";
+import { pushErrorToast } from "../../../services/toasts";
 
 type SendMessageOptions = {
   skipPromptExpansion?: boolean;
@@ -134,6 +135,7 @@ export function useThreadMessaging({
   autoNameThread,
 }: UseThreadMessagingOptions) {
   const { t } = useTranslation();
+  const lastOpenCodeModelByThreadRef = useRef<Map<string, string>>(new Map());
   const normalizeEngineSelection = useCallback(
     (
       engine: "claude" | "codex" | "gemini" | "opencode" | undefined,
@@ -163,6 +165,28 @@ export function useThreadMessaging({
       return normalizeEngineSelection(activeEngine);
     },
     [activeEngine, getThreadEngine, normalizeEngineSelection],
+  );
+
+  const isThreadIdCompatibleWithEngine = useCallback(
+    (
+      engine: "claude" | "codex" | "opencode",
+      threadId: string,
+    ): boolean => {
+      if (engine === "claude") {
+        return (
+          threadId.startsWith("claude:") ||
+          threadId.startsWith("claude-pending-")
+        );
+      }
+      if (engine === "opencode") {
+        return (
+          threadId.startsWith("opencode:") ||
+          threadId.startsWith("opencode-pending-")
+        );
+      }
+      return !threadId.startsWith("claude:") && !threadId.startsWith("opencode:");
+    },
+    [],
   );
 
   const sendMessageToThread = useCallback(
@@ -248,6 +272,26 @@ export function useThreadMessaging({
         resolvedEngine === "opencode"
           ? (sanitizedOpenCodeModel ?? "openai/gpt-5.3-codex")
           : sanitizedOpenCodeModel;
+      if (resolvedEngine === "opencode") {
+        const normalizedModel = (modelForSend ?? "").trim().toLowerCase();
+        const prevModel = lastOpenCodeModelByThreadRef.current.get(threadId);
+        const isSessionThread = threadId.startsWith("opencode:");
+        if (
+          isSessionThread &&
+          prevModel &&
+          normalizedModel &&
+          prevModel !== normalizedModel
+        ) {
+          pushErrorToast({
+            title: "OpenCode 提示",
+            message: "检测到同会话切换模型，已自动新建后端会话以避免超时。",
+            durationMs: 3200,
+          });
+        }
+        if (normalizedModel) {
+          lastOpenCodeModelByThreadRef.current.set(threadId, normalizedModel);
+        }
+      }
       if (resolvedEngine === "claude" && resolvedModel && !sanitizedModel) {
         onDebug?.({
           id: `${Date.now()}-client-model-sanitize`,
@@ -589,8 +633,12 @@ export function useThreadMessaging({
       const currentEngine = normalizeEngineSelection(activeEngine);
       if (activeThreadId) {
         const threadEngine = resolveThreadEngine(activeWorkspace.id, activeThreadId);
+        const threadIdCompatible = isThreadIdCompatibleWithEngine(
+          currentEngine,
+          activeThreadId,
+        );
         // If thread has an engine set and it differs from current selection, create new thread
-        if (threadEngine !== currentEngine) {
+        if (threadEngine !== currentEngine || !threadIdCompatible) {
           onDebug?.({
             id: `${Date.now()}-client-engine-switch`,
             timestamp: Date.now(),
@@ -601,6 +649,7 @@ export function useThreadMessaging({
               oldThreadId: activeThreadId,
               oldEngine: threadEngine,
               newEngine: currentEngine,
+              threadIdCompatible,
             },
           });
           // Create a new thread with the current engine
@@ -634,6 +683,7 @@ export function useThreadMessaging({
       activeWorkspace,
       customPrompts,
       ensureThreadForActiveWorkspace,
+      isThreadIdCompatibleWithEngine,
       normalizeEngineSelection,
       onDebug,
       pushThreadErrorMessage,

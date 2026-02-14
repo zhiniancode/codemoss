@@ -195,11 +195,21 @@ pub fn engine_event_to_app_server_event(
     }
 
     let message = match event {
-        EngineEvent::SessionStarted { session_id, .. } => json!({
+        EngineEvent::SessionStarted {
+            session_id,
+            engine,
+            ..
+        } => json!({
             "method": "thread/started",
             "params": {
                 "threadId": thread_id,
                 "sessionId": session_id,
+                "engine": match engine {
+                    EngineType::Claude => "claude",
+                    EngineType::Codex => "codex",
+                    EngineType::Gemini => "gemini",
+                    EngineType::OpenCode => "opencode",
+                },
             }
         }),
         EngineEvent::TurnStarted { turn_id, .. } => json!({

@@ -556,6 +556,7 @@ export async function getOpenCodeProviderHealth(
     connected: boolean;
     credentialCount: number;
     matched: boolean;
+    authenticatedProviders?: string[];
     error?: string | null;
   }>("opencode_provider_health", {
     workspaceId,
@@ -607,6 +608,7 @@ export async function getOpenCodeStatusSnapshot(input: {
       connected: boolean;
       credentialCount: number;
       matched: boolean;
+      authenticatedProviders?: string[];
       error?: string | null;
     };
     mcpEnabled: boolean;

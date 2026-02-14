@@ -245,7 +245,7 @@ pub async fn detect_opencode_status(custom_bin: Option<&str>) -> EngineStatus {
     })
     .await;
 
-    let (installed, version, error) = match version_result {
+    let (mut installed, mut version, mut error) = match version_result {
         Ok(Ok(v)) => (true, Some(v), None),
         Ok(Err(e)) => (false, None, Some(e)),
         Err(_) => (
@@ -254,6 +254,34 @@ pub async fn detect_opencode_status(custom_bin: Option<&str>) -> EngineStatus {
             Some("Timeout detecting OpenCode CLI".to_string()),
         ),
     };
+
+    // OpenCode CLI in GUI-launched environments can intermittently fail `--version`
+    // due to startup env quirks. Use a lightweight second probe to avoid false
+    // "not installed" states in engine selector.
+    if !installed {
+        let help_probe = timeout(DETECTION_TIMEOUT, async {
+            let mut cmd = build_async_command(&bin);
+            if let Some(ref path) = path_env {
+                cmd.env("PATH", path);
+            }
+            cmd.arg("--help")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .await
+        })
+        .await;
+
+        if let Ok(Ok(output)) = help_probe {
+            if output.status.success() {
+                installed = true;
+                if version.is_none() {
+                    version = Some("unknown".to_string());
+                }
+                error = None;
+            }
+        }
+    }
 
     if !installed {
         return EngineStatus {

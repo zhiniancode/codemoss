@@ -33,6 +33,7 @@
     color-mix(in srgb, var(--oc-surface-subtle) 88%, transparent),
     color-mix(in srgb, var(--oc-surface) 96%, transparent)
   );
+  position: relative;
 }
 
 .opencode-panel.is-embedded {
@@ -208,18 +209,18 @@
   height: 6px;
 }
 
-.opencode-drawer-backdrop {
+.opencode-drawer-layer {
   position: fixed;
   inset: 0;
+  pointer-events: auto;
   background: var(--oc-backdrop);
   z-index: 55;
 }
 
 .opencode-drawer {
-  position: absolute;
-  top: 68px;
-  right: 16px;
-  bottom: auto;
+  position: fixed;
+  right: 12px;
+  bottom: 56px;
   width: min(460px, calc(100vw - 24px));
   max-height: min(76vh, 820px);
   border: 1px solid var(--oc-border);
@@ -229,6 +230,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .opencode-drawer-header {
@@ -293,6 +295,91 @@
   padding: 10px 12px;
   overflow: auto;
   min-height: 0;
+}
+
+.opencode-onboarding-card {
+  border: 1px solid var(--oc-border);
+  border-radius: 10px;
+  background: var(--oc-surface-subtle);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.opencode-onboarding-card h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--oc-text-accent);
+}
+
+.opencode-onboarding-card p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--oc-text-muted);
+  line-height: 1.4;
+}
+
+.opencode-onboarding-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.opencode-onboarding-metrics span {
+  border: 1px solid var(--oc-border);
+  border-radius: 999px;
+  background: var(--oc-surface);
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--oc-text);
+}
+
+.opencode-onboarding-chip {
+  border: 1px solid var(--oc-border);
+  border-radius: 999px;
+  background: var(--oc-surface);
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--oc-text);
+  cursor: pointer;
+}
+
+.opencode-onboarding-chip.is-open {
+  border-color: var(--oc-border-strong);
+  background: var(--oc-surface-hover);
+  color: var(--oc-text-accent);
+}
+
+.opencode-auth-expand {
+  margin-top: 8px;
+  border: 1px dashed var(--oc-border);
+  border-radius: 8px;
+  background: var(--oc-surface);
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.opencode-auth-expand p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--oc-text-muted);
+}
+
+.opencode-onboarding-next-step {
+  margin-top: 8px !important;
+}
+
+.opencode-overview-layout {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.opencode-panel-item.is-session.is-hero {
+  grid-column: 1 / -1;
+  border-color: var(--oc-border-strong);
+  background: color-mix(in srgb, var(--oc-surface-hover) 56%, var(--oc-surface));
 }
 
 .opencode-summary-pill.is-ok {
@@ -758,11 +845,10 @@
   }
 
   .opencode-drawer {
-    top: 54px;
     right: 8px;
     left: 8px;
     width: auto;
-    bottom: auto;
+    bottom: 48px;
     max-height: min(80vh, 760px);
   }
 
