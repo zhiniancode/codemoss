@@ -1,35 +1,24 @@
 import { useState } from "react";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
-import Search from "lucide-react/dist/esm/icons/search";
 import Link2 from "lucide-react/dist/esm/icons/link-2";
-import type { OpenCodeProviderHealth, OpenCodeProviderOption } from "../types";
+import type { OpenCodeProviderHealth } from "../types";
 
 type OpenCodeProviderSectionProps = {
   providerHealth: OpenCodeProviderHealth;
   providerStatusTone: "is-ok" | "is-runtime" | "is-fail";
   providerStatusLabel: string;
-  providerOptions: OpenCodeProviderOption[];
-  selectedProviderId: string;
-  onSelectedProviderIdChange: (providerId: string) => void;
   showHeader?: boolean;
   connectingProvider: boolean;
-  testingProvider: boolean;
-  onConnectProvider: (providerId: string | null) => Promise<void>;
-  onTestProvider: (providerId?: string | null) => Promise<OpenCodeProviderHealth | null>;
+  onConnectProvider: () => Promise<void>;
 };
 
 export function OpenCodeProviderSection({
   providerHealth,
   providerStatusTone,
   providerStatusLabel,
-  providerOptions,
-  selectedProviderId,
-  onSelectedProviderIdChange,
   showHeader = true,
   connectingProvider,
-  testingProvider,
   onConnectProvider,
-  onTestProvider,
 }: OpenCodeProviderSectionProps) {
   const [providerCheckFeedback, setProviderCheckFeedback] = useState<string | null>(null);
 
@@ -56,67 +45,22 @@ export function OpenCodeProviderSection({
         </>
       )}
       <div className="opencode-provider-connect">
-        <div className="opencode-provider-select-wrap">
-          <span>Connect a provider</span>
-          <select
-            className="opencode-panel-select"
-            value={selectedProviderId}
-            onChange={(event) => onSelectedProviderIdChange(event.target.value)}
-          >
-            {providerOptions.length === 0 && (
-              <option value={selectedProviderId}>
-                {selectedProviderId || "auto-detect"}
-              </option>
-            )}
-            {providerOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.recommended ? `${item.label} (recommended)` : item.label}
-              </option>
-            ))}
-          </select>
-        </div>
         <button
           type="button"
           className="opencode-provider-connect-btn"
           onClick={async () => {
-            await onConnectProvider(selectedProviderId || null);
-            setProviderCheckFeedback("已拉起 Provider 认证流程，请在终端完成认证。");
+            await onConnectProvider();
+            setProviderCheckFeedback("已拉起 CLI 认证流程，请在终端中自行选择空间/Provider 并完成认证。");
           }}
           disabled={connectingProvider}
-          title="在系统终端中打开 OpenCode Provider 登录流程"
+          title="在系统终端中打开 OpenCode CLI 原生登录流程"
         >
           <Link2 size={12} aria-hidden />
-          <span>{connectingProvider ? "启动中..." : "连接 Provider"}</span>
-        </button>
-        <button
-          type="button"
-          className="opencode-provider-test"
-          onClick={async () => {
-            try {
-              const result = await onTestProvider(selectedProviderId || null);
-              if (!result) {
-                setProviderCheckFeedback("未执行检查（工作区不可用）");
-                return;
-              }
-              setProviderCheckFeedback(
-                result.connected
-                  ? `凭据检查通过（${result.provider}）`
-                  : `凭据未就绪（${result.provider}）`,
-              );
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              setProviderCheckFeedback(`检查失败：${message}`);
-            }
-          }}
-          disabled={testingProvider}
-          title="重新检查 OpenCode auth 凭据状态"
-        >
-          <Search size={12} aria-hidden />
-          <span>{testingProvider ? "检查中..." : "检查凭据"}</span>
+          <span>{connectingProvider ? "启动中..." : "连接（CLI 选择）"}</span>
         </button>
       </div>
       <div className="opencode-provider-hint">
-        会在系统终端打开 OpenCode 原生认证流程，完成后回到当前会话继续使用即可。
+        会在系统终端打开 OpenCode 原生认证流程，完成后回到当前会话继续使用即可；此处不再预选 Provider。
       </div>
       {providerCheckFeedback && (
         <div className="opencode-provider-feedback" role="status">

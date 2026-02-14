@@ -35,6 +35,7 @@ type MessagesProps = {
   isThinking: boolean;
   processingStartedAt?: number | null;
   lastDurationMs?: number | null;
+  heartbeatPulse?: number;
   workspacePath?: string | null;
   openTargets: OpenAppTarget[];
   selectedOpenAppId: string;
@@ -54,8 +55,10 @@ type WorkingIndicatorProps = {
   isThinking: boolean;
   processingStartedAt?: number | null;
   lastDurationMs?: number | null;
+  heartbeatPulse?: number;
   hasItems: boolean;
   reasoningLabel?: string | null;
+  activityLabel?: string | null;
   activeEngine?: "claude" | "codex" | "gemini" | "opencode";
   waitingForFirstChunk?: boolean;
 };
@@ -99,6 +102,13 @@ type MessageImage = {
 
 const SCROLL_THRESHOLD_PX = 120;
 const OPENCODE_NON_STREAMING_HINT_DELAY_MS = 12_000;
+const OPENCODE_HEARTBEAT_HINTS = [
+  "正在读取工具输出并整理上下文。",
+  "模型仍在推理，正在等待下一段有效结果。",
+  "正在合并子任务结果，准备输出可读结论。",
+  "正在校验关键步骤，避免返回不完整内容。",
+  "正在持续请求响应数据，请稍候。",
+];
 
 function sanitizeReasoningTitle(title: string) {
   return title
@@ -292,12 +302,46 @@ function scrollKeyForItems(items: ConversationItem[]) {
   }
 }
 
+function resolveWorkingActivityLabel(item: ConversationItem) {
+  if (item.kind === "reasoning") {
+    const parsed = parseReasoning(item);
+    return parsed.workingLabel;
+  }
+  if (item.kind === "explore") {
+    const lastEntry = item.entries[item.entries.length - 1];
+    if (!lastEntry) {
+      return item.status === "exploring" ? "Exploring..." : "Explored";
+    }
+    return lastEntry.detail ? `${lastEntry.label} (${lastEntry.detail})` : lastEntry.label;
+  }
+  if (item.kind === "tool") {
+    const title = item.title?.trim();
+    const detail = item.detail?.trim();
+    if (!title) {
+      return null;
+    }
+    if (detail && item.toolType === "commandExecution") {
+      return `${title} @ ${detail}`;
+    }
+    return title;
+  }
+  if (item.kind === "diff") {
+    return item.title?.trim() || null;
+  }
+  if (item.kind === "review") {
+    return item.state === "started" ? "Review started" : "Review completed";
+  }
+  return null;
+}
+
 const WorkingIndicator = memo(function WorkingIndicator({
   isThinking,
   processingStartedAt = null,
   lastDurationMs = null,
+  heartbeatPulse = 0,
   hasItems,
   reasoningLabel = null,
+  activityLabel = null,
   activeEngine = "claude",
   waitingForFirstChunk = false,
 }: WorkingIndicatorProps) {
@@ -326,6 +370,29 @@ const WorkingIndicator = memo(function WorkingIndicator({
     nonStreamingHintText === "messages.nonStreamingHint"
       ? "This model may return non-streaming output, or the network may be unreachable. Please wait..."
       : nonStreamingHintText;
+  const [heartbeatHintText, setHeartbeatHintText] = useState("");
+  const heartbeatStateRef = useRef<{ lastPulse: number; lastIndex: number }>({
+    lastPulse: 0,
+    lastIndex: -1,
+  });
+
+  useEffect(() => {
+    if (!showNonStreamingHint) {
+      heartbeatStateRef.current = { lastPulse: 0, lastIndex: -1 };
+      setHeartbeatHintText("");
+      return;
+    }
+    if (heartbeatPulse <= 0 || heartbeatPulse === heartbeatStateRef.current.lastPulse) {
+      return;
+    }
+    heartbeatStateRef.current.lastPulse = heartbeatPulse;
+    let randomIndex = Math.floor(Math.random() * OPENCODE_HEARTBEAT_HINTS.length);
+    if (OPENCODE_HEARTBEAT_HINTS.length > 1 && randomIndex === heartbeatStateRef.current.lastIndex) {
+      randomIndex = (randomIndex + 1) % OPENCODE_HEARTBEAT_HINTS.length;
+    }
+    heartbeatStateRef.current.lastIndex = randomIndex;
+    setHeartbeatHintText(`心跳 ${heartbeatPulse}: ${OPENCODE_HEARTBEAT_HINTS[randomIndex]}`);
+  }, [heartbeatPulse, showNonStreamingHint]);
 
   return (
     <>
@@ -336,8 +403,11 @@ const WorkingIndicator = memo(function WorkingIndicator({
             <span className="working-timer-clock">{formatDurationMs(elapsedMs)}</span>
           </div>
           <span className="working-text">{reasoningLabel || t("messages.generatingResponse")}</span>
+          {activityLabel && <span className="working-activity">{activityLabel}</span>}
           {showNonStreamingHint && (
-            <span className="working-hint">{resolvedNonStreamingHint}</span>
+            <span className="working-hint">
+              {heartbeatHintText || resolvedNonStreamingHint}
+            </span>
           )}
         </div>
       )}
@@ -576,6 +646,7 @@ export const Messages = memo(function Messages({
   isThinking,
   processingStartedAt = null,
   lastDurationMs = null,
+  heartbeatPulse = 0,
   workspacePath = null,
   openTargets,
   selectedOpenAppId,
@@ -728,6 +799,31 @@ export const Messages = memo(function Messages({
     }
     return null;
   }, [items, reasoningMetaById]);
+
+  const latestWorkingActivityLabel = useMemo(() => {
+    let lastUserIndex = -1;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    if (lastUserIndex < 0) {
+      return null;
+    }
+    for (let index = items.length - 1; index > lastUserIndex; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.role === "assistant") {
+        break;
+      }
+      const label = resolveWorkingActivityLabel(item);
+      if (label) {
+        return label;
+      }
+    }
+    return null;
+  }, [items]);
 
   const waitingForFirstChunk = useMemo(() => {
     if (!isThinking || items.length === 0) {
@@ -1011,8 +1107,10 @@ export const Messages = memo(function Messages({
           isThinking={isThinking}
           processingStartedAt={processingStartedAt}
           lastDurationMs={lastDurationMs}
+          heartbeatPulse={heartbeatPulse}
           hasItems={items.length > 0}
           reasoningLabel={latestReasoningLabel}
+          activityLabel={latestWorkingActivityLabel}
           activeEngine={activeEngine}
           waitingForFirstChunk={waitingForFirstChunk}
         />

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Activity from "lucide-react/dist/esm/icons/activity";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import Brain from "lucide-react/dist/esm/icons/brain";
+import Cpu from "lucide-react/dist/esm/icons/cpu";
+import Github from "lucide-react/dist/esm/icons/github";
+import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
+import XCircle from "lucide-react/dist/esm/icons/x-circle";
+import CircleDashed from "lucide-react/dist/esm/icons/circle-dashed";
 import SlidersHorizontal from "lucide-react/dist/esm/icons/sliders-horizontal";
 import { useOpenCodeControlPanel } from "../hooks/useOpenCodeControlPanel";
 import { OpenCodeProviderSection } from "./OpenCodeProviderSection";
@@ -27,6 +34,123 @@ type OpenCodeControlPanelProps = {
   onRunOpenCodeCommand?: (command: string) => void;
 };
 
+const PROVIDER_DISCONNECT_GRACE_MS = 8000;
+
+function normalizeProviderDisplayName(raw: string) {
+  return raw.trim().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function normalizeLooseKey(raw: string) {
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function buildProviderAliasKeys(raw: string) {
+  const lower = raw.trim().toLowerCase();
+  const aliases = new Set<string>();
+  const push = (value: string) => {
+    const key = normalizeLooseKey(value);
+    if (key) aliases.add(key);
+  };
+  push(lower);
+  if (lower.includes("github")) {
+    if (lower.includes("github models")) {
+      ["githubmodels"].forEach(push);
+    }
+    if (lower.includes("github copilot")) {
+      ["githubcopilot", "copilot"].forEach(push);
+    }
+    ["github"].forEach(push);
+  }
+  if (lower.includes("zhipu") || lower.includes("glm")) {
+    ["zhipu", "zhipuai", "glm", "zai", "zaicodingplan", "zhipuaicodingplan"].forEach(push);
+  }
+  if (lower.includes("minimax")) {
+    ["minimax", "minimaxcn", "minimaxcodingplan"].forEach(push);
+  }
+  if (lower.includes("openai") || lower.includes("gpt") || lower.includes("codex")) {
+    ["openai", "gpt", "codex", "gpt5", "gpt53codex"].forEach(push);
+  }
+  if (lower.includes("anthropic") || lower.includes("claude")) {
+    ["anthropic", "claude"].forEach(push);
+  }
+  return Array.from(aliases);
+}
+
+function detectProviderBrand(
+  raw: string,
+): "openai" | "anthropic" | "github" | "zhipu" | "minimax" | "opencode" | "other" {
+  const key = raw.trim().toLowerCase();
+  if (!key) return "other";
+  if (key.includes("opencode")) return "opencode";
+  if (key.includes("openai") || key.includes("gpt") || key.includes("codex")) return "openai";
+  if (key.includes("anthropic") || key.includes("claude")) return "anthropic";
+  if (key.includes("github") || key.includes("copilot")) return "github";
+  if (key.includes("zhipu") || key.includes("glm")) return "zhipu";
+  if (key.includes("minimax")) return "minimax";
+  return "other";
+}
+
+function parseModelRank(raw: string) {
+  const key = raw.toLowerCase();
+  const numberTokens = key.match(/\d+(?:\.\d+)?/g) ?? [];
+  const weights = [1_000_000, 10_000, 100, 1];
+  const numericRank = numberTokens.slice(0, 4).reduce((sum, token, index) => {
+    const value = Number(token);
+    return sum + (Number.isFinite(value) ? value * (weights[index] ?? 1) : 0);
+  }, 0);
+  const latestBonus = key.includes("latest") ? 100_000_000 : 0;
+  const stableBonus = key.includes("preview") || key.includes("beta") ? 0 : 10_000;
+  return latestBonus + stableBonus + numericRank;
+}
+
+function providerMatchesModel(providerText: string, modelLabel: string) {
+  const providerBrand = detectProviderBrand(providerText);
+  const modelBrand = detectProviderBrand(modelLabel);
+  if (providerBrand !== "other" && providerBrand === modelBrand) {
+    return true;
+  }
+  const modelKey = normalizeLooseKey(modelLabel);
+  const aliases = buildProviderAliasKeys(providerText);
+  return aliases.some((alias) => alias.length > 0 && modelKey.includes(alias));
+}
+
+function deriveOpencodeSyntheticProvider(modelLabel: string): string | null {
+  const raw = modelLabel.trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  let modelName = "";
+  if (lower.startsWith("opencode/")) {
+    modelName = raw.slice("opencode/".length).trim();
+  } else {
+    const bracket = raw.match(/^\[opencode\]\s*(.+)$/i);
+    if (!bracket) return null;
+    modelName = bracket[1]?.trim() ?? "";
+  }
+  if (!modelName) return null;
+  return `opencode ${modelName.toLowerCase()}`;
+}
+
+function canonicalProviderLabel(raw: string) {
+  const normalized = raw.trim().toLowerCase();
+  const brand = detectProviderBrand(normalized);
+  if (brand === "github") return "github";
+  if (brand === "opencode") return "opencode";
+  return normalized;
+}
+
+function scoreProviderAgainstModel(providerName: string, modelKey: string, modelBrand: string) {
+  const aliases = buildProviderAliasKeys(providerName);
+  let bestAliasLen = 0;
+  for (const alias of aliases) {
+    if (alias.length > 0 && modelKey.includes(alias)) {
+      bestAliasLen = Math.max(bestAliasLen, alias.length);
+    }
+  }
+  const brand = detectProviderBrand(providerName);
+  const brandBonus = brand !== "other" && brand === modelBrand ? 100 : 0;
+  return bestAliasLen + brandBonus;
+}
+
 export function OpenCodeControlPanel({
   workspaceId,
   threadId,
@@ -53,25 +177,25 @@ export function OpenCodeControlPanel({
   const [activeTab, setActiveTab] = useState<"provider" | "mcp" | "sessions" | "advanced">(
     "provider",
   );
-  const [authExpanded, setAuthExpanded] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>("");
+  const [authExpanded, setAuthExpanded] = useState(true);
+  const [providerStatusHint, setProviderStatusHint] = useState("");
+  const providerHintTimersRef = useRef<number[]>([]);
+  const lastAnimatedModelRef = useRef<string | null>(null);
+  const providerFailSinceRef = useRef<number | null>(null);
   const panelRootRef = useRef<HTMLElement | null>(null);
   const panelToggleRef = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
   const [drawerStyle, setDrawerStyle] = useState<CSSProperties | undefined>(undefined);
 
-  const shouldLoadProviderCatalog = visible && detailOpen && activeTab === "provider";
   const {
     error,
     snapshot,
     providerHealth,
-    testingProvider,
     sessions,
-    providerOptions,
     connectingProvider,
     favoriteSessionIds,
-    testProvider,
     connectProvider,
+    refresh,
     toggleMcpGlobal,
     toggleMcpServer,
     toggleFavoriteSession,
@@ -82,7 +206,7 @@ export function OpenCodeControlPanel({
     selectedAgent,
     selectedVariant,
     enabled: visible && detailOpen,
-    loadProviderCatalog: shouldLoadProviderCatalog,
+    loadProviderCatalog: false,
   });
 
   const sessionIdValue = useMemo(() => {
@@ -123,17 +247,6 @@ export function OpenCodeControlPanel({
     return filtered.slice(0, 8);
   }, [favoriteSessionIds, sessionFilter, sessionQuery, sessions]);
 
-  useEffect(() => {
-    if (!providerOptions.length) {
-      return;
-    }
-    if (selectedProviderId && providerOptions.some((item) => item.id === selectedProviderId)) {
-      return;
-    }
-    const matched = providerOptions.find((item) => item.id === providerHealth.provider);
-    setSelectedProviderId((matched ?? providerOptions[0]).id);
-  }, [providerHealth.provider, providerOptions, selectedProviderId]);
-
   const normalizeDisplayValue = (value?: string | null) => {
     const normalized = value?.trim();
     if (!normalized) {
@@ -154,55 +267,132 @@ export function OpenCodeControlPanel({
   const snapshotProviderValue = normalizeDisplayValue(snapshot?.provider);
   const snapshotModelValue = normalizeDisplayValue(snapshot?.model);
   const selectedModelValue = normalizeDisplayValue(selectedModel);
-  const resolvedModelValue = snapshotModelValue ?? selectedModelValue;
+  const resolvedModelValue = selectedModelValue ?? snapshotModelValue;
   const resolvedProviderValue =
     snapshotProviderValue ?? normalizeDisplayValue(providerHealth.provider);
+  const visibleAuthenticatedProviders = useMemo(() => {
+    const source = providerHealth.authenticatedProviders ?? [];
+    const hasOpencodeModels = modelOptions.some((item) =>
+      Boolean(deriveOpencodeSyntheticProvider(item.displayName || item.model || item.id)),
+    );
+    if (source.length === 0) {
+      return hasOpencodeModels ? ["opencode"] : source;
+    }
+    if (modelOptions.length === 0) {
+      return source;
+    }
+    const filtered = source.filter((providerName) =>
+      modelOptions.some((item) => {
+        const fullLabel = item.displayName || item.model || item.id;
+        return providerMatchesModel(providerName, fullLabel);
+      }),
+    );
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    filtered.forEach((item) => {
+      const canonical = canonicalProviderLabel(item);
+      const key = normalizeLooseKey(canonical);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(canonical);
+      }
+    });
+    if (hasOpencodeModels) {
+      const item = "opencode";
+      const key = normalizeLooseKey(item);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(item);
+      }
+    }
+    return merged;
+  }, [modelOptions, providerHealth.authenticatedProviders]);
+  const filteredOutProviderCount = Math.max(
+    0,
+    (providerHealth.authenticatedProviders?.length ?? 0) - visibleAuthenticatedProviders.length,
+  );
   const providerConnectedFromSession = Boolean(
     snapshot?.sessionId && (snapshotProviderValue || snapshotModelValue),
   );
-  const providerStatusTone = providerHealth.connected
+  const rawProviderStatusTone = providerHealth.connected
     ? "is-ok"
     : providerConnectedFromSession
       ? "is-runtime"
       : "is-fail";
-  const providerStatusLabel = providerHealth.connected
+  const [providerStatusTone, setProviderStatusTone] = useState<"is-ok" | "is-runtime" | "is-fail">(
+    rawProviderStatusTone,
+  );
+  const providerStatusLabel = providerStatusTone === "is-ok"
     ? "Auth Ready"
-    : providerConnectedFromSession
+    : providerStatusTone === "is-runtime"
       ? "Session Active"
       : "Disconnected";
   const completedAuthSummary =
-    (providerHealth.authenticatedProviders?.length ?? providerHealth.credentialCount) > 0
-      ? `${providerHealth.authenticatedProviders?.length ?? providerHealth.credentialCount} 项`
+    visibleAuthenticatedProviders.length > 0
+      ? `${visibleAuthenticatedProviders.length} 项`
       : "0 项";
   const onboardingNextStep = providerHealth.connected
     ? "认证可用。发送时会尝试网络连通性探测（不阻断发送）。"
     : "请先选择 Provider 并完成认证，再开始发送消息。";
   const authExpandRows = useMemo(() => {
     const providerName = resolvedProviderValue;
-    const authenticatedProviders = providerHealth.authenticatedProviders ?? [];
-    const rows: string[] = [];
+    const authenticatedProviders = visibleAuthenticatedProviders;
+    const modelOrProviderLabel = resolvedModelValue ?? providerName ?? "unknown";
+    const rows: Array<{
+      key: "provider" | "authenticatedProviders";
+      label: string;
+      value: string;
+      tone: "ok" | "warn" | "fail";
+      icon: "ok" | "warn" | "fail";
+      providers?: string[];
+    }> = [];
     if (providerName) {
-      rows.push(`当前 Provider：${providerName}${providerHealth.connected ? "（已连接）" : "（未连接）"}`);
+      rows.push({
+        key: "provider",
+        label: "当前 Provider",
+        value: `${modelOrProviderLabel}${providerHealth.connected ? "（已连接）" : "（未连接）"}`,
+        tone: providerHealth.connected ? "ok" : "fail",
+        icon: providerHealth.connected ? "ok" : "fail",
+      });
     }
-    if (authenticatedProviders.length > 0) {
-      rows.push(`已认证 Provider：${authenticatedProviders.join("、")}`);
-    } else {
-      rows.push("已认证 Provider：无");
-    }
-    if (providerName) {
-      rows.push(
-        providerHealth.matched
-          ? `模型/Provider 匹配：是（${providerName}）`
-          : `模型/Provider 匹配：否（当前模型可能不是 ${providerName}）`,
-      );
-    }
+    rows.push({
+      key: "authenticatedProviders",
+      label: "已认证 Provider",
+      value: authenticatedProviders.length > 0 ? authenticatedProviders.join("、") : "无",
+      tone: authenticatedProviders.length > 0 ? "ok" : "warn",
+      icon: authenticatedProviders.length > 0 ? "ok" : "warn",
+      providers: authenticatedProviders,
+    });
     return rows;
   }, [
     providerHealth.connected,
-    providerHealth.authenticatedProviders,
-    providerHealth.matched,
+    visibleAuthenticatedProviders,
     resolvedProviderValue,
+    resolvedModelValue,
   ]);
+  const shouldShowProviderStatusHint =
+    providerStatusHint.trim().length > 0 && !providerStatusHint.startsWith("当前 Provider：");
+
+  useEffect(() => {
+    if (rawProviderStatusTone !== "is-fail") {
+      providerFailSinceRef.current = null;
+      setProviderStatusTone(rawProviderStatusTone);
+      return;
+    }
+    const now = Date.now();
+    if (providerFailSinceRef.current == null) {
+      providerFailSinceRef.current = now;
+    }
+    const elapsed = now - providerFailSinceRef.current;
+    if (elapsed < PROVIDER_DISCONNECT_GRACE_MS) {
+      setProviderStatusTone("is-runtime");
+      const timer = window.setTimeout(() => {
+        setProviderStatusTone((current) => (current === "is-fail" ? current : "is-fail"));
+      }, PROVIDER_DISCONNECT_GRACE_MS - elapsed);
+      return () => window.clearTimeout(timer);
+    }
+    setProviderStatusTone("is-fail");
+  }, [rawProviderStatusTone]);
   const formatOpenCodeModelName = (value: string) => value.split("/").pop() || value;
   const inferModelProvider = (value: string) => {
     const normalized = value.trim().toLowerCase();
@@ -212,6 +402,9 @@ export function OpenCodeControlPanel({
     if (normalized.includes("/")) {
       return normalized.split("/")[0] || "unknown";
     }
+    if (normalized.includes("[opencode]") || normalized.startsWith("opencode ")) {
+      return "opencode";
+    }
     if (normalized.startsWith("gpt-") || normalized.startsWith("o1") || normalized.startsWith("o3") || normalized.startsWith("o4")) {
       return "openai";
     }
@@ -220,6 +413,15 @@ export function OpenCodeControlPanel({
     }
     if (normalized.startsWith("gemini-")) {
       return "google";
+    }
+    if (normalized.includes("github") || normalized.includes("copilot")) {
+      return "github";
+    }
+    if (normalized.includes("zhipu") || normalized.startsWith("glm-") || normalized.startsWith("z.ai/")) {
+      return "zhipu";
+    }
+    if (normalized.includes("minimax")) {
+      return "minimax";
     }
     if (normalized.startsWith("mistral-") || normalized.startsWith("ministral-") || normalized.startsWith("codestral-")) {
       return "mistral";
@@ -249,6 +451,115 @@ export function OpenCodeControlPanel({
     const model = formatOpenCodeModelName(value);
     return provider === "unknown" ? model : `[${provider}] ${model}`;
   };
+  const resolvedModelKey = normalizeLooseKey(resolvedModelValue ?? "");
+  const activeProviderTagKey = useMemo(() => {
+    const providers = visibleAuthenticatedProviders;
+    if (!providers.length || !resolvedModelKey) {
+      return "";
+    }
+    const modelBrand = inferModelProvider(resolvedModelValue ?? "");
+    let bestKey = "";
+    let bestScore = 0;
+    for (const providerName of providers) {
+      const normalized = normalizeProviderDisplayName(providerName);
+      const score = scoreProviderAgainstModel(normalized, resolvedModelKey, modelBrand);
+      if (score > bestScore) {
+        bestScore = score;
+        bestKey = normalizeLooseKey(normalized);
+      }
+    }
+    return bestScore > 0 ? bestKey : "";
+  }, [
+    inferModelProvider,
+    visibleAuthenticatedProviders,
+    resolvedModelKey,
+    resolvedModelValue,
+  ]);
+  const switchToLatestModelByProvider = (providerText: string): string | null => {
+    if (!onSelectModel || modelOptions.length === 0) {
+      return null;
+    }
+    const providerBrand = detectProviderBrand(providerText);
+    const normalizedProvider = providerText.trim().toLowerCase();
+    const providerAliasKeys = buildProviderAliasKeys(normalizedProvider);
+    const candidates = modelOptions
+      .map((item, index) => {
+        const fullLabel = (item.displayName || item.model || item.id).trim();
+        const fullLabelLower = fullLabel.toLowerCase();
+        const fullLabelKey = normalizeLooseKey(fullLabelLower);
+        const inferred = inferModelProvider(fullLabel);
+        const sameBrand =
+          (providerBrand !== "other" && inferred === providerBrand) ||
+          fullLabelLower.includes(normalizedProvider) ||
+          providerAliasKeys.some((alias) => alias.length > 0 && fullLabelKey.includes(alias));
+        return {
+          id: item.id,
+          index,
+          fullLabel,
+          rank: parseModelRank(fullLabel),
+          sameBrand,
+        };
+      })
+      .filter((item) => item.sameBrand);
+    if (!candidates.length) {
+      return null;
+    }
+    candidates.sort((a, b) => b.rank - a.rank || b.index - a.index);
+    const winner = candidates[0];
+    onSelectModel(winner.id);
+    return winner.fullLabel;
+  };
+
+  useEffect(() => {
+    if (!visible || !detailOpen) {
+      return;
+    }
+    void refresh(true);
+  }, [detailOpen, refresh, visible]);
+
+  useEffect(() => {
+    return () => {
+      providerHintTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      providerHintTimersRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible || !detailOpen) {
+      providerHintTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      providerHintTimersRef.current = [];
+      lastAnimatedModelRef.current = null;
+      setProviderStatusHint("");
+      return;
+    }
+    providerHintTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    providerHintTimersRef.current = [];
+    const inferred = selectedModel ? inferModelProvider(selectedModel) : "unknown";
+    const resolved = resolvedProviderValue ?? (inferred && inferred !== "unknown" ? inferred : "unknown");
+    const statusLabel = providerHealth.connected ? "已连接" : "未连接";
+    const modelKey = (selectedModel ?? resolvedModelValue ?? "").trim();
+    if (modelKey && modelKey !== lastAnimatedModelRef.current) {
+      lastAnimatedModelRef.current = modelKey;
+      setProviderStatusHint(`Provider 切换中（目标：${resolved}）...`);
+      const checkingTimer = window.setTimeout(() => {
+        setProviderStatusHint(`正在校验 ${resolved} 凭据状态...`);
+      }, 280);
+      const doneTimer = window.setTimeout(() => {
+        setProviderStatusHint(`当前 Provider：${resolved}（${statusLabel}）`);
+      }, 640);
+      providerHintTimersRef.current = [checkingTimer, doneTimer];
+      return;
+    }
+    setProviderStatusHint(`当前 Provider：${resolved}（${statusLabel}）`);
+  }, [
+    detailOpen,
+    inferModelProvider,
+    providerHealth.connected,
+    resolvedModelValue,
+    resolvedProviderValue,
+    selectedModel,
+    visible,
+  ]);
 
   useEffect(() => {
     onProviderStatusToneChange?.(providerStatusTone);
@@ -277,33 +588,22 @@ export function OpenCodeControlPanel({
       return;
     }
     const updateDrawerPlacement = () => {
-      const toggleRect = panelToggleRef.current?.getBoundingClientRect();
-      if (!toggleRect) {
-        setDrawerStyle(undefined);
-        return;
-      }
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const edge = 8;
-      const width = Math.max(360, Math.min(460, viewportWidth - edge * 2));
+      const width = Math.min(920, Math.max(360, viewportWidth - edge * 2));
+      const centeredLeft = (viewportWidth - width) / 2;
       const left = Math.min(
-        Math.max(toggleRect.right - width, edge),
+        Math.max(Math.round(centeredLeft), edge),
         Math.max(edge, viewportWidth - width - edge),
       );
-      const preferredTop = toggleRect.top - edge;
       const estimatedDrawerHeight = 520;
-      const hasSpaceAbove = preferredTop - estimatedDrawerHeight >= edge;
-      let top: number;
-      let maxHeight: number;
-      if (hasSpaceAbove) {
-        top = Math.max(edge, preferredTop - estimatedDrawerHeight);
-        maxHeight = Math.max(320, Math.min(820, preferredTop - edge));
-      } else {
-        const belowTop = toggleRect.bottom + edge;
-        const maxHeightBelow = Math.max(320, Math.min(820, viewportHeight - belowTop - edge));
-        top = belowTop;
-        maxHeight = maxHeightBelow;
-      }
+      const maxHeight = Math.max(320, Math.min(820, viewportHeight - edge * 2));
+      const centeredTop = (viewportHeight - Math.min(estimatedDrawerHeight, maxHeight)) / 2;
+      const top = Math.min(
+        Math.max(Math.round(centeredTop), edge),
+        Math.max(edge, viewportHeight - maxHeight - edge),
+      );
       setDrawerStyle({
         position: "fixed",
         left,
@@ -457,7 +757,7 @@ export function OpenCodeControlPanel({
             <div className="opencode-drawer-content">
       <section className="opencode-onboarding-card" aria-label="OpenCode 连接引导">
         <h4>连接引导</h4>
-        <p>默认不预选连接。请先确认状态，再选择 Provider 进行认证。</p>
+        <p>默认不预选连接。点击连接后请在 CLI 中自行选择空间/Provider 完成认证。</p>
         <div className="opencode-onboarding-metrics">
           <span>认证状态：{providerStatusLabel}</span>
           <button
@@ -472,10 +772,77 @@ export function OpenCodeControlPanel({
         </div>
         {authExpanded && (
           <div className="opencode-auth-expand">
-            {authExpandRows.map((line) => (
-              <p key={line}>{line}</p>
+            {authExpandRows.map((row) => (
+              <p key={`${row.label}:${row.value}`} className={`opencode-auth-line is-${row.tone}`}>
+                {row.icon === "ok" && <CheckCircle2 size={12} aria-hidden />}
+                {row.icon === "warn" && <CircleDashed size={12} aria-hidden />}
+                {row.icon === "fail" && <XCircle size={12} aria-hidden />}
+                <span className="opencode-auth-key">{row.label}：</span>
+                {row.key === "authenticatedProviders" ? (
+                  <span className="opencode-auth-vendors">
+                    {(row.providers ?? []).length > 0 ? (
+                      (row.providers ?? []).map((providerName, providerIndex) => {
+                        const normalized = normalizeProviderDisplayName(providerName);
+                        const brand = detectProviderBrand(normalized);
+                        const tagKey = normalizeLooseKey(normalized);
+                        const isSelected = activeProviderTagKey.length > 0 && activeProviderTagKey === tagKey;
+                        return (
+                          <span
+                            key={`${providerName}:${brand}:${providerIndex}`}
+                            role="button"
+                            tabIndex={0}
+                            className={`opencode-auth-vendor-tag${isSelected ? " is-selected" : ""}`}
+                            onClick={() => {
+                              const switchedModel = switchToLatestModelByProvider(normalized);
+                              if (!switchedModel) {
+                                setProviderStatusHint(`未找到 ${normalized} 对应可切换模型`);
+                              } else {
+                                setProviderStatusHint(`已切换到 ${normalized} 最新模型：${switchedModel}`);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") {
+                                return;
+                              }
+                              event.preventDefault();
+                              const switchedModel = switchToLatestModelByProvider(normalized);
+                              if (!switchedModel) {
+                                setProviderStatusHint(`未找到 ${normalized} 对应可切换模型`);
+                              } else {
+                                setProviderStatusHint(`已切换到 ${normalized} 最新模型：${switchedModel}`);
+                              }
+                            }}
+                            title={`切换到 ${normalized} 的最新模型`}
+                          >
+                            {brand === "openai" && <Bot size={11} aria-hidden />}
+                            {brand === "anthropic" && <Brain size={11} aria-hidden />}
+                            {brand === "github" && <Github size={11} aria-hidden />}
+                            {brand === "zhipu" && <Cpu size={11} aria-hidden />}
+                            {brand === "minimax" && <Cpu size={11} aria-hidden />}
+                            {brand === "opencode" && <Activity size={11} aria-hidden />}
+                            {brand === "other" && <CircleDashed size={11} aria-hidden />}
+                            <span>{normalized}</span>
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="opencode-auth-value">无</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="opencode-auth-value">{row.value}</span>
+                )}
+              </p>
             ))}
           </div>
+        )}
+        {shouldShowProviderStatusHint && (
+          <p className="opencode-provider-status-hint">{providerStatusHint}</p>
+        )}
+        {filteredOutProviderCount > 0 && (
+          <p className="opencode-provider-status-hint">
+            已自动隐藏 {filteredOutProviderCount} 项疑似失效/不可用 Provider
+          </p>
         )}
         <p className="opencode-onboarding-next-step">{onboardingNextStep}</p>
       </section>
@@ -488,10 +855,13 @@ export function OpenCodeControlPanel({
         )}
         <div className="opencode-panel-grid">
           <div className="opencode-panel-item is-control" title={snapshot?.agent ?? selectedAgent ?? "default"}>
-            <span>Agent</span>
+            <span className="opencode-control-icon-label" title="Agent" aria-label="Agent">
+              <Bot size={12} aria-hidden />
+            </span>
             {onSelectAgent ? (
               <select
                 className="opencode-panel-select"
+                aria-label="OpenCode Agent Selector"
                 value={selectedAgent ?? ""}
                 onChange={(event) => onSelectAgent(event.target.value || null)}
               >
@@ -507,10 +877,13 @@ export function OpenCodeControlPanel({
             )}
           </div>
           <div className="opencode-panel-item is-control" title={resolvedModelValue ?? "未选择模型"}>
-            <span>Model</span>
+            <span className="opencode-control-icon-label" title="Model" aria-label="Model">
+              <Brain size={12} aria-hidden />
+            </span>
             {onSelectModel ? (
               <select
                 className="opencode-panel-select"
+                aria-label="OpenCode Model Selector"
                 value={selectedModelId ?? ""}
                 onChange={(event) => onSelectModel(event.target.value)}
               >
@@ -533,10 +906,13 @@ export function OpenCodeControlPanel({
             )}
           </div>
           <div className="opencode-panel-item is-control" title={snapshot?.variant ?? selectedVariant ?? "default"}>
-            <span>Variant</span>
+            <span className="opencode-control-icon-label" title="Variant" aria-label="Variant">
+              <Cpu size={12} aria-hidden />
+            </span>
             {onSelectVariant ? (
               <select
                 className="opencode-panel-select"
+                aria-label="OpenCode Variant Selector"
                 value={selectedVariant ?? ""}
                 onChange={(event) => onSelectVariant(event.target.value || null)}
               >
@@ -559,14 +935,9 @@ export function OpenCodeControlPanel({
         providerHealth={providerHealth}
         providerStatusTone={providerStatusTone}
         providerStatusLabel={providerStatusLabel}
-        providerOptions={providerOptions}
-        selectedProviderId={selectedProviderId}
-        onSelectedProviderIdChange={setSelectedProviderId}
         showHeader={false}
         connectingProvider={connectingProvider}
-        testingProvider={testingProvider}
-        onConnectProvider={connectProvider}
-        onTestProvider={testProvider}
+        onConnectProvider={() => connectProvider(null)}
       />
       )}
 

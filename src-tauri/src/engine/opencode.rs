@@ -6,21 +6,25 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex, RwLock};
-use tokio::time::{timeout, Instant};
+use tokio::time::{sleep, timeout, Instant};
 
 use super::events::EngineEvent;
 use super::{EngineConfig, EngineType, SendMessageParams};
 
-const OPENCODE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const OPENCODE_OPENAI_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const OPENCODE_POST_RESPONSE_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 const OPENCODE_TOTAL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const OPENCODE_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(3);
+const OPENCODE_IO_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const OPENCODE_SYNTHETIC_STREAM_DELAY: Duration = Duration::from_millis(24);
+const OPENCODE_SYNTHETIC_STREAM_MIN_CHARS: usize = 180;
 
 #[derive(Debug, Clone)]
 pub struct OpenCodeTurnEvent {
@@ -52,19 +56,9 @@ impl OpenCodeSession {
             || std::env::var("all_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
     }
 
-    fn requires_openai_connectivity_probe(model: Option<&str>) -> bool {
-        let raw = model.unwrap_or_default().trim().to_lowercase();
-        if raw.is_empty() {
-            return true;
-        }
-        if raw.starts_with("openai/") {
-            return true;
-        }
-        raw.starts_with("gpt-")
-            || raw.starts_with("o1")
-            || raw.starts_with("o3")
-            || raw.starts_with("o4")
-            || raw.starts_with("codex")
+    fn requires_openai_connectivity_probe(_model: Option<&str>) -> bool {
+        // Unified policy: apply the same preflight/timeout behavior to all OpenCode models.
+        true
     }
 
     async fn run_connectivity_preflight(model: Option<&str>) -> Result<(), String> {
@@ -116,6 +110,11 @@ impl OpenCodeSession {
             return None;
         }
         Some(value.to_lowercase())
+    }
+
+    fn idle_timeout_for_model(_model: Option<&str>) -> Duration {
+        // Unified policy: all models use the longer timeout window.
+        OPENCODE_OPENAI_IDLE_TIMEOUT
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<OpenCodeTurnEvent> {
@@ -286,10 +285,16 @@ impl OpenCodeSession {
         );
 
         let stderr_reader = BufReader::new(stderr);
+        let last_io_activity = Arc::new(Mutex::new(Instant::now()));
+        let stderr_activity = Arc::clone(&last_io_activity);
         let stderr_task = tokio::spawn(async move {
             let mut lines = stderr_reader.lines();
             let mut text = String::new();
             while let Ok(Some(line)) = lines.next_line().await {
+                {
+                    let mut last = stderr_activity.lock().await;
+                    *last = Instant::now();
+                }
                 text.push_str(&line);
                 text.push('\n');
             }
@@ -304,7 +309,10 @@ impl OpenCodeSession {
         let mut timed_out = false;
         let mut quiesced_without_terminal = false;
         let mut active_tool_calls: i32 = 0;
+        let mut text_delta_count: usize = 0;
+        let mut heartbeat_pulse: u64 = 0;
         let started_at = Instant::now();
+        let model_idle_timeout = Self::idle_timeout_for_model(effective_params.model.as_deref());
 
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -324,9 +332,9 @@ impl OpenCodeSession {
             {
                 OPENCODE_POST_RESPONSE_IDLE_TIMEOUT
             } else {
-                OPENCODE_IDLE_TIMEOUT
+                model_idle_timeout
             };
-            let next_line = timeout(idle_timeout, lines.next_line()).await;
+            let next_line = timeout(OPENCODE_IO_POLL_INTERVAL, lines.next_line()).await;
             let line = match next_line {
                 Ok(Ok(Some(line))) => line,
                 Ok(Ok(None)) => break,
@@ -335,19 +343,43 @@ impl OpenCodeSession {
                     break;
                 }
                 Err(_) => {
+                    let inactivity = {
+                        let last = *last_io_activity.lock().await;
+                        last.elapsed()
+                    };
+                    if inactivity < idle_timeout {
+                        if response_text.is_empty() && !saw_turn_completed {
+                            heartbeat_pulse += 1;
+                            self.emit_turn_event(
+                                turn_id,
+                                EngineEvent::ProcessingHeartbeat {
+                                    workspace_id: self.workspace_id.clone(),
+                                    pulse: heartbeat_pulse,
+                                },
+                            );
+                        }
+                        continue;
+                    }
                     if !response_text.is_empty() && !saw_turn_completed && active_tool_calls <= 0 {
                         quiesced_without_terminal = true;
                         break;
                     }
                     timed_out = true;
                     error_output.push_str(&format!(
-                        "OpenCode output idle timeout ({}s). Process did not emit data.\n",
-                        idle_timeout.as_secs()
+                        "OpenCode output idle timeout ({}s). No stdout/stderr activity; activeToolCalls={}, sawTurnCompleted={}, responseChars={}.\n",
+                        idle_timeout.as_secs(),
+                        active_tool_calls,
+                        saw_turn_completed,
+                        response_text.len()
                     ));
                     break;
                 }
             };
 
+            {
+                let mut last = last_io_activity.lock().await;
+                *last = Instant::now();
+            }
             if line.trim().is_empty() {
                 continue;
             }
@@ -375,8 +407,27 @@ impl OpenCodeSession {
                         if matches!(unified_event, EngineEvent::ToolCompleted { .. }) {
                             active_tool_calls = (active_tool_calls - 1).max(0);
                         }
-                        if let EngineEvent::TextDelta { text, .. } = &unified_event {
-                            response_text.push_str(text);
+                        if let EngineEvent::TextDelta { workspace_id, text } = &unified_event {
+                            let chunks = if text_delta_count == 0 {
+                                split_text_for_progressive_stream(text)
+                            } else {
+                                vec![text.clone()]
+                            };
+                            for (index, chunk) in chunks.into_iter().enumerate() {
+                                response_text.push_str(&chunk);
+                                text_delta_count += 1;
+                                self.emit_turn_event(
+                                    turn_id,
+                                    EngineEvent::TextDelta {
+                                        workspace_id: workspace_id.clone(),
+                                        text: chunk,
+                                    },
+                                );
+                                if index > 0 {
+                                    sleep(OPENCODE_SYNTHETIC_STREAM_DELAY).await;
+                                }
+                            }
+                            continue;
                         }
                         if matches!(unified_event, EngineEvent::TurnCompleted { .. }) {
                             saw_turn_completed = true;
@@ -578,6 +629,65 @@ fn extract_text_from_message(event: &Value) -> Option<String> {
     }
 }
 
+fn extract_text_from_nested_payload(event: &Value, depth: usize) -> Option<String> {
+    if depth > 3 {
+        return None;
+    }
+    if let Some(text) = extract_text_delta(event).or_else(|| extract_text_from_message(event)) {
+        return Some(text);
+    }
+    for key in ["event", "payload", "data", "output", "result", "message", "part"] {
+        if let Some(nested) = event.get(key) {
+            if let Some(text) = extract_text_from_nested_payload(nested, depth + 1) {
+                return Some(text);
+            }
+        }
+    }
+    if let Some(items) = event.as_array() {
+        for item in items {
+            if let Some(text) = extract_text_from_nested_payload(item, depth + 1) {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn split_text_for_progressive_stream(text: &str) -> Vec<String> {
+    if text.chars().count() < OPENCODE_SYNTHETIC_STREAM_MIN_CHARS {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    let soft_limit = 64usize;
+    let hard_limit = 140usize;
+    let break_chars = ['。', '！', '？', '.', '!', '?', '\n'];
+
+    for ch in text.chars() {
+        current.push(ch);
+        current_len += 1;
+        let should_break =
+            (current_len >= soft_limit && break_chars.contains(&ch)) || current_len >= hard_limit;
+        if should_break {
+            chunks.push(current.clone());
+            current.clear();
+            current_len = 0;
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    if chunks.len() <= 1 {
+        vec![text.to_string()]
+    } else {
+        chunks
+    }
+}
+
 pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<EngineEvent> {
     let event_type = event.get("type").and_then(|v| v.as_str())?;
     match event_type {
@@ -619,6 +729,13 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
         "tool_use" => {
             let part = event.get("part");
             let state = part.and_then(|v| v.get("state"));
+            let status = first_non_empty_str(&[
+                event.get("status").and_then(|v| v.as_str()),
+                state.and_then(|v| v.get("status")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("status")).and_then(|v| v.as_str()),
+            ])
+            .unwrap_or("started")
+            .to_ascii_lowercase();
             let tool_name = first_non_empty_str(&[
                 event.get("name").and_then(|v| v.as_str()),
                 event.get("tool_name").and_then(|v| v.as_str()),
@@ -632,6 +749,9 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 event.get("tool_id").and_then(|v| v.as_str()),
                 event.get("id").and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("callID")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("callId")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("call_id")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("toolCallID")).and_then(|v| v.as_str()),
                 state.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
             ])
@@ -641,12 +761,57 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 .cloned()
                 .or_else(|| part.and_then(|v| v.get("input")).cloned())
                 .or_else(|| state.and_then(|v| v.get("input")).cloned());
-            Some(EngineEvent::ToolStarted {
-                workspace_id: workspace_id.to_string(),
-                tool_id: tool_id.to_string(),
-                tool_name: tool_name.to_string(),
-                input,
-            })
+            let raw_output = event
+                .get("output")
+                .or_else(|| event.get("result"))
+                .cloned()
+                .or_else(|| part.and_then(|v| v.get("output")).cloned())
+                .or_else(|| state.and_then(|v| v.get("output")).cloned());
+            let error = event
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    part.and_then(|v| v.get("error"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .or_else(|| {
+                    state.and_then(|v| v.get("error"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                });
+            if status.contains("complete")
+                || status.contains("success")
+                || status.contains("done")
+                || status.contains("fail")
+                || status.contains("error")
+                || status.contains("cancel")
+                || status.contains("timeout")
+            {
+                let output = if input.is_some() {
+                    Some(json!({
+                        "_input": input,
+                        "_output": raw_output,
+                    }))
+                } else {
+                    raw_output
+                };
+                Some(EngineEvent::ToolCompleted {
+                    workspace_id: workspace_id.to_string(),
+                    tool_id: tool_id.to_string(),
+                    tool_name: Some(tool_name.to_string()),
+                    output,
+                    error,
+                })
+            } else {
+                Some(EngineEvent::ToolStarted {
+                    workspace_id: workspace_id.to_string(),
+                    tool_id: tool_id.to_string(),
+                    tool_name: tool_name.to_string(),
+                    input,
+                })
+            }
         }
         "tool_result" => {
             let part = event.get("part");
@@ -655,6 +820,9 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 event.get("tool_id").and_then(|v| v.as_str()),
                 event.get("id").and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("callID")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("callId")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("call_id")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("toolCallID")).and_then(|v| v.as_str()),
                 state.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
             ])
@@ -795,6 +963,14 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 if let Some(text) =
                     extract_text_delta(event).or_else(|| extract_text_from_message(event))
                 {
+                    return Some(EngineEvent::TextDelta {
+                        workspace_id: workspace_id.to_string(),
+                        text,
+                    });
+                }
+            }
+            if !lower.contains("tool") {
+                if let Some(text) = extract_text_from_nested_payload(event, 0) {
                     return Some(EngineEvent::TextDelta {
                         workspace_id: workspace_id.to_string(),
                         text,
@@ -971,6 +1147,59 @@ mod tests {
                 assert_eq!(text, "helloworld");
             }
             _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn parse_background_output_event_with_nested_delta() {
+        let event = json!({
+            "type": "background_output",
+            "event": {
+                "type": "assistant_message_delta",
+                "delta": "nested-stream"
+            }
+        });
+        let parsed = parse_opencode_event("ws-1", &event);
+        match parsed {
+            Some(EngineEvent::TextDelta { workspace_id, text }) => {
+                assert_eq!(workspace_id, "ws-1");
+                assert_eq!(text, "nested-stream");
+            }
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn parse_tool_use_completed_state_as_tool_completed_with_call_id() {
+        let event = json!({
+            "type": "tool_use",
+            "part": {
+                "tool": "task",
+                "callID": "call_abc123",
+                "state": {
+                    "status": "completed",
+                    "output": {
+                        "ok": true
+                    }
+                }
+            }
+        });
+        let parsed = parse_opencode_event("ws-1", &event);
+        match parsed {
+            Some(EngineEvent::ToolCompleted {
+                workspace_id,
+                tool_id,
+                tool_name,
+                output,
+                error,
+            }) => {
+                assert_eq!(workspace_id, "ws-1");
+                assert_eq!(tool_id, "call_abc123");
+                assert_eq!(tool_name.as_deref(), Some("task"));
+                assert!(output.is_some());
+                assert!(error.is_none());
+            }
+            _ => panic!("expected ToolCompleted"),
         }
     }
 

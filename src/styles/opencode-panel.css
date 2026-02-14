@@ -221,7 +221,7 @@
   position: fixed;
   right: 12px;
   bottom: 56px;
-  width: min(460px, calc(100vw - 24px));
+  width: min(920px, calc(100vw - 24px));
   max-height: min(76vh, 820px);
   border: 1px solid var(--oc-border);
   border-radius: 14px;
@@ -366,6 +366,68 @@
   color: var(--oc-text-muted);
 }
 
+.opencode-auth-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.opencode-auth-line.is-ok .opencode-auth-value {
+  color: var(--oc-status-ok-fg);
+}
+
+.opencode-auth-line.is-warn .opencode-auth-value {
+  color: var(--oc-status-runtime-fg);
+}
+
+.opencode-auth-line.is-fail .opencode-auth-value {
+  color: var(--oc-status-fail-fg);
+}
+
+.opencode-auth-key {
+  color: var(--oc-text-muted);
+}
+
+.opencode-auth-value {
+  font-weight: 600;
+}
+
+.opencode-auth-vendors {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.opencode-auth-vendor-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--oc-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--oc-text);
+  background: color-mix(in srgb, var(--oc-surface) 80%, white 20%);
+  cursor: pointer;
+  user-select: none;
+}
+
+.opencode-auth-vendor-tag:hover {
+  background: var(--oc-surface-hover);
+}
+
+.opencode-auth-vendor-tag.is-selected {
+  border-color: color-mix(in srgb, var(--oc-status-ok-dot) 60%, var(--oc-border));
+  background: color-mix(in srgb, var(--oc-status-ok-bg) 70%, var(--oc-surface));
+  color: var(--oc-status-ok-fg);
+}
+
+.opencode-provider-status-hint {
+  margin-top: 8px !important;
+  color: var(--oc-text-accent) !important;
+}
+
 .opencode-onboarding-next-step {
   margin-top: 8px !important;
 }
@@ -422,6 +484,17 @@
   color: var(--oc-text-muted);
 }
 
+.opencode-control-icon-label {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--oc-border);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--oc-text-accent) !important;
+}
+
 .opencode-panel-item strong {
   font-size: 12px;
   color: var(--oc-text);
@@ -439,22 +512,6 @@
   color: var(--oc-text);
   width: 100%;
   min-width: 0;
-}
-
-@media (max-width: 920px) {
-  .opencode-panel-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 620px) {
-  .opencode-panel-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .opencode-panel-item.is-session {
-    grid-column: auto;
-  }
 }
 
 .opencode-panel-provider,
@@ -514,7 +571,7 @@
 .opencode-provider-connect {
   display: flex;
   gap: 8px;
-  align-items: flex-end;
+  align-items: center;
   margin-bottom: 6px;
   flex-wrap: wrap;
 }

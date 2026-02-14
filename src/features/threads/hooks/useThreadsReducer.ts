@@ -126,6 +126,7 @@ type ThreadActivityStatus = {
   isReviewing: boolean;
   processingStartedAt: number | null;
   lastDurationMs: number | null;
+  heartbeatPulse?: number;
 };
 
 export type ThreadState = {
@@ -167,6 +168,7 @@ export type ThreadAction =
       isProcessing: boolean;
       timestamp: number;
     }
+  | { type: "markHeartbeat"; threadId: string; pulse: number }
   | {
       type: "finalizePendingToolStatuses";
       threadId: string;
@@ -425,6 +427,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
                   null,
                 lastDurationMs:
                   state.threadStatusById[action.threadId]?.lastDurationMs ?? null,
+                heartbeatPulse:
+                  state.threadStatusById[action.threadId]?.heartbeatPulse ?? 0,
               },
             }
           : state.threadStatusById,
@@ -624,6 +628,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
             isReviewing: false,
             processingStartedAt: null,
             lastDurationMs: null,
+            heartbeatPulse: 0,
           },
         },
         activeThreadIdByWorkspace: {
@@ -717,6 +722,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       const wasProcessing = previous?.isProcessing ?? false;
       const startedAt = previous?.processingStartedAt ?? null;
       const lastDurationMs = previous?.lastDurationMs ?? null;
+      const heartbeatPulse = previous?.heartbeatPulse ?? 0;
       if (action.isProcessing) {
         return {
           ...state,
@@ -729,6 +735,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
               processingStartedAt:
                 wasProcessing && startedAt ? startedAt : action.timestamp,
               lastDurationMs,
+              heartbeatPulse: wasProcessing ? heartbeatPulse : 0,
             },
           },
         };
@@ -747,6 +754,26 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
             isReviewing: previous?.isReviewing ?? false,
             processingStartedAt: null,
             lastDurationMs: nextDuration,
+            heartbeatPulse: 0,
+          },
+        },
+      };
+    }
+    case "markHeartbeat": {
+      const previous = state.threadStatusById[action.threadId];
+      if (!previous?.isProcessing) {
+        return state;
+      }
+      if (action.pulse <= 0 || action.pulse <= (previous.heartbeatPulse ?? 0)) {
+        return state;
+      }
+      return {
+        ...state,
+        threadStatusById: {
+          ...state.threadStatusById,
+          [action.threadId]: {
+            ...previous,
+            heartbeatPulse: action.pulse,
           },
         },
       };
@@ -813,6 +840,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
               state.threadStatusById[action.threadId]?.processingStartedAt ?? null,
             lastDurationMs:
               state.threadStatusById[action.threadId]?.lastDurationMs ?? null,
+            heartbeatPulse:
+              state.threadStatusById[action.threadId]?.heartbeatPulse ?? 0,
           },
         },
       };
@@ -831,6 +860,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
               state.threadStatusById[action.threadId]?.processingStartedAt ?? null,
             lastDurationMs:
               state.threadStatusById[action.threadId]?.lastDurationMs ?? null,
+            heartbeatPulse:
+              state.threadStatusById[action.threadId]?.heartbeatPulse ?? 0,
           },
         },
       };
@@ -1139,6 +1170,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
                 oldStatus.processingStartedAt ?? existingStatus.processingStartedAt,
               lastDurationMs:
                 oldStatus.lastDurationMs ?? existingStatus.lastDurationMs,
+              heartbeatPulse:
+                oldStatus.heartbeatPulse ?? existingStatus.heartbeatPulse ?? 0,
             }
           : oldStatus;
         delete newThreadStatusById[oldThreadId];

@@ -33,14 +33,19 @@ fn build_async_command(bin: &str) -> Command {
     crate::utils::async_command(bin)
 }
 
+fn resolve_bin_path(name: &str, custom_bin: Option<&str>) -> Option<PathBuf> {
+    if let Some(custom) = custom_bin.filter(|v| !v.trim().is_empty()) {
+        let custom_path = PathBuf::from(custom);
+        if custom_path.exists() {
+            return Some(custom_path);
+        }
+    }
+    find_cli_binary(name, None)
+}
+
 /// Detect Claude Code CLI installation status
 pub async fn detect_claude_status(custom_bin: Option<&str>) -> EngineStatus {
-    // Try to find the binary using which crate
-    let bin_path = if let Some(custom) = custom_bin.filter(|v| !v.trim().is_empty()) {
-        Some(PathBuf::from(custom))
-    } else {
-        find_cli_binary("claude", None)
-    };
+    let bin_path = resolve_bin_path("claude", custom_bin);
 
     let bin = bin_path
         .as_ref()
@@ -123,12 +128,7 @@ pub async fn detect_claude_status(custom_bin: Option<&str>) -> EngineStatus {
 
 /// Detect Codex CLI installation status
 pub async fn detect_codex_status(custom_bin: Option<&str>) -> EngineStatus {
-    // Try to find the binary using which crate
-    let bin_path = if let Some(custom) = custom_bin.filter(|v| !v.trim().is_empty()) {
-        Some(PathBuf::from(custom))
-    } else {
-        find_cli_binary("codex", None)
-    };
+    let bin_path = resolve_bin_path("codex", custom_bin);
 
     let bin = bin_path
         .as_ref()
@@ -206,11 +206,7 @@ pub async fn detect_codex_status(custom_bin: Option<&str>) -> EngineStatus {
 
 /// Detect OpenCode CLI installation status
 pub async fn detect_opencode_status(custom_bin: Option<&str>) -> EngineStatus {
-    let bin_path = if let Some(custom) = custom_bin.filter(|v| !v.trim().is_empty()) {
-        Some(PathBuf::from(custom))
-    } else {
-        find_cli_binary("opencode", None)
-    };
+    let bin_path = resolve_bin_path("opencode", custom_bin);
 
     let bin = bin_path
         .as_ref()

@@ -414,6 +414,23 @@
   background: color-mix(in srgb, #dbeafe 90%, transparent);
 }
 
+:root[data-theme="dark"] .composer-opencode-model-indicator,
+:root[data-theme="dim"] .composer-opencode-model-indicator {
+  color: #fff;
+}
+
+:root[data-theme="dark"] .composer-opencode-model-indicator:hover,
+:root[data-theme="dim"] .composer-opencode-model-indicator:hover {
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .composer-opencode-model-indicator,
+  :root:not([data-theme]) .composer-opencode-model-indicator:hover {
+    color: #fff;
+  }
+}
+
 .composer-engine-status-dot {
   width: 10px;
   height: 10px;

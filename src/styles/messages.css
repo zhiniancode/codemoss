@@ -163,6 +163,15 @@
   font-size: 11px;
 }
 
+.working-activity {
+  color: var(--text-faint);
+  font-size: 11px;
+  max-width: min(62ch, 54vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 :root[data-theme="light"] .working-text {
   color: var(--text-muted);
   background: none;

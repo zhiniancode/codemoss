@@ -67,6 +67,7 @@ type ThreadActivityStatus = {
   isReviewing: boolean;
   processingStartedAt?: number | null;
   lastDurationMs?: number | null;
+  heartbeatPulse?: number;
 };
 
 type GitDiffViewerItem = {
@@ -571,6 +572,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       }
       processingStartedAt={activeThreadStatus?.processingStartedAt ?? null}
       lastDurationMs={activeThreadStatus?.lastDurationMs ?? null}
+      heartbeatPulse={activeThreadStatus?.heartbeatPulse ?? 0}
     />
   );
 

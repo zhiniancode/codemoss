@@ -144,6 +144,17 @@ export function useThreadEventHandlers({
     [dispatch],
   );
 
+  const onProcessingHeartbeat = useCallback(
+    (_workspaceId: string, threadId: string, pulse: number) => {
+      if (!threadId || pulse <= 0) {
+        return;
+      }
+      dispatch({ type: "markHeartbeat", threadId, pulse });
+      safeMessageActivity();
+    },
+    [dispatch, safeMessageActivity],
+  );
+
   /**
    * 获取当前活动的 Codex thread ID
    * 奶奶请看：这个函数就是"智能收件室"的核心功能
@@ -202,6 +213,7 @@ export function useThreadEventHandlers({
       onThreadStarted,
       onTurnStarted,
       onTurnCompleted,
+      onProcessingHeartbeat,
       onTurnPlanUpdated,
       onThreadTokenUsageUpdated,
       onAccountRateLimitsUpdated,
@@ -230,6 +242,7 @@ export function useThreadEventHandlers({
       onThreadStarted,
       onTurnStarted,
       onTurnCompleted,
+      onProcessingHeartbeat,
       onTurnPlanUpdated,
       onThreadTokenUsageUpdated,
       onAccountRateLimitsUpdated,

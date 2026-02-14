@@ -332,6 +332,7 @@ export const Markdown = memo(function Markdown({
   const lastUpdateRef = useRef(Date.now());
   const throttleTimerRef = useRef<number>(0);
   const latestValueRef = useRef(value);
+  const mountedRef = useRef(true);
   latestValueRef.current = value;
 
   useEffect(() => {
@@ -352,6 +353,9 @@ export const Markdown = memo(function Markdown({
     // changes; it will fire once and read the latest value from the ref.
     throttleTimerRef.current = window.setTimeout(() => {
       throttleTimerRef.current = 0;
+      if (!mountedRef.current || typeof window === "undefined") {
+        return;
+      }
       setThrottledValue(latestValueRef.current);
       lastUpdateRef.current = Date.now();
     }, 80 - elapsed);
@@ -359,7 +363,9 @@ export const Markdown = memo(function Markdown({
 
   // Clean up only on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (throttleTimerRef.current) {
         window.clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = 0;

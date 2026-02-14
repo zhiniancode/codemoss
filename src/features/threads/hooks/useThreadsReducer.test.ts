@@ -165,6 +165,36 @@ describe("threadReducer", () => {
     expect(stopped.threadStatusById["thread-1"]?.lastDurationMs).toBe(600);
   });
 
+  it("tracks heartbeat pulses only while processing", () => {
+    const started = threadReducer(initialState, {
+      type: "markProcessing",
+      threadId: "thread-1",
+      isProcessing: true,
+      timestamp: 1000,
+    });
+    const pulsed = threadReducer(started, {
+      type: "markHeartbeat",
+      threadId: "thread-1",
+      pulse: 2,
+    });
+    expect(pulsed.threadStatusById["thread-1"]?.heartbeatPulse).toBe(2);
+
+    const stalePulse = threadReducer(pulsed, {
+      type: "markHeartbeat",
+      threadId: "thread-1",
+      pulse: 1,
+    });
+    expect(stalePulse.threadStatusById["thread-1"]?.heartbeatPulse).toBe(2);
+
+    const stopped = threadReducer(pulsed, {
+      type: "markProcessing",
+      threadId: "thread-1",
+      isProcessing: false,
+      timestamp: 1500,
+    });
+    expect(stopped.threadStatusById["thread-1"]?.heartbeatPulse ?? 0).toBe(0);
+  });
+
   it("tracks request user input queue", () => {
     const request = {
       workspace_id: "ws-1",

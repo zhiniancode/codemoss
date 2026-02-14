@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type {
   AppServerEvent,
   ApprovalRequest,
@@ -41,6 +41,7 @@ type AppServerEventHandlers = {
   onAppServerEvent?: (event: AppServerEvent) => void;
   onTurnStarted?: (workspaceId: string, threadId: string, turnId: string) => void;
   onTurnCompleted?: (workspaceId: string, threadId: string, turnId: string) => void;
+  onProcessingHeartbeat?: (workspaceId: string, threadId: string, pulse: number) => void;
   onContextCompacted?: (workspaceId: string, threadId: string, turnId: string) => void;
   onTurnError?: (
     workspaceId: string,
@@ -86,6 +87,7 @@ type AppServerEventHandlers = {
 };
 
 export function useAppServerEvents(handlers: AppServerEventHandlers) {
+  const threadAgentDeltaSeenRef = useRef<Record<string, true>>({});
   useEffect(() => {
     const unlisten = subscribeAppServerEvents((payload) => {
       handlers.onAppServerEvent?.(payload);
@@ -158,6 +160,7 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         const itemId = String(params.itemId ?? params.item_id ?? "");
         const delta = String(params.delta ?? "");
         if (threadId && itemId && delta) {
+          threadAgentDeltaSeenRef.current[threadId] = true;
           handlers.onAgentMessageDelta?.({
             workspaceId: workspace_id,
             threadId,
@@ -266,6 +269,26 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         );
         const turnId = String(turn?.id ?? params.turnId ?? params.turn_id ?? "");
         if (threadId) {
+          const seenDelta = Boolean(threadAgentDeltaSeenRef.current[threadId]);
+          const result = (params.result as Record<string, unknown> | undefined) ?? undefined;
+          const textFromResult = [
+            typeof params.text === "string" ? params.text : "",
+            typeof result?.text === "string" ? String(result.text) : "",
+            typeof result?.output_text === "string" ? String(result.output_text) : "",
+            typeof result?.outputText === "string" ? String(result.outputText) : "",
+            typeof result?.content === "string" ? String(result.content) : "",
+          ]
+            .map((item) => item.trim())
+            .find((item) => item.length > 0);
+          if (!seenDelta && textFromResult) {
+            handlers.onAgentMessageCompleted?.({
+              workspaceId: workspace_id,
+              threadId,
+              itemId: turnId || `assistant-final-${Date.now()}`,
+              text: textFromResult,
+            });
+          }
+          delete threadAgentDeltaSeenRef.current[threadId];
           handlers.onTurnCompleted?.(workspace_id, threadId, turnId);
 
           // Try to extract usage data from turn/completed (Codex may include it here)
@@ -307,6 +330,16 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
               handlers.onThreadTokenUsageUpdated?.(workspace_id, threadId, tokenUsage);
             }
           }
+        }
+        return;
+      }
+
+      if (method === "processing/heartbeat") {
+        const params = message.params as Record<string, unknown>;
+        const threadId = String(params.threadId ?? params.thread_id ?? "");
+        const pulse = Number(params.pulse ?? 0);
+        if (threadId && Number.isFinite(pulse) && pulse > 0) {
+          handlers.onProcessingHeartbeat?.(workspace_id, threadId, pulse);
         }
         return;
       }

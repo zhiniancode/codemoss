@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenCodeControlPanel } from "./OpenCodeControlPanel";
 import { useOpenCodeControlPanel } from "../hooks/useOpenCodeControlPanel";
@@ -87,6 +87,8 @@ describe("OpenCodeControlPanel", () => {
 
   it("opens drawer and switches tabs", () => {
     const onRunOpenCodeCommand = vi.fn();
+    const hookState = buildHookState();
+    mockUseOpenCodeControlPanel.mockReturnValue(hookState);
     render(
       <OpenCodeControlPanel
         visible
@@ -102,7 +104,12 @@ describe("OpenCodeControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "打开状态面板" }));
     expect(screen.getByRole("dialog", { name: "OpenCode 管理面板" })).toBeTruthy();
     expect(screen.getByText("连接引导")).toBeTruthy();
-    expect(screen.getByText("Connect a provider")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "连接（CLI 选择）" })).toBeTruthy();
+    expect(screen.getByLabelText("Agent")).toBeTruthy();
+    expect(screen.getByLabelText("Model")).toBeTruthy();
+    expect(screen.getByLabelText("Variant")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "连接（CLI 选择）" }));
+    expect(hookState.connectProvider).toHaveBeenCalledWith(null);
 
     fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
     expect(screen.getByText("总开关")).toBeTruthy();
@@ -136,5 +143,48 @@ describe("OpenCodeControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "打开状态面板" }));
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "OpenCode 管理面板" })).toBeNull();
+  });
+
+  it("debounces transient provider failures before reporting fail tone", () => {
+    vi.useFakeTimers();
+    const onProviderStatusToneChange = vi.fn();
+    const hookState = buildHookState();
+    hookState.providerHealth = {
+      provider: "openai",
+      connected: false,
+      credentialCount: 0,
+      matched: false,
+      error: "Failed to run OpenCode auth list",
+    } as any;
+    hookState.snapshot = {
+      ...hookState.snapshot,
+      providerHealth: hookState.providerHealth,
+      provider: "openai",
+      sessionId: "",
+    } as any;
+    mockUseOpenCodeControlPanel.mockReturnValue(hookState);
+
+    const { unmount } = render(
+      <OpenCodeControlPanel
+        visible
+        workspaceId="ws-1"
+        threadId="opencode:ses_1234567890"
+        selectedModel="openai/gpt-5.3-codex"
+        selectedAgent="default"
+        selectedVariant="default"
+        onProviderStatusToneChange={onProviderStatusToneChange}
+      />,
+    );
+
+    expect(onProviderStatusToneChange).toHaveBeenCalledWith("is-runtime");
+    act(() => {
+      vi.advanceTimersByTime(8200);
+    });
+    expect(onProviderStatusToneChange).toHaveBeenCalledWith("is-fail");
+    unmount();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    vi.useRealTimers();
   });
 });

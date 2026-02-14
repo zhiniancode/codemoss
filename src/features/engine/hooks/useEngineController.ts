@@ -11,6 +11,7 @@ import {
   detectEngines,
   getActiveEngine,
   getEngineModels,
+  getOpenCodeCommandsList,
   switchEngine,
 } from "../../../services/tauri";
 import {
@@ -131,10 +132,31 @@ export function useEngineController({
     });
 
     try {
-      const [statuses, currentEngine] = await Promise.all([
+      const [rawStatuses, currentEngine] = await Promise.all([
         detectEngines(),
         getActiveEngine(),
       ]);
+      let statuses = rawStatuses;
+      const opencodeIndex = statuses.findIndex((s) => s.engineType === "opencode");
+      const opencodeInstalled = opencodeIndex >= 0 ? statuses[opencodeIndex]?.installed : false;
+      if (!opencodeInstalled) {
+        try {
+          const commands = await getOpenCodeCommandsList(false);
+          if (Array.isArray(commands) && commands.length > 0) {
+            if (opencodeIndex >= 0) {
+              statuses = [...statuses];
+              statuses[opencodeIndex] = {
+                ...statuses[opencodeIndex],
+                installed: true,
+                error: null,
+                version: statuses[opencodeIndex]?.version ?? "unknown",
+              };
+            }
+          }
+        } catch {
+          // Keep backend detection result when fallback probe fails.
+        }
+      }
 
       onDebug?.({
         id: `${Date.now()}-engine-detect-result`,
