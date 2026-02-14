@@ -38,6 +38,7 @@ type MessagesProps = {
   workspacePath?: string | null;
   openTargets: OpenAppTarget[];
   selectedOpenAppId: string;
+  showMessageAnchors?: boolean;
   codeBlockCopyUseModifier?: boolean;
   userInputRequests?: RequestUserInputRequest[];
   onUserInputSubmit?: (
@@ -558,6 +559,7 @@ export const Messages = memo(function Messages({
   workspacePath = null,
   openTargets,
   selectedOpenAppId,
+  showMessageAnchors = true,
   codeBlockCopyUseModifier = false,
   userInputRequests = [],
   onUserInputSubmit,
@@ -565,9 +567,11 @@ export const Messages = memo(function Messages({
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const messageNodeByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const autoScrollRef = useRef(true);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [activeAnchorId, setActiveAnchorId] = useState<string | null>(null);
   const copyTimeoutRef = useRef<number | null>(null);
   const activeUserInputRequestId =
     threadId && userInputRequests.length
@@ -582,11 +586,21 @@ export const Messages = memo(function Messages({
   // with smooth-scroll animations that block keyboard input.
   const [scrollKey, setScrollKey] = useState(rawScrollKey);
   const scrollThrottleRef = useRef<number>(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   useEffect(() => {
     if (scrollThrottleRef.current) {
       window.clearTimeout(scrollThrottleRef.current);
     }
     scrollThrottleRef.current = window.setTimeout(() => {
+      if (!mountedRef.current) {
+        return;
+      }
       startTransition(() => {
         setScrollKey(rawScrollKey);
       });
@@ -609,12 +623,33 @@ export const Messages = memo(function Messages({
     [],
   );
 
-  const updateAutoScroll = () => {
+  const computeActiveAnchor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return null;
+    }
+    const viewportAnchorY =
+      container.getBoundingClientRect().top + Math.min(96, container.clientHeight * 0.32);
+    let bestId: string | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const [messageId, node] of messageNodeByIdRef.current) {
+      const distance = Math.abs(node.getBoundingClientRect().top - viewportAnchorY);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestId = messageId;
+      }
+    }
+    return bestId;
+  }, []);
+
+  const updateAutoScroll = useCallback(() => {
     if (!containerRef.current) {
       return;
     }
     autoScrollRef.current = isNearBottom(containerRef.current);
-  };
+    const nextActiveAnchor = computeActiveAnchor();
+    setActiveAnchorId((previous) => (previous === nextActiveAnchor ? previous : nextActiveAnchor));
+  }, [computeActiveAnchor, isNearBottom]);
 
   const requestAutoScroll = useCallback(() => {
     if (!bottomRef.current) {
@@ -683,6 +718,25 @@ export const Messages = memo(function Messages({
       }),
     [items, reasoningMetaById],
   );
+  const messageAnchors = useMemo(() => {
+    const messageItems = visibleItems.filter(
+      (item): item is Extract<ConversationItem, { kind: "message" }> =>
+        item.kind === "message" && item.role === "user",
+    );
+    if (!messageItems.length) {
+      return [];
+    }
+    return messageItems.map((item, index) => {
+      const position =
+        messageItems.length === 1 ? 0.5 : 0.04 + (index / (messageItems.length - 1)) * 0.92;
+      return {
+        id: item.id,
+        role: item.role,
+        position,
+      };
+    });
+  }, [visibleItems]);
+  const hasAnchorRail = showMessageAnchors && messageAnchors.length > 1;
 
   useEffect(() => {
     return () => {
@@ -691,6 +745,21 @@ export const Messages = memo(function Messages({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasAnchorRail) {
+      setActiveAnchorId(null);
+      return;
+    }
+    const rafId = window.requestAnimationFrame(() => {
+      const nextActiveAnchor =
+        computeActiveAnchor() ?? messageAnchors[messageAnchors.length - 1]?.id ?? null;
+      setActiveAnchorId((previous) => (previous === nextActiveAnchor ? previous : nextActiveAnchor));
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [computeActiveAnchor, hasAnchorRail, messageAnchors, scrollKey, threadId]);
 
   const handleCopyMessage = useCallback(
     async (item: Extract<ConversationItem, { kind: "message" }>) => {
@@ -752,16 +821,24 @@ export const Messages = memo(function Messages({
   const renderSingleItem = (item: ConversationItem) => {
     if (item.kind === "message") {
       const isCopied = copiedMessageId === item.id;
+      const bindMessageNode = (node: HTMLDivElement | null) => {
+        if (item.role === "user" && node) {
+          messageNodeByIdRef.current.set(item.id, node);
+          return;
+        }
+        messageNodeByIdRef.current.delete(item.id);
+      };
       return (
-        <MessageRow
-          key={item.id}
-          item={item}
-          isCopied={isCopied}
-          onCopy={handleCopyMessage}
-          codeBlockCopyUseModifier={codeBlockCopyUseModifier}
-          onOpenFileLink={openFileLink}
-          onOpenFileLinkMenu={showFileLinkMenu}
-        />
+        <div key={item.id} ref={bindMessageNode} data-message-anchor-id={item.id}>
+          <MessageRow
+            item={item}
+            isCopied={isCopied}
+            onCopy={handleCopyMessage}
+            codeBlockCopyUseModifier={codeBlockCopyUseModifier}
+            onOpenFileLink={openFileLink}
+            onOpenFileLinkMenu={showFileLinkMenu}
+          />
+        </div>
       );
     }
     if (item.kind === "reasoning") {
@@ -832,27 +909,73 @@ export const Messages = memo(function Messages({
     return renderSingleItem(entry.item);
   };
 
+  const scrollToAnchor = useCallback((messageId: string) => {
+    const node = messageNodeByIdRef.current.get(messageId);
+    const container = containerRef.current;
+    if (!node || !container) {
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const targetTop =
+      container.scrollTop + (nodeRect.top - containerRect.top) - container.clientHeight * 0.28;
+    autoScrollRef.current = false;
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth",
+    });
+    setActiveAnchorId((previous) => (previous === messageId ? previous : messageId));
+  }, []);
+
   return (
-    <div
-      className="messages messages-full"
-      ref={containerRef}
-      onScroll={updateAutoScroll}
-    >
-      {groupedEntries.map(renderEntry)}
-      {userInputNode}
-      <WorkingIndicator
-        isThinking={isThinking}
-        processingStartedAt={processingStartedAt}
-        lastDurationMs={lastDurationMs}
-        hasItems={items.length > 0}
-        reasoningLabel={latestReasoningLabel}
-      />
-      {!items.length && !userInputNode && (
-        <div className="empty messages-empty">
-          {t("messages.emptyThread")}
+    <div className={`messages-shell${hasAnchorRail ? " has-anchor-rail" : ""}`}>
+      {hasAnchorRail && (
+        <div className="messages-anchor-rail" role="navigation" aria-label="Message anchors">
+          <div className="messages-anchor-track" aria-hidden />
+          {messageAnchors.map((anchor, index) => {
+            const isActive = activeAnchorId === anchor.id;
+            return (
+              <div
+                key={anchor.id}
+                role="button"
+                tabIndex={0}
+                className={`messages-anchor-dot${isActive ? " is-active" : ""}`}
+                style={{ top: `${anchor.position * 100}%` }}
+                onClick={() => scrollToAnchor(anchor.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    scrollToAnchor(anchor.id);
+                  }
+                }}
+                aria-label={`Go to user message ${index + 1}`}
+                title={`User #${index + 1}`}
+              />
+            );
+          })}
         </div>
       )}
-      <div ref={bottomRef} />
+      <div
+        className="messages messages-full"
+        ref={containerRef}
+        onScroll={updateAutoScroll}
+      >
+        {groupedEntries.map(renderEntry)}
+        {userInputNode}
+        <WorkingIndicator
+          isThinking={isThinking}
+          processingStartedAt={processingStartedAt}
+          lastDurationMs={lastDurationMs}
+          hasItems={items.length > 0}
+          reasoningLabel={latestReasoningLabel}
+        />
+        {!items.length && !userInputNode && (
+          <div className="empty messages-empty">
+            {t("messages.emptyThread")}
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
   );
 });

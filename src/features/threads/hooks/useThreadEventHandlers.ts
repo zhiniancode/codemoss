@@ -47,6 +47,10 @@ type ThreadEventHandlersOptions = {
     oldThreadId: string,
     newThreadId: string,
   ) => Promise<void>;
+  resolvePendingThreadForSession?: (
+    workspaceId: string,
+    engine: "claude" | "opencode",
+  ) => string | null;
 };
 
 export function useThreadEventHandlers({
@@ -70,6 +74,7 @@ export function useThreadEventHandlers({
   renameCustomNameKey,
   renameAutoTitlePendingKey,
   renameThreadTitleMapping,
+  resolvePendingThreadForSession,
 }: ThreadEventHandlersOptions) {
   const onApprovalRequest = useThreadApprovalEvents({
     dispatch,
@@ -126,6 +131,7 @@ export function useThreadEventHandlers({
     renameCustomNameKey,
     renameAutoTitlePendingKey,
     renameThreadTitleMapping,
+    resolvePendingThreadForSession,
   });
 
   const onBackgroundThreadAction = useCallback(
@@ -150,7 +156,9 @@ export function useThreadEventHandlers({
       if (
         activeThreadId &&
         !activeThreadId.startsWith("claude:") &&
-        !activeThreadId.startsWith("claude-pending-")
+        !activeThreadId.startsWith("claude-pending-") &&
+        !activeThreadId.startsWith("opencode:") &&
+        !activeThreadId.startsWith("opencode-pending-")
       ) {
         return activeThreadId;
       }

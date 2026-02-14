@@ -43,6 +43,7 @@ import type {
   GitHubPullRequest,
   GitLogEntry,
   ModelOption,
+  OpenCodeAgentOption,
   OpenAppTarget,
   QueuedMessage,
   RateLimitSnapshot,
@@ -118,6 +119,7 @@ type LayoutNodesOptions = {
   activeItems: ConversationItem[];
   activeRateLimits: RateLimitSnapshot | null;
   usageShowRemaining: boolean;
+  showMessageAnchors: boolean;
   accountInfo: AccountSnapshot | null;
   onSwitchAccount: () => void;
   onCancelSwitchAccount: () => void;
@@ -397,6 +399,12 @@ type LayoutNodesOptions = {
   selectedEffort: string | null;
   onSelectEffort: (effort: string | null) => void;
   reasoningSupported: boolean;
+  opencodeAgents: OpenCodeAgentOption[];
+  selectedOpenCodeAgent: string | null;
+  onSelectOpenCodeAgent: (agentId: string | null) => void;
+  opencodeVariantOptions: string[];
+  selectedOpenCodeVariant: string | null;
+  onSelectOpenCodeVariant: (variant: string | null) => void;
   accessMode: AccessMode;
   onSelectAccessMode: (mode: AccessMode) => void;
   skills: SkillOption[];
@@ -551,6 +559,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       workspacePath={options.activeWorkspace?.path ?? null}
       openTargets={options.openAppTargets}
       selectedOpenAppId={options.selectedOpenAppId}
+      showMessageAnchors={options.showMessageAnchors}
       codeBlockCopyUseModifier={options.codeBlockCopyUseModifier}
       userInputRequests={options.userInputRequests}
       onUserInputSubmit={options.handleUserInputSubmit}
@@ -605,6 +614,12 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       selectedEffort={options.selectedEffort}
       onSelectEffort={options.onSelectEffort}
       reasoningSupported={options.reasoningSupported}
+      opencodeAgents={options.opencodeAgents}
+      selectedOpenCodeAgent={options.selectedOpenCodeAgent}
+      onSelectOpenCodeAgent={options.onSelectOpenCodeAgent}
+      opencodeVariantOptions={options.opencodeVariantOptions}
+      selectedOpenCodeVariant={options.selectedOpenCodeVariant}
+      onSelectOpenCodeVariant={options.onSelectOpenCodeVariant}
       accessMode={options.accessMode}
       onSelectAccessMode={options.onSelectAccessMode}
       skills={options.skills}
@@ -634,6 +649,8 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       kanbanContextMode={options.composerKanbanContextMode}
       onKanbanContextModeChange={options.onComposerKanbanContextModeChange}
       onOpenLinkedKanbanPanel={options.onOpenComposerKanbanPanel}
+      activeWorkspaceId={options.activeWorkspaceId}
+      activeThreadId={options.activeThreadId}
       reviewPrompt={options.reviewPrompt}
       onReviewPromptClose={options.onReviewPromptClose}
       onReviewPromptShowPreset={options.onReviewPromptShowPreset}

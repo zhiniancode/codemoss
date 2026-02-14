@@ -128,6 +128,52 @@ describe("Messages", () => {
     expect(markdown?.textContent ?? "").toBe("你好啊");
   });
 
+  it("renders user-only anchors and scrolls on click", () => {
+    const scrollToMock = vi.fn();
+    HTMLElement.prototype.scrollTo = scrollToMock;
+
+    const items: ConversationItem[] = [
+      {
+        id: "anchor-u1",
+        kind: "message",
+        role: "user",
+        text: "first",
+      },
+      {
+        id: "anchor-a1",
+        kind: "message",
+        role: "assistant",
+        text: "second",
+      },
+      {
+        id: "anchor-u2",
+        kind: "message",
+        role: "user",
+        text: "third",
+      },
+    ];
+
+    render(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const rail = screen.getByRole("navigation", { name: "Message anchors" });
+    expect(rail).toBeTruthy();
+    const anchorButtons = screen.getAllByRole("button", { name: /Go to user message \d+/ });
+    expect(anchorButtons.length).toBe(2);
+    fireEvent.click(anchorButtons[0]);
+    expect(scrollToMock).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: "smooth" }),
+    );
+  });
+
   it("uses reasoning title for the working indicator and hides title-only reasoning rows", () => {
     const items: ConversationItem[] = [
       {

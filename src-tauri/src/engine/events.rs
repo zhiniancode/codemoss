@@ -31,17 +31,11 @@ pub enum EngineEvent {
 
     /// Text content delta (streaming)
     #[serde(rename = "text:delta")]
-    TextDelta {
-        workspace_id: String,
-        text: String,
-    },
+    TextDelta { workspace_id: String, text: String },
 
     /// Reasoning/thinking content (for models that expose it)
     #[serde(rename = "reasoning:delta")]
-    ReasoningDelta {
-        workspace_id: String,
-        text: String,
-    },
+    ReasoningDelta { workspace_id: String, text: String },
 
     /// Tool use started
     #[serde(rename = "tool:started")]
@@ -294,7 +288,6 @@ pub fn engine_event_to_app_server_event(
             "method": "turn/completed",
             "params": {
                 "threadId": thread_id,
-                "turnId": thread_id,
                 "result": result,
             }
         }),
@@ -333,8 +326,8 @@ pub fn engine_event_to_app_server_event(
                 }
             }
         }),
-        EngineEvent::Raw { data, .. } => json!({
-            "method": "claude/raw",
+        EngineEvent::Raw { data, engine, .. } => json!({
+            "method": format!("{}/raw", engine.icon()),
             "params": data,
         }),
         _ => return None,
