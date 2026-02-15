@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, ImagePlus, Sparkles, Loader2 } from "lucide-react";
 import type { EngineStatus, EngineType } from "../../../types";
-import type { KanbanTaskStatus } from "../types";
+import type { KanbanTask, KanbanTaskStatus } from "../types";
 import { pickImageFiles, generateThreadTitle } from "../../../services/tauri";
 import { pushErrorToast } from "../../../services/toasts";
 import { RichTextInput } from "../../../components/common/RichTextInput";
@@ -31,6 +31,8 @@ type TaskCreateModalProps = {
   engineStatuses: EngineStatus[];
   onSubmit: (input: CreateTaskInput) => void;
   onCancel: () => void;
+  editingTask?: KanbanTask;
+  onUpdate?: (taskId: string, changes: Partial<KanbanTask>) => void;
 };
 
 export function TaskCreateModal({
@@ -42,6 +44,8 @@ export function TaskCreateModal({
   engineStatuses,
   onSubmit,
   onCancel,
+  editingTask,
+  onUpdate,
 }: TaskCreateModalProps) {
   const { t, i18n } = useTranslation();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -89,19 +93,28 @@ export function TaskCreateModal({
 
   useEffect(() => {
     if (isOpen) {
-      const draft = loadTaskDraft(panelId);
-      if (draft && (draft.title || draft.description)) {
-        setTitle(draft.title);
-        setDescription(draft.description);
-        setEngineType(draft.engineType as EngineType);
-        setModelId(draft.modelId);
-        setImages(draft.images);
+      if (editingTask) {
+        setTitle(editingTask.title);
+        setDescription(editingTask.description);
+        setEngineType(editingTask.engineType);
+        setModelId(editingTask.modelId);
+        setImages(editingTask.images);
+        setAutoStart(editingTask.autoStart);
       } else {
-        setTitle("");
-        setDescription("");
-        setImages([]);
+        const draft = loadTaskDraft(panelId);
+        if (draft && (draft.title || draft.description)) {
+          setTitle(draft.title);
+          setDescription(draft.description);
+          setEngineType(draft.engineType as EngineType);
+          setModelId(draft.modelId);
+          setImages(draft.images);
+        } else {
+          setTitle("");
+          setDescription("");
+          setImages([]);
+        }
+        setAutoStart(defaultStatus !== "todo");
       }
-      setAutoStart(defaultStatus !== "todo");
       inlineCompletion.clear();
       if (availableEngines.length > 0 && !availableEngines.find((e) => e.engineType === engineType)) {
         setEngineType(availableEngines[0].engineType);
@@ -129,18 +142,30 @@ export function TaskCreateModal({
       recordInputHistory(trimmedDesc);
     }
     inlineCompletion.clear();
-    clearTaskDraft(panelId);
-    onSubmit({
-      workspaceId,
-      panelId,
-      title: trimmedTitle,
-      description: trimmedDesc,
-      engineType,
-      modelId,
-      branchName: branchName.trim() || "main",
-      images,
-      autoStart,
-    });
+
+    if (editingTask && onUpdate) {
+      onUpdate(editingTask.id, {
+        title: trimmedTitle,
+        description: trimmedDesc,
+        engineType,
+        modelId,
+        images,
+        autoStart,
+      });
+    } else {
+      clearTaskDraft(panelId);
+      onSubmit({
+        workspaceId,
+        panelId,
+        title: trimmedTitle,
+        description: trimmedDesc,
+        engineType,
+        modelId,
+        branchName: branchName.trim() || "main",
+        images,
+        autoStart,
+      });
+    }
   };
 
   const handleGenerateTitle = async () => {
@@ -214,10 +239,12 @@ export function TaskCreateModal({
   );
 
   const handleCancel = () => {
-    if (title.trim() || description.trim()) {
-      saveTaskDraft(panelId, { title, description, engineType, modelId, images });
-    } else {
-      clearTaskDraft(panelId);
+    if (!editingTask) {
+      if (title.trim() || description.trim()) {
+        saveTaskDraft(panelId, { title, description, engineType, modelId, images });
+      } else {
+        clearTaskDraft(panelId);
+      }
     }
     inlineCompletion.clear();
     onCancel();
@@ -229,7 +256,7 @@ export function TaskCreateModal({
     <div className="kanban-modal-overlay">
       <div className="kanban-modal kanban-task-modal">
         <div className="kanban-modal-header">
-          <h2>{t("kanban.task.createTitle")}</h2>
+          <h2>{editingTask ? t("kanban.task.editTitle") : t("kanban.task.createTitle")}</h2>
           <button className="kanban-icon-btn" onClick={handleCancel}>
             <X size={18} />
           </button>
@@ -323,22 +350,25 @@ export function TaskCreateModal({
           </div>
 
           <div className="kanban-modal-footer">
-            <label className="kanban-toggle-label">
-              <input
-                type="checkbox"
-                className="kanban-toggle-input"
-                checked={autoStart}
-                onChange={(e) => setAutoStart(e.target.checked)}
-              />
-              <span className="kanban-toggle-switch" />
-              <span>{t("kanban.task.start")}</span>
-            </label>
+            {!editingTask && (
+              <label className="kanban-toggle-label">
+                <input
+                  type="checkbox"
+                  className="kanban-toggle-input"
+                  checked={autoStart}
+                  onChange={(e) => setAutoStart(e.target.checked)}
+                />
+                <span className="kanban-toggle-switch" />
+                <span>{t("kanban.task.start")}</span>
+              </label>
+            )}
+            {editingTask && <div />}
             <button
               type="submit"
               className="kanban-btn kanban-btn-primary"
               disabled={!title.trim()}
             >
-              {t("kanban.task.create")}
+              {editingTask ? t("kanban.task.update") : t("kanban.task.create")}
             </button>
           </div>
         </form>

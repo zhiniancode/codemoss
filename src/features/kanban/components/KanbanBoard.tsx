@@ -68,6 +68,7 @@ export function KanbanBoard({
   columns,
   onBack,
   onCreateTask,
+  onUpdateTask,
   onDeleteTask,
   onReorderTask,
   onAppModeChange,
@@ -90,6 +91,7 @@ export function KanbanBoard({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createDefaultStatus, setCreateDefaultStatus] =
     useState<KanbanTaskStatus>("todo");
+  const [editingTask, setEditingTask] = useState<KanbanTask | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showGitPanel, setShowGitPanel] = useState(false);
 
@@ -177,6 +179,7 @@ export function KanbanBoard({
   );
 
   const handleOpenCreate = (status: KanbanTaskStatus = "todo") => {
+    setEditingTask(null);
     setCreateDefaultStatus(status);
     setCreateModalOpen(true);
   };
@@ -185,6 +188,20 @@ export function KanbanBoard({
     onCreateTask(input);
     setCreateModalOpen(false);
   };
+
+  const handleEditTask = useCallback((task: KanbanTask) => {
+    setEditingTask(task);
+    setCreateModalOpen(true);
+  }, []);
+
+  const handleUpdateTask = useCallback(
+    (taskId: string, changes: Partial<KanbanTask>) => {
+      onUpdateTask(taskId, changes);
+      setEditingTask(null);
+      setCreateModalOpen(false);
+    },
+    [onUpdateTask]
+  );
 
   const handleDeleteTask = useCallback(
     (taskId: string) => {
@@ -226,6 +243,7 @@ export function KanbanBoard({
                   onAddTask={() => handleOpenCreate(col.id)}
                   onDeleteTask={handleDeleteTask}
                   onSelectTask={onSelectTask}
+                  onEditTask={col.id === "todo" ? handleEditTask : undefined}
                 />
               ))}
             </div>
@@ -293,7 +311,12 @@ export function KanbanBoard({
         defaultStatus={createDefaultStatus}
         engineStatuses={engineStatuses}
         onSubmit={handleCreateTask}
-        onCancel={() => setCreateModalOpen(false)}
+        onCancel={() => {
+          setCreateModalOpen(false);
+          setEditingTask(null);
+        }}
+        editingTask={editingTask ?? undefined}
+        onUpdate={handleUpdateTask}
       />
     </div>
   );

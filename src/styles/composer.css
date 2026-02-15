@@ -1318,6 +1318,7 @@
 }
 
 .composer-management-toggle {
+  display: none;
   border: none;
   background: transparent;
   color: var(--text-muted);
