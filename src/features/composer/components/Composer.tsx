@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ComposerEditorSettings,
@@ -7,6 +7,7 @@ import type {
   CustomPromptOption,
   DictationTranscript,
   EngineType,
+  OpenCodeAgentOption,
   QueuedMessage,
   ThreadTokenUsage,
 } from "../../../types";
@@ -33,6 +34,7 @@ import { ComposerInput } from "./ComposerInput";
 import { ComposerQueue } from "./ComposerQueue";
 import { ComposerContextMenuPopover } from "./ComposerContextMenuPopover";
 import { StatusPanel } from "../../status-panel/components/StatusPanel";
+import { OpenCodeControlPanel } from "../../opencode/components/OpenCodeControlPanel";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Check from "lucide-react/dist/esm/icons/check";
 import CircleHelp from "lucide-react/dist/esm/icons/circle-help";
@@ -47,6 +49,7 @@ import {
   extractInlineSelections,
   mergeUniqueNames,
 } from "../utils/inlineSelections";
+import { pushErrorToast } from "../../../services/toasts";
 
 type ComposerProps = {
   kanbanContextMode?: "new" | "inherit";
@@ -74,6 +77,12 @@ type ComposerProps = {
   selectedEffort: string | null;
   onSelectEffort: (effort: string) => void;
   reasoningSupported: boolean;
+  opencodeAgents?: OpenCodeAgentOption[];
+  selectedOpenCodeAgent?: string | null;
+  onSelectOpenCodeAgent?: (agentId: string | null) => void;
+  opencodeVariantOptions?: string[];
+  selectedOpenCodeVariant?: string | null;
+  onSelectOpenCodeVariant?: (variant: string | null) => void;
   accessMode: "read-only" | "current" | "full-access";
   onSelectAccessMode: (mode: "read-only" | "current" | "full-access") => void;
   skills: { name: string; description?: string }[];
@@ -146,6 +155,8 @@ type ComposerProps = {
   selectedLinkedKanbanPanelId?: string | null;
   onSelectLinkedKanbanPanel?: (panelId: string | null) => void;
   onOpenLinkedKanbanPanel?: (panelId: string) => void;
+  activeWorkspaceId?: string | null;
+  activeThreadId?: string | null;
 };
 
 const DEFAULT_EDITOR_SETTINGS: ComposerEditorSettings = {
@@ -220,6 +231,13 @@ function splitGroupsForColumns(groups: PrefixGroup[]): [PrefixGroup[], PrefixGro
   return [left, right];
 }
 
+const OPENCODE_DIRECT_COMMANDS = new Set(["status", "mcp", "export", "share"]);
+
+function normalizeCommandChipName(name: string) {
+  const token = name.trim().replace(/^\/+/, "").split(/\s+/)[0];
+  return token ? token.toLowerCase() : "";
+}
+
 function filterOptionsByQuery<T extends { name: string; description?: string }>(
   options: T[],
   query: string,
@@ -258,6 +276,12 @@ export function Composer({
   selectedEffort,
   onSelectEffort,
   reasoningSupported,
+  opencodeAgents = [],
+  selectedOpenCodeAgent = null,
+  onSelectOpenCodeAgent,
+  opencodeVariantOptions = [],
+  selectedOpenCodeVariant = null,
+  onSelectOpenCodeVariant,
   accessMode,
   onSelectAccessMode,
   skills,
@@ -319,6 +343,8 @@ export function Composer({
   selectedLinkedKanbanPanelId = null,
   onSelectLinkedKanbanPanel,
   onOpenLinkedKanbanPanel,
+  activeWorkspaceId = null,
+  activeThreadId = null,
 }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState(draftText);
@@ -327,6 +353,10 @@ export function Composer({
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [selectedSkillNames, setSelectedSkillNames] = useState<string[]>([]);
   const [selectedCommonsNames, setSelectedCommonsNames] = useState<string[]>([]);
+  const [openCodeProviderTone, setOpenCodeProviderTone] = useState<
+    "is-ok" | "is-runtime" | "is-fail"
+  >("is-fail");
+  const [openCodeProviderToneReady, setOpenCodeProviderToneReady] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [commonsMenuOpen, setCommonsMenuOpen] = useState(false);
@@ -344,7 +374,6 @@ export function Composer({
   const textareaRef = externalTextareaRef ?? internalRef;
   const editorSettings = editorSettingsProp ?? DEFAULT_EDITOR_SETTINGS;
   const isDictationBusy = dictationState !== "idle";
-  const canSend = text.trim().length > 0 || attachedImages.length > 0;
   const {
     expandFenceOnSpace,
     expandFenceOnEnter,
@@ -357,11 +386,111 @@ export function Composer({
 
   // Get current engine display name
   const currentEngineName = engines?.find((e) => e.type === selectedEngine)?.shortName;
+  const selectedModel = useMemo(
+    () => models.find((entry) => entry.id === selectedModelId) ?? null,
+    [models, selectedModelId],
+  );
   const selectedSkills = skills.filter((skill) => selectedSkillNames.includes(skill.name));
   const selectedCommons = commands.filter((item) =>
     selectedCommonsNames.includes(item.name),
   );
+  const selectedOpenCodeDirectCommand = useMemo(() => {
+    if (selectedEngine !== "opencode") {
+      return null;
+    }
+    for (const name of selectedCommonsNames) {
+      const normalized = normalizeCommandChipName(name);
+      if (OPENCODE_DIRECT_COMMANDS.has(normalized)) {
+        return normalized;
+      }
+    }
+    return null;
+  }, [selectedCommonsNames, selectedEngine]);
+  const openCodeAgentCycleValues = useMemo(() => {
+    const primary = opencodeAgents
+      .filter((agent) => agent.isPrimary)
+      .map((agent) => agent.id)
+      .filter((id) => id.trim().length > 0);
+    const dedupedPrimary = Array.from(new Set(primary));
+    if (dedupedPrimary.length > 0) {
+      return dedupedPrimary;
+    }
+    const fallback = opencodeAgents
+      .map((agent) => agent.id)
+      .filter((id) => id.trim().length > 0);
+    return Array.from(new Set(fallback));
+  }, [opencodeAgents]);
+  const cycleOpenCodeAgent = useCallback(
+    (reverse = false) => {
+      if (selectedEngine !== "opencode" || !onSelectOpenCodeAgent) {
+        return false;
+      }
+      const values = openCodeAgentCycleValues;
+      if (values.length === 0) {
+        return false;
+      }
+      const current = selectedOpenCodeAgent ?? "";
+      const currentIndex = values.indexOf(current);
+      const nextIndex =
+        currentIndex === -1
+          ? reverse
+            ? values.length - 1
+            : 0
+          : (currentIndex + (reverse ? -1 : 1) + values.length) % values.length;
+      const nextValue = values[nextIndex] ?? "";
+      onSelectOpenCodeAgent(nextValue || null);
+      return true;
+    },
+    [
+      onSelectOpenCodeAgent,
+      openCodeAgentCycleValues,
+      selectedEngine,
+      selectedOpenCodeAgent,
+    ],
+  );
+  const openCodeVariantCycleValues = useMemo(() => {
+    const deduped = Array.from(
+      new Set(opencodeVariantOptions.map((variant) => variant.trim()).filter(Boolean)),
+    );
+    return ["", ...deduped];
+  }, [opencodeVariantOptions]);
+  const cycleOpenCodeVariant = useCallback(
+    (reverse = false) => {
+      if (selectedEngine !== "opencode" || !onSelectOpenCodeVariant) {
+        return false;
+      }
+      const values = openCodeVariantCycleValues;
+      if (values.length <= 1) {
+        return false;
+      }
+      const current = selectedOpenCodeVariant ?? "";
+      const currentIndex = values.indexOf(current);
+      const nextIndex =
+        currentIndex === -1
+          ? reverse
+            ? values.length - 1
+            : 0
+          : (currentIndex + (reverse ? -1 : 1) + values.length) % values.length;
+      const nextValue = values[nextIndex] ?? "";
+      onSelectOpenCodeVariant(nextValue || null);
+      return true;
+    },
+    [
+      onSelectOpenCodeVariant,
+      openCodeVariantCycleValues,
+      selectedEngine,
+      selectedOpenCodeVariant,
+    ],
+  );
+  const canSend =
+    text.trim().length > 0 ||
+    attachedImages.length > 0 ||
+    Boolean(selectedOpenCodeDirectCommand);
+  const opencodeDisconnected =
+    selectedEngine === "opencode" && openCodeProviderToneReady && openCodeProviderTone === "is-fail";
+  const canSendEffective = canSend && !opencodeDisconnected;
   const contextCollapsed = manualContextCollapsed;
+  const showOpenCodeControlPanel = selectedEngine === "opencode";
   const collapsedSkillPreview = selectedSkills.slice(0, 2);
   const collapsedCommonsPreview = selectedCommons.slice(0, 2);
   const collapsedKanbanPreview = (() => {
@@ -489,8 +618,27 @@ export function Composer({
     if (disabled) {
       return;
     }
+    if (opencodeDisconnected) {
+      pushErrorToast({
+        title: "OpenCode 未连接",
+        message: "当前连接状态为红色，请先在 OpenCode 管理面板完成连接后再发送。",
+      });
+      return;
+    }
     const trimmed = text.trim();
-    if (!trimmed && attachedImages.length === 0) {
+    if (!trimmed && attachedImages.length === 0 && !selectedOpenCodeDirectCommand) {
+      return;
+    }
+    if (selectedOpenCodeDirectCommand) {
+      onSend(`/${selectedOpenCodeDirectCommand}`, []);
+      setSelectedCommonsNames((prev) =>
+        prev.filter(
+          (name) => normalizeCommandChipName(name) !== selectedOpenCodeDirectCommand,
+        ),
+      );
+      inlineCompletion.clear();
+      resetHistoryNavigation();
+      setComposerText("");
       return;
     }
     if (trimmed) {
@@ -515,9 +663,12 @@ export function Composer({
   }, [
     attachedImages,
     disabled,
+    opencodeDisconnected,
+    selectedOpenCodeDirectCommand,
     selectedCommons,
     selectedSkills,
     onSend,
+    inlineCompletion,
     recordHistory,
     resetHistoryNavigation,
     setComposerText,
@@ -528,8 +679,27 @@ export function Composer({
     if (disabled) {
       return;
     }
+    if (opencodeDisconnected) {
+      pushErrorToast({
+        title: "OpenCode 未连接",
+        message: "当前连接状态为红色，请先在 OpenCode 管理面板完成连接后再发送。",
+      });
+      return;
+    }
     const trimmed = text.trim();
-    if (!trimmed && attachedImages.length === 0) {
+    if (!trimmed && attachedImages.length === 0 && !selectedOpenCodeDirectCommand) {
+      return;
+    }
+    if (selectedOpenCodeDirectCommand) {
+      onQueue(`/${selectedOpenCodeDirectCommand}`, []);
+      setSelectedCommonsNames((prev) =>
+        prev.filter(
+          (name) => normalizeCommandChipName(name) !== selectedOpenCodeDirectCommand,
+        ),
+      );
+      inlineCompletion.clear();
+      resetHistoryNavigation();
+      setComposerText("");
       return;
     }
     if (trimmed) {
@@ -547,14 +717,18 @@ export function Composer({
         })
       : trimmed;
     onQueue(finalText, attachedImages);
+    inlineCompletion.clear();
     resetHistoryNavigation();
     setComposerText("");
   }, [
     attachedImages,
     disabled,
+    opencodeDisconnected,
+    selectedOpenCodeDirectCommand,
     selectedCommons,
     selectedSkills,
     onQueue,
+    inlineCompletion,
     recordHistory,
     resetHistoryNavigation,
     setComposerText,
@@ -1082,7 +1256,6 @@ export function Composer({
                 </ComposerContextMenuPopover>
               </div>
             </div>
-
             {(selectedSkills.length > 0 ||
               selectedCommons.length > 0 ||
               (contextCollapsed && collapsedKanbanPreview.length > 0)) && (
@@ -1309,7 +1482,7 @@ export function Composer({
           sendLabel={sendLabel}
           canStop={canStop}
           ghostTextSuffix={inlineCompletion.suffix}
-          canSend={canSend}
+          canSend={canSendEffective}
           isProcessing={isProcessing}
           onStop={onStop}
           onSend={handleSend}
@@ -1335,6 +1508,34 @@ export function Composer({
           onKeyDown={(event) => {
             if (isComposingEvent(event)) {
               return;
+            }
+            if (
+              event.key === "Tab" &&
+              selectedEngine === "opencode" &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey &&
+              !suggestionsOpen &&
+              !reviewPromptOpen
+            ) {
+              if (cycleOpenCodeAgent(event.shiftKey)) {
+                event.preventDefault();
+                return;
+              }
+            }
+            if (
+              event.key.toLowerCase() === "t" &&
+              event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey &&
+              selectedEngine === "opencode" &&
+              !suggestionsOpen &&
+              !reviewPromptOpen
+            ) {
+              if (cycleOpenCodeVariant(event.shiftKey)) {
+                event.preventDefault();
+                return;
+              }
             }
             handleHistoryKeyDown(event);
             if (event.defaultPrevented) {
@@ -1480,6 +1681,7 @@ export function Composer({
           engines={engines}
           selectedEngine={selectedEngine}
           onSelectEngine={onSelectEngine}
+          opencodeProviderTone={openCodeProviderTone}
           models={models}
           selectedModelId={selectedModelId}
           onSelectModel={onSelectModel}
@@ -1490,9 +1692,39 @@ export function Composer({
           selectedEffort={selectedEffort}
           onSelectEffort={onSelectEffort}
           reasoningSupported={reasoningSupported}
+          opencodeAgents={opencodeAgents}
+          selectedOpenCodeAgent={selectedOpenCodeAgent}
+          onSelectOpenCodeAgent={onSelectOpenCodeAgent}
+          opencodeVariantOptions={opencodeVariantOptions}
+          selectedOpenCodeVariant={selectedOpenCodeVariant}
+          onSelectOpenCodeVariant={onSelectOpenCodeVariant}
           contextUsage={contextUsage}
           accessMode={accessMode}
           onSelectAccessMode={onSelectAccessMode}
+          openCodeDock={
+            <OpenCodeControlPanel
+              embedded
+              dock
+              visible={showOpenCodeControlPanel}
+              workspaceId={activeWorkspaceId}
+              threadId={activeThreadId}
+              selectedModel={selectedModel?.model ?? selectedModelId}
+              selectedModelId={selectedModelId}
+              modelOptions={models}
+              onSelectModel={onSelectModel}
+              selectedAgent={selectedOpenCodeAgent}
+              agentOptions={opencodeAgents}
+              onSelectAgent={onSelectOpenCodeAgent}
+              selectedVariant={selectedOpenCodeVariant}
+              variantOptions={opencodeVariantOptions}
+              onSelectVariant={onSelectOpenCodeVariant}
+              onProviderStatusToneChange={(tone) => {
+                setOpenCodeProviderToneReady(true);
+                setOpenCodeProviderTone(tone);
+              }}
+              onRunOpenCodeCommand={(command) => onSend(command, [])}
+            />
+          }
         />
       </div>
     </footer>
