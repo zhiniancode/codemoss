@@ -56,6 +56,7 @@ type AppServerEventHandlers = {
     payload: { explanation: unknown; plan: unknown },
   ) => void;
   onItemStarted?: (workspaceId: string, threadId: string, item: Record<string, unknown>) => void;
+  onItemUpdated?: (workspaceId: string, threadId: string, item: Record<string, unknown>) => void;
   onItemCompleted?: (workspaceId: string, threadId: string, item: Record<string, unknown>) => void;
   onReasoningSummaryDelta?: (workspaceId: string, threadId: string, itemId: string, delta: string) => void;
   onReasoningSummaryBoundary?: (workspaceId: string, threadId: string, itemId: string) => void;
@@ -539,6 +540,16 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         const item = params.item as Record<string, unknown> | undefined;
         if (threadId && item) {
           handlers.onItemStarted?.(workspace_id, threadId, item);
+        }
+        return;
+      }
+
+      if (method === "item/updated") {
+        const params = message.params as Record<string, unknown>;
+        const threadId = String(params.threadId ?? params.thread_id ?? "");
+        const item = params.item as Record<string, unknown> | undefined;
+        if (threadId && item) {
+          handlers.onItemUpdated?.(workspace_id, threadId, item);
         }
         return;
       }

@@ -55,6 +55,7 @@ describe("useAppServerEvents", () => {
       onContextCompacted: vi.fn(),
       onApprovalRequest: vi.fn(),
       onRequestUserInput: vi.fn(),
+      onItemUpdated: vi.fn(),
       onItemCompleted: vi.fn(),
       onAgentMessageCompleted: vi.fn(),
       onTurnError: vi.fn(),
@@ -142,6 +143,21 @@ describe("useAppServerEvents", () => {
     expect(handlers.onThreadStarted).toHaveBeenCalledWith("ws-1", {
       id: "thread-2",
       preview: "New thread",
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/updated",
+          params: { threadId: "thread-2", item: { id: "item-42", type: "reasoning", text: "..." } },
+        },
+      });
+    });
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith("ws-1", "thread-2", {
+      id: "item-42",
+      type: "reasoning",
+      text: "...",
     });
 
     act(() => {

@@ -127,10 +127,25 @@ function sanitizeReasoningTitle(title: string) {
     .trim();
 }
 
+function isGenericReasoningTitle(title: string) {
+  const normalized = title
+    .trim()
+    .toLowerCase()
+    .replace(/[.:：。!！]+$/g, "");
+  return (
+    normalized === "reasoning" ||
+    normalized === "thinking" ||
+    normalized === "planning" ||
+    normalized === "思考中" ||
+    normalized === "正在思考" ||
+    normalized === "正在规划"
+  );
+}
+
 function parseReasoning(item: Extract<ConversationItem, { kind: "reasoning" }>) {
   const summary = item.summary ?? "";
   const content = item.content ?? "";
-  const hasSummary = summary.trim().length > 0;
+  const hasSummary = summary.trim().length > 0 && !isGenericReasoningTitle(summary);
   const titleSource = hasSummary ? summary : content;
   const titleLines = titleSource.split("\n");
   const trimmedLines = titleLines.map((line) => line.trim());
@@ -151,7 +166,7 @@ function parseReasoning(item: Extract<ConversationItem, { kind: "reasoning" }>) 
           .join("\n")
           .trim()
       : "";
-  const contentBody = hasSummary
+  let contentBody = hasSummary
     ? content.trim()
     : titleLineIndex >= 0
       ? contentLines
@@ -159,6 +174,10 @@ function parseReasoning(item: Extract<ConversationItem, { kind: "reasoning" }>) 
           .join("\n")
           .trim()
       : content.trim();
+  if (!hasSummary && !contentBody && content.trim()) {
+    // Preserve single-line reasoning so Codex rows don't collapse to title-only.
+    contentBody = content.trim();
+  }
   const bodyParts = [summaryBody, contentBody].filter(Boolean);
   const bodyText = bodyParts.join("\n\n").trim();
   const hasBody = bodyText.length > 0;
