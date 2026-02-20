@@ -976,7 +976,6 @@ const zh = {
     reportIssue: "报告问题",
     website: "官网",
     github: "GitHub",
-    wechatGroupTitle: "扫码加入微信群",
   },
 
   // 菜单

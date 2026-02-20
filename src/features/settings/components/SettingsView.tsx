@@ -3315,14 +3315,6 @@ export function SettingsView({
                     {t("about.github")}
                   </button>
                 </div>
-                <div className="settings-about-wechat">
-                  <div className="settings-about-wechat-label">{t("about.wechatGroupTitle")}</div>
-                  <img
-                    className="settings-about-wechat-qr"
-                    src="https://claudecodecn-1253302184.cos.ap-beijing.myqcloud.com/vscode/wxq.png"
-                    alt={t("about.wechatGroupTitle")}
-                  />
-                </div>
               </section>
             )}
             {activeSection === "experimental" && (

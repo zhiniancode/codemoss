@@ -68,7 +68,7 @@ Supports Mac, Windows, and Linux
 
 There are too many features to list — feel free to explore after downloading!
 
-Download link (fully open source, non-commercial, use with confidence): https://www.codemoss.ai/download
+Download link (GitHub Releases): https://github.com/zhukunpenglinyutong/codemoss/releases
 
 ---
 

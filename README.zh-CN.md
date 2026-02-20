@@ -68,7 +68,7 @@
 
 功能太多了，就不赘述了，大家可以下载之后自行探索
 
-下载地址（纯开源，无商业，放心食用）：https://www.codemoss.ai/download
+下载地址（GitHub Releases）：https://github.com/zhukunpenglinyutong/codemoss/releases
 
 ---
 
