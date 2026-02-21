@@ -1200,7 +1200,7 @@ pub async fn get_engine_models(
 
             Ok(fresh_status.models)
         }
-        EngineType::Claude | EngineType::Codex => {
+        EngineType::Claude | EngineType::Codex | EngineType::OpenAI => {
             if let Some(status) = manager.get_engine_status(engine_type).await {
                 if !status.models.is_empty() {
                     return Ok(status.models);
@@ -2102,6 +2102,9 @@ pub async fn engine_send_message(
                                 EngineType::Claude => {
                                     current_thread_id = format!("claude:{}", session_id)
                                 }
+                                EngineType::OpenAI => {
+                                    current_thread_id = format!("openai:{}", session_id)
+                                }
                                 EngineType::OpenCode => {
                                     current_thread_id = format!("opencode:{}", session_id)
                                 }
@@ -2149,6 +2152,113 @@ pub async fn engine_send_message(
             Ok(json!({
                 "delegateTo": "send_user_message",
                 "engine": "codex",
+            }))
+        }
+        EngineType::OpenAI => {
+            let session = manager.get_or_create_openai_session(&workspace_id).await;
+
+            // OpenAI-compatible engine is session-id driven (threadId = openai:{sessionId}).
+            // For continuation we require an explicit session_id from the frontend.
+            let resolved_session_id = if session_id.is_some() && continue_session {
+                session_id
+            } else if session_id.is_some() {
+                session_id
+            } else {
+                None
+            };
+
+            let sanitized_model = model
+                .as_ref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+
+            let params = super::SendMessageParams {
+                text,
+                model: sanitized_model,
+                effort: None,
+                access_mode: access_mode,
+                images: None,
+                continue_session: resolved_session_id.is_some(),
+                session_id: resolved_session_id,
+                agent: None,
+                variant: None,
+                collaboration_mode: None,
+            };
+
+            let turn_id = format!("openai-turn-{}", uuid::Uuid::new_v4());
+            let thread_id = thread_id.unwrap_or_else(|| turn_id.clone());
+            let item_id = format!("openai-item-{}", uuid::Uuid::new_v4());
+
+            let mut receiver = session.subscribe();
+            let app_clone = app.clone();
+            let mut current_thread_id = thread_id.clone();
+            let item_id_clone = item_id.clone();
+            let turn_id_for_forwarder = turn_id.clone();
+
+            // Spawn event forwarder (same pattern as Claude/OpenCode).
+            tokio::spawn(async move {
+                let deadline = tokio::time::Instant::now()
+                    + std::time::Duration::from_secs(EVENT_FORWARDER_TIMEOUT_SECS);
+                loop {
+                    let recv_result = tokio::time::timeout_at(deadline, receiver.recv()).await;
+                    let turn_event = match recv_result {
+                        Ok(Ok(event)) => event,
+                        Ok(Err(_)) => break,
+                        Err(_) => break,
+                    };
+                    if turn_event.turn_id != turn_id_for_forwarder {
+                        continue;
+                    }
+
+                    let event = turn_event.event;
+                    let is_terminal = event.is_terminal();
+
+                    if let Some(payload) =
+                        engine_event_to_app_server_event(&event, &current_thread_id, &item_id_clone)
+                    {
+                        let _ = app_clone.emit("app-server-event", payload);
+                    }
+
+                    if let EngineEvent::SessionStarted {
+                        session_id, engine, ..
+                    } = &event
+                    {
+                        if !session_id.is_empty() && session_id != "pending" {
+                            if matches!(engine, EngineType::OpenAI) {
+                                current_thread_id = format!("openai:{}", session_id);
+                            }
+                        }
+                    }
+
+                    if is_terminal {
+                        break;
+                    }
+                }
+            });
+
+            let session_clone = session.clone();
+            let turn_id_clone = turn_id.clone();
+            let handle = tokio::spawn(async move {
+                if let Err(e) = session_clone.send_message(params, &turn_id_clone).await {
+                    log::error!("OpenAI Compatible send_message failed: {}", e);
+                    session_clone.emit_error(&turn_id_clone, e);
+                }
+            });
+            session.track_task(turn_id.clone(), handle).await;
+
+            Ok(json!({
+                "engine": "openai",
+                "result": {
+                    "turn": {
+                        "id": turn_id,
+                        "status": "started"
+                    },
+                },
+                "turn": {
+                    "id": turn_id,
+                    "status": "started"
+                }
             }))
         }
         EngineType::OpenCode => {
@@ -2242,8 +2352,17 @@ pub async fn engine_send_message(
                     } = &event
                     {
                         if !session_id.is_empty() && session_id != "pending" {
-                            if matches!(engine, EngineType::OpenCode) {
-                                current_thread_id = format!("opencode:{}", session_id);
+                            match engine {
+                                EngineType::Claude => {
+                                    current_thread_id = format!("claude:{}", session_id);
+                                }
+                                EngineType::OpenAI => {
+                                    current_thread_id = format!("openai:{}", session_id);
+                                }
+                                EngineType::OpenCode => {
+                                    current_thread_id = format!("opencode:{}", session_id);
+                                }
+                                _ => {}
                             }
                         }
                     }
@@ -2312,6 +2431,12 @@ pub async fn engine_interrupt(
         EngineType::OpenCode => {
             if let Some(session) = manager.get_opencode_session(&workspace_id).await {
                 session.interrupt().await?;
+            }
+            Ok(())
+        }
+        EngineType::OpenAI => {
+            if let Some(session) = manager.get_openai_session(&workspace_id).await {
+                session.interrupt_and_abort().await;
             }
             Ok(())
         }

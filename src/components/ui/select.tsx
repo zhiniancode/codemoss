@@ -103,6 +103,8 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
 
 function SelectPopup({
   className,
+  popupClassName,
+  popupRootClassName,
   children,
   side = "bottom",
   sideOffset = 4,
@@ -118,6 +120,10 @@ function SelectPopup({
   alignOffset?: SelectPrimitive.Positioner.Props["alignOffset"];
   alignItemWithTrigger?: SelectPrimitive.Positioner.Props["alignItemWithTrigger"];
   anchor?: SelectPrimitive.Positioner.Props["anchor"];
+  /** Extra class for the popup container (the element that has background + border). */
+  popupClassName?: string;
+  /** Extra class for the popup root (wraps scroll arrows + container). Useful for CSS vars. */
+  popupRootClassName?: string;
 }) {
   return (
     <SelectPrimitive.Portal>
@@ -126,13 +132,14 @@ function SelectPopup({
         alignItemWithTrigger={alignItemWithTrigger}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50 select-none"
+        // Must be above app dialogs (e.g. Vendor Settings modal uses z-index: 100).
+        className="z-[1000] select-none"
         data-slot="select-positioner"
         side={side}
         sideOffset={sideOffset}
       >
         <SelectPrimitive.Popup
-          className="origin-(--transform-origin) text-foreground"
+          className={cn("origin-(--transform-origin) text-foreground", popupRootClassName)}
           data-slot="select-popup"
           {...props}
         >
@@ -142,7 +149,12 @@ function SelectPopup({
           >
             <ChevronUpIcon className="relative size-4.5 sm:size-4" />
           </SelectPrimitive.ScrollUpArrow>
-          <div className="relative h-full min-w-(--anchor-width) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
+          <div
+            className={cn(
+              "relative h-full min-w-(--anchor-width) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+              popupClassName,
+            )}
+          >
             <SelectPrimitive.List
               className={cn(
                 "max-h-(--available-height) overflow-y-auto p-1",

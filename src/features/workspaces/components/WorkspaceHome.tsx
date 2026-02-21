@@ -71,6 +71,7 @@ const START_CONVERSATION_ENGINE_OPTIONS: Array<{
   { type: "codex", labelKey: "workspace.engineCodex" },
   { type: "gemini", labelKey: "workspace.engineGemini" },
   { type: "opencode", labelKey: "workspace.engineOpenCode" },
+  { type: "openai", labelKey: "workspace.engineOpenAICompatible" },
 ];
 
 export function WorkspaceHome({

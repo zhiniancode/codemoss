@@ -87,12 +87,18 @@ export function useThreadActions({
   }, []);
 
   const startThreadForWorkspace = useCallback(
-    async (workspaceId: string, options?: { activate?: boolean; engine?: "claude" | "codex" | "gemini" | "opencode" }) => {
+    async (
+      workspaceId: string,
+      options?: {
+        activate?: boolean;
+        engine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
+      },
+    ) => {
       const shouldActivate = options?.activate !== false;
       const engine = options?.engine;
 
       // For local CLI engines (Claude/OpenCode), generate a local pending thread ID.
-      if (engine === "claude" || engine === "opencode") {
+      if (engine === "claude" || engine === "opencode" || engine === "openai") {
         const prefix = engine;
         const threadId = `${prefix}-pending-${Date.now()}-${Math.random()
           .toString(36)
@@ -296,6 +302,11 @@ export function useThreadActions({
         loadedThreadsRef.current[threadId] = true;
         return threadId;
       }
+      if (threadId.startsWith("openai:") || threadId.startsWith("openai-pending-")) {
+        dispatch({ type: "ensureThread", workspaceId, threadId, engine: "openai" });
+        loadedThreadsRef.current[threadId] = true;
+        return threadId;
+      }
       if (!force && loadedThreadsRef.current[threadId]) {
         return threadId;
       }
@@ -451,6 +462,26 @@ export function useThreadActions({
             return null;
           }
           response = await forkClaudeSessionService(workspacePath, sessionId);
+        } else if (threadId.startsWith("openai:") || threadId.startsWith("openai-pending-")) {
+          // Local-only OpenAI-compatible sessions: fork by creating a fresh pending thread.
+          const forkedThreadId = `openai-pending-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+          dispatch({
+            type: "ensureThread",
+            workspaceId,
+            threadId: forkedThreadId,
+            engine: "openai",
+          });
+          if (shouldActivate) {
+            dispatch({
+              type: "setActiveThreadId",
+              workspaceId,
+              threadId: forkedThreadId,
+            });
+          }
+          loadedThreadsRef.current[forkedThreadId] = true;
+          return forkedThreadId;
         } else if (threadId.startsWith("claude-pending-")) {
           return null;
         } else {
@@ -992,6 +1023,10 @@ export function useThreadActions({
         throw new Error(
           "[ENGINE_UNSUPPORTED] OpenCode hard-delete backend path is unavailable.",
         );
+      }
+      if (threadId.startsWith("openai:")) {
+        // Local-only engine sessions: no backend persistence to delete.
+        return;
       }
       await archiveThread(workspaceId, threadId);
     },

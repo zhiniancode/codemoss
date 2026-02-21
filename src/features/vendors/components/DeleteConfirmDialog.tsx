@@ -29,7 +29,13 @@ export function DeleteConfirmDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="vendor-dialog-overlay" onClick={onCancel}>
+    <div
+      className="vendor-dialog-overlay"
+      onMouseDown={(e) => {
+        // Only close when the press starts on the overlay itself.
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
       <div
         className="vendor-dialog vendor-dialog-sm"
         onClick={(e) => e.stopPropagation()}

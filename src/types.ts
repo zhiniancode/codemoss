@@ -103,7 +103,7 @@ export type ThreadSummary = {
   id: string;
   name: string;
   updatedAt: number;
-  engineSource?: "codex" | "claude" | "opencode";
+  engineSource?: "codex" | "claude" | "opencode" | "openai";
 };
 
 export type ReviewTarget =
@@ -556,7 +556,7 @@ export type DictationTranscript = {
 /**
  * Supported AI coding CLI engine types
  */
-export type EngineType = "claude" | "codex" | "gemini" | "opencode";
+export type EngineType = "claude" | "codex" | "gemini" | "opencode" | "openai";
 
 /**
  * Feature capabilities for each engine

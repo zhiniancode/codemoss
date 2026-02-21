@@ -18,7 +18,13 @@ type EngineSelectorProps = {
 };
 
 /** All supported engine types in display order */
-const ALL_ENGINE_TYPES: EngineType[] = ["claude", "codex", "gemini", "opencode"];
+const ALL_ENGINE_TYPES: EngineType[] = [
+  "claude",
+  "codex",
+  "gemini",
+  "opencode",
+  "openai",
+];
 
 /** Default display info for engines not detected */
 const DEFAULT_ENGINE_INFO: Record<EngineType, { displayName: string; shortName: string }> = {
@@ -26,6 +32,7 @@ const DEFAULT_ENGINE_INFO: Record<EngineType, { displayName: string; shortName: 
   codex: { displayName: "Codex CLI", shortName: "Codex" },
   gemini: { displayName: "Gemini CLI", shortName: "Gemini" },
   opencode: { displayName: "OpenCode", shortName: "OpenCode" },
+  openai: { displayName: "OpenAI Compatible", shortName: "OpenAI Compatible" },
 };
 
 /**

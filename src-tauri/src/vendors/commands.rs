@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::{CodexProviderConfig, ProviderConfig};
+use crate::types::{CodexProviderConfig, OpenAIProviderConfig, OpenAIProviderModel, ProviderConfig};
+use super::openai_probe::{probe_openai_models, OpenAIProbeResult};
+use super::protocol_detect::{detect_protocol, ProtocolDetectionResponse, ProtocolType};
 
 // ==================== Claude Settings Sync ====================
 
@@ -129,6 +131,8 @@ struct CodemossConfig {
     claude: ClaudeSection,
     #[serde(default)]
     codex: CodexSection,
+    #[serde(default)]
+    openai: OpenAISection,
     /// Preserve all other top-level fields (mcpServers, agents, ui, etc.)
     #[serde(flatten)]
     extra: HashMap<String, Value>,
@@ -144,6 +148,14 @@ struct ClaudeSection {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct CodexSection {
+    #[serde(default)]
+    providers: HashMap<String, Value>,
+    #[serde(default)]
+    current: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct OpenAISection {
     #[serde(default)]
     providers: HashMap<String, Value>,
     #[serde(default)]
@@ -318,6 +330,77 @@ fn codex_provider_to_value(provider: &CodexProviderConfig) -> Value {
     Value::Object(map)
 }
 
+fn value_to_openai_provider(
+    id: &str,
+    value: &Value,
+    is_active: bool,
+) -> Result<OpenAIProviderConfig, String> {
+    let name = value
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let remark = value
+        .get("remark")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let created_at = value.get("createdAt").and_then(|v| v.as_i64());
+    let base_url = value
+        .get("baseUrl")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let api_key = value
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let default_model = value
+        .get("defaultModel")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let models: Option<Vec<OpenAIProviderModel>> = value
+        .get("models")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    Ok(OpenAIProviderConfig {
+        id: id.to_string(),
+        name,
+        remark,
+        created_at,
+        is_active,
+        base_url,
+        api_key,
+        default_model,
+        models,
+    })
+}
+
+fn openai_provider_to_value(provider: &OpenAIProviderConfig) -> Value {
+    let mut map = serde_json::Map::new();
+    map.insert("id".into(), Value::String(provider.id.clone()));
+    map.insert("name".into(), Value::String(provider.name.clone()));
+    if let Some(ref remark) = provider.remark {
+        map.insert("remark".into(), Value::String(remark.clone()));
+    }
+    if let Some(ts) = provider.created_at {
+        map.insert("createdAt".into(), Value::Number(ts.into()));
+    }
+    if let Some(ref base_url) = provider.base_url {
+        map.insert("baseUrl".into(), Value::String(base_url.clone()));
+    }
+    if let Some(ref api_key) = provider.api_key {
+        map.insert("apiKey".into(), Value::String(api_key.clone()));
+    }
+    if let Some(ref default_model) = provider.default_model {
+        map.insert("defaultModel".into(), Value::String(default_model.clone()));
+    }
+    if let Some(ref models) = provider.models {
+        if let Ok(v) = serde_json::to_value(models) {
+            map.insert("models".into(), v);
+        }
+    }
+    Value::Object(map)
+}
+
 // ==================== Claude Provider Commands ====================
 
 #[tauri::command]
@@ -475,4 +558,108 @@ pub(crate) async fn vendor_switch_codex_provider(id: String) -> Result<(), Strin
     }
     config.codex.current = Some(id);
     write_config(&config)
+}
+
+// ==================== OpenAI Provider Commands ====================
+
+#[tauri::command]
+pub(crate) async fn vendor_get_openai_providers() -> Result<Vec<OpenAIProviderConfig>, String> {
+    let config = read_config()?;
+    let current = config.openai.current.as_deref();
+    let mut providers: Vec<OpenAIProviderConfig> = config
+        .openai
+        .providers
+        .iter()
+        .filter_map(|(id, value)| {
+            let is_active = current == Some(id.as_str());
+            value_to_openai_provider(id, value, is_active).ok()
+        })
+        .collect();
+    providers.sort_by(|a, b| {
+        let ta = a.created_at.unwrap_or(0);
+        let tb = b.created_at.unwrap_or(0);
+        ta.cmp(&tb)
+    });
+    Ok(providers)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_add_openai_provider(provider: OpenAIProviderConfig) -> Result<(), String> {
+    let mut config = read_config()?;
+    if config.openai.providers.contains_key(&provider.id) {
+        return Err(format!("OpenAI provider with id {} already exists", provider.id));
+    }
+    config
+        .openai
+        .providers
+        .insert(provider.id.clone(), openai_provider_to_value(&provider));
+    write_config(&config)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_update_openai_provider(
+    id: String,
+    updates: OpenAIProviderConfig,
+) -> Result<(), String> {
+    let mut config = read_config()?;
+    if !config.openai.providers.contains_key(&id) {
+        return Err(format!("OpenAI provider {} not found", id));
+    }
+    config
+        .openai
+        .providers
+        .insert(id, openai_provider_to_value(&updates));
+    write_config(&config)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_delete_openai_provider(id: String) -> Result<(), String> {
+    let mut config = read_config()?;
+    if config.openai.providers.remove(&id).is_none() {
+        return Err(format!("OpenAI provider {} not found", id));
+    }
+    if config.openai.current.as_ref() == Some(&id) {
+        config.openai.current = None;
+    }
+    write_config(&config)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_switch_openai_provider(id: String) -> Result<(), String> {
+    let mut config = read_config()?;
+    if !config.openai.providers.contains_key(&id) {
+        return Err(format!("OpenAI provider {} not found", id));
+    }
+    config.openai.current = Some(id);
+    write_config(&config)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_probe_openai_provider(
+    base_url: String,
+    api_key: String,
+    timeout_ms: Option<u64>,
+) -> Result<OpenAIProbeResult, String> {
+    Ok(probe_openai_models(
+        &base_url,
+        &api_key,
+        timeout_ms.unwrap_or(10_000),
+    )
+    .await)
+}
+
+#[tauri::command]
+pub(crate) async fn vendor_detect_protocol(
+    base_url: String,
+    api_key: String,
+    timeout_ms: Option<u64>,
+    preferred_protocol: Option<ProtocolType>,
+) -> Result<ProtocolDetectionResponse, String> {
+    Ok(detect_protocol(
+        &base_url,
+        &api_key,
+        timeout_ms.unwrap_or(10_000),
+        preferred_protocol,
+    )
+    .await)
 }

@@ -621,13 +621,36 @@ export function SettingsView({
       if (event.defaultPrevented) {
         return;
       }
-      const key = event.key.toLowerCase();
-      if (key === "escape") {
+      // Avoid stealing common editing/IME behaviors (Esc cancels IME, Ctrl+W deletes words in some apps).
+      const isEditableTarget = (() => {
+        const t = event.target;
+        if (!(t instanceof HTMLElement)) return false;
+        if (t.isContentEditable) return true;
+        const tag = t.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+        return Boolean(
+          t.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'),
+        );
+      })();
+
+      if (event.isComposing) {
+        return;
+      }
+
+      // Use `code` so shortcuts are stable across keyboard layouts/IME.
+      if (event.code === "Escape") {
+        if (isEditableTarget) {
+          return;
+        }
         event.preventDefault();
         onClose();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && key === "w") {
+
+      if ((event.metaKey || event.ctrlKey) && event.code === "KeyW") {
+        if (isEditableTarget) {
+          return;
+        }
         event.preventDefault();
         onClose();
       }

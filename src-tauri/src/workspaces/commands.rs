@@ -237,6 +237,10 @@ pub(crate) async fn add_workspace(
             // For Claude: No persistent session needed, just save workspace entry
             add_workspace_for_claude(path, codex_bin, &state).await
         }
+        EngineType::OpenAI => {
+            // OpenAI-compatible API engine: no CLI install required.
+            add_workspace_for_openai(path, codex_bin, &state).await
+        }
         EngineType::Codex => {
             // For Codex: Use existing app-server based session
             workspaces_core::add_workspace_core(
@@ -261,6 +265,58 @@ pub(crate) async fn add_workspace(
             engine_type
         )),
     }
+}
+
+/// Add workspace for OpenAI-compatible engine (no persistent session needed)
+async fn add_workspace_for_openai(
+    path: String,
+    codex_bin: Option<String>,
+    state: &AppState,
+) -> Result<WorkspaceInfo, String> {
+    use std::path::PathBuf;
+
+    if !PathBuf::from(&path).is_dir() {
+        return Err("Workspace path must be a folder.".to_string());
+    }
+
+    let name = PathBuf::from(&path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Workspace")
+        .to_string();
+
+    let mut settings = WorkspaceSettings::default();
+    settings.engine_type = Some("openai".to_string());
+
+    let entry = WorkspaceEntry {
+        id: Uuid::new_v4().to_string(),
+        name: name.clone(),
+        path: path.clone(),
+        codex_bin,
+        kind: WorkspaceKind::Main,
+        parent_id: None,
+        worktree: None,
+        settings,
+    };
+
+    {
+        let mut workspaces = state.workspaces.lock().await;
+        workspaces.insert(entry.id.clone(), entry.clone());
+        let list: Vec<_> = workspaces.values().cloned().collect();
+        write_workspaces(&state.storage_path, &list)?;
+    }
+
+    Ok(WorkspaceInfo {
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+        connected: false,
+        codex_bin: entry.codex_bin,
+        kind: entry.kind,
+        parent_id: entry.parent_id,
+        worktree: entry.worktree,
+        settings: entry.settings,
+    })
 }
 
 /// Add workspace for Claude engine (no persistent session needed)

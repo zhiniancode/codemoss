@@ -315,6 +315,13 @@ pub fn run() {
             vendors::vendor_update_codex_provider,
             vendors::vendor_delete_codex_provider,
             vendors::vendor_switch_codex_provider,
+            vendors::vendor_get_openai_providers,
+            vendors::vendor_add_openai_provider,
+            vendors::vendor_update_openai_provider,
+            vendors::vendor_delete_openai_provider,
+            vendors::vendor_switch_openai_provider,
+            vendors::vendor_probe_openai_provider,
+            vendors::vendor_detect_protocol,
             // Open paths
             get_pending_open_paths
         ])

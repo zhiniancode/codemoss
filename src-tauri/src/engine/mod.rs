@@ -13,6 +13,7 @@ pub mod codex_adapter;
 pub mod commands;
 pub mod events;
 pub mod manager;
+pub mod openai;
 pub mod opencode;
 pub mod status;
 
@@ -29,6 +30,8 @@ pub enum EngineType {
     Claude,
     /// Codex CLI
     Codex,
+    /// OpenAI-compatible HTTP API
+    OpenAI,
     /// Google Gemini CLI (future)
     Gemini,
     /// OpenCode CLI
@@ -47,6 +50,7 @@ impl EngineType {
         match self {
             EngineType::Claude => "Claude Code",
             EngineType::Codex => "Codex",
+            EngineType::OpenAI => "OpenAI Compatible",
             EngineType::Gemini => "Gemini",
             EngineType::OpenCode => "OpenCode",
         }
@@ -57,6 +61,7 @@ impl EngineType {
         match self {
             EngineType::Claude => "claude",
             EngineType::Codex => "codex",
+            EngineType::OpenAI => "openai",
             EngineType::Gemini => "gemini",
             EngineType::OpenCode => "opencode",
         }
@@ -66,7 +71,7 @@ impl EngineType {
     pub fn is_supported(&self) -> bool {
         matches!(
             self,
-            EngineType::Claude | EngineType::Codex | EngineType::OpenCode
+            EngineType::Claude | EngineType::Codex | EngineType::OpenAI | EngineType::OpenCode
         )
     }
 }
@@ -248,6 +253,19 @@ impl EngineFeatures {
             image_input: false,
             session_resume: true,
             tools_control: true,
+            streaming: true,
+            mcp: false,
+        }
+    }
+
+    /// Features for OpenAI-compatible HTTP APIs
+    pub fn openai() -> Self {
+        Self {
+            reasoning_effort: false,
+            collaboration_mode: false,
+            image_input: false,
+            session_resume: true,
+            tools_control: false,
             streaming: true,
             mcp: false,
         }

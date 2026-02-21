@@ -5,6 +5,7 @@ const IMPLEMENTED_ENGINE_SET = new Set<EngineType>([
   "claude",
   "codex",
   "opencode",
+  "openai",
 ]);
 
 export function isEngineImplemented(engine: EngineType): boolean {
@@ -33,6 +34,9 @@ export function getEngineAvailabilityStatusKey(
     return "workspace.engineComingSoon";
   }
   if (!isEngineInstalled(engines, engine)) {
+    if (engine === "openai") {
+      return "sidebar.apiNotConfigured";
+    }
     return "sidebar.cliNotInstalled";
   }
   return null;

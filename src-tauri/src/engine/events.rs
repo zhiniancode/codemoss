@@ -215,6 +215,7 @@ pub fn engine_event_to_app_server_event(
                 "engine": match engine {
                     EngineType::Claude => "claude",
                     EngineType::Codex => "codex",
+                    EngineType::OpenAI => "openai",
                     EngineType::Gemini => "gemini",
                     EngineType::OpenCode => "opencode",
                 },

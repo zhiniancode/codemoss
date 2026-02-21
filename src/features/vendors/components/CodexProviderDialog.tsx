@@ -57,6 +57,7 @@ wire_api = "responses"`);
   useEffect(() => {
     if (isOpen) {
       const handleEscape = (e: KeyboardEvent) => {
+        if (e.isComposing) return;
         if (e.key === "Escape") onClose();
       };
       window.addEventListener("keydown", handleEscape);
@@ -105,7 +106,13 @@ wire_api = "responses"`);
   if (!isOpen) return null;
 
   return (
-    <div className="vendor-dialog-overlay" onClick={onClose}>
+    <div
+      className="vendor-dialog-overlay"
+      onMouseDown={(e) => {
+        // Only close when the press starts on the overlay itself.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         className="vendor-dialog vendor-dialog-wide"
         onClick={(e) => e.stopPropagation()}

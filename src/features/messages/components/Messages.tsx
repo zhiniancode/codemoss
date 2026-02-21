@@ -48,7 +48,7 @@ type MessagesProps = {
     request: RequestUserInputRequest,
     response: RequestUserInputResponse,
   ) => Promise<void> | void;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
   activeCollaborationModeId?: string | null;
   plan?: TurnPlan | null;
   isPlanMode?: boolean;
@@ -67,13 +67,13 @@ type WorkingIndicatorProps = {
   hasItems: boolean;
   reasoningLabel?: string | null;
   activityLabel?: string | null;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
   waitingForFirstChunk?: boolean;
 };
 
 type MessageRowProps = {
   item: Extract<ConversationItem, { kind: "message" }>;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
   isCopied: boolean;
   onCopy: (item: Extract<ConversationItem, { kind: "message" }>) => void;
   codeBlockCopyUseModifier?: boolean;
@@ -332,7 +332,7 @@ function resolveCodexCommandActivityLabel(item: Extract<ConversationItem, { kind
 
 function resolveWorkingActivityLabel(
   item: ConversationItem,
-  activeEngine: "claude" | "codex" | "gemini" | "opencode" = "claude",
+  activeEngine: "claude" | "codex" | "gemini" | "opencode" | "openai" = "claude",
 ) {
   if (item.kind === "reasoning") {
     const parsed = parseReasoning(item);

@@ -2,10 +2,13 @@ import { useState } from "react";
 import type { VendorTab } from "../types";
 import { useProviderManagement } from "../hooks/useProviderManagement";
 import { useCodexProviderManagement } from "../hooks/useCodexProviderManagement";
+import { useOpenAIProviderManagement } from "../hooks/useOpenAIProviderManagement";
 import { ProviderList } from "./ProviderList";
 import { CodexProviderList } from "./CodexProviderList";
+import { OpenAIProviderList } from "./OpenAIProviderList";
 import { ProviderDialog } from "./ProviderDialog";
 import { CodexProviderDialog } from "./CodexProviderDialog";
+import { OpenAIProviderDialog } from "./OpenAIProviderDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 
@@ -14,6 +17,7 @@ export function VendorSettingsPanel() {
 
   const claude = useProviderManagement();
   const codex = useCodexProviderManagement();
+  const openai = useOpenAIProviderManagement();
 
   return (
     <div className="vendor-settings-panel">
@@ -27,6 +31,9 @@ export function VendorSettingsPanel() {
           </TabsTab>
           <TabsTab className="vendor-tab" value="codex">
             Codex
+          </TabsTab>
+          <TabsTab className="vendor-tab" value="openai">
+            OpenAI Compatible
           </TabsTab>
         </TabsList>
 
@@ -76,6 +83,32 @@ export function VendorSettingsPanel() {
               providerName={codex.deleteCodexConfirm.provider?.name ?? ""}
               onConfirm={codex.confirmDeleteCodexProvider}
               onCancel={codex.cancelDeleteCodexProvider}
+            />
+          </div>
+        </TabsPanel>
+
+        <TabsPanel value="openai">
+          <div className="vendor-tab-content">
+            <OpenAIProviderList
+              providers={openai.providers}
+              loading={openai.loading}
+              onAdd={openai.handleAddProvider}
+              onEdit={openai.handleEditProvider}
+              onDelete={openai.handleDeleteProvider}
+              onSwitch={openai.handleSwitchProvider}
+            />
+            <OpenAIProviderDialog
+              isOpen={openai.providerDialog.isOpen}
+              provider={openai.providerDialog.provider}
+              onClose={openai.handleCloseProviderDialog}
+              onSave={openai.handleSaveProvider}
+              onSwitchVendorTab={(tab) => setActiveTab(tab)}
+            />
+            <DeleteConfirmDialog
+              isOpen={openai.deleteConfirm.isOpen}
+              providerName={openai.deleteConfirm.provider?.name ?? ""}
+              onConfirm={openai.confirmDeleteProvider}
+              onCancel={openai.cancelDeleteProvider}
             />
           </div>
         </TabsPanel>

@@ -9,6 +9,7 @@ use tokio::time::timeout;
 
 use super::{EngineFeatures, EngineStatus, EngineType, ModelInfo};
 use crate::backend::app_server::{build_codex_path_env, find_cli_binary};
+use crate::vendors;
 
 /// Timeout for CLI commands
 const DETECTION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -482,6 +483,119 @@ fn format_opencode_model_name(provider: &str, model_id: &str) -> String {
     format!("{}/{}", provider_name, model_name)
 }
 
+/// Detect OpenAI-compatible API status (configured provider + model list)
+pub async fn detect_openai_status() -> EngineStatus {
+    let providers = match vendors::vendor_get_openai_providers().await {
+        Ok(list) => list,
+        Err(err) => {
+            return EngineStatus::with_error(
+                EngineType::OpenAI,
+                format!("Failed to read OpenAI providers config: {}", err),
+            );
+        }
+    };
+
+    if providers.is_empty() {
+        return EngineStatus {
+            engine_type: EngineType::OpenAI,
+            installed: false,
+            version: None,
+            bin_path: None,
+            home_dir: None,
+            models: Vec::new(),
+            default_model: None,
+            features: EngineFeatures::openai(),
+            error: Some(
+                "OpenAI Compatible is not configured. Add a provider in Settings > Vendor Management."
+                    .to_string(),
+            ),
+        };
+    }
+
+    let active = providers.iter().find(|p| p.is_active).cloned();
+    let Some(active) = active else {
+        return EngineStatus {
+            engine_type: EngineType::OpenAI,
+            installed: false,
+            version: None,
+            bin_path: None,
+            home_dir: None,
+            models: Vec::new(),
+            default_model: None,
+            features: EngineFeatures::openai(),
+            error: Some(
+                "No OpenAI Compatible provider is enabled. Enable one in Settings > Vendor Management."
+                    .to_string(),
+            ),
+        };
+    };
+
+    let base_url = active.base_url.clone().unwrap_or_default();
+    let api_key = active.api_key.clone().unwrap_or_default();
+    let default_model = active.default_model.clone().unwrap_or_default();
+
+    if base_url.trim().is_empty() || api_key.trim().is_empty() || default_model.trim().is_empty()
+    {
+        return EngineStatus {
+            engine_type: EngineType::OpenAI,
+            installed: false,
+            version: None,
+            bin_path: None,
+            home_dir: None,
+            models: Vec::new(),
+            default_model: None,
+            features: EngineFeatures::openai(),
+            error: Some(
+                "OpenAI Compatible provider is incomplete (baseUrl/apiKey/defaultModel required)."
+                    .to_string(),
+            ),
+        };
+    }
+
+    let mut models: Vec<ModelInfo> = Vec::new();
+    if let Some(custom) = active.models {
+        for entry in custom {
+            let mut model = ModelInfo::new(entry.id.clone(), entry.label.clone());
+            if let Some(desc) = entry.description {
+                model.description = desc;
+            }
+            models.push(model);
+        }
+    }
+    if models.is_empty() {
+        models.push(ModelInfo::new(default_model.clone(), default_model.clone()));
+    }
+
+    // Mark default model if present.
+    let mut default_model_id: Option<String> = None;
+    for model in &mut models {
+        if model.id == default_model {
+            model.default = true;
+            default_model_id = Some(model.id.clone());
+            break;
+        }
+    }
+    if default_model_id.is_none() {
+        // Fall back to first.
+        if let Some(first) = models.get_mut(0) {
+            first.default = true;
+            default_model_id = Some(first.id.clone());
+        }
+    }
+
+    EngineStatus {
+        engine_type: EngineType::OpenAI,
+        installed: true,
+        version: Some("api".to_string()),
+        bin_path: None,
+        home_dir: None,
+        models,
+        default_model: default_model_id,
+        features: EngineFeatures::openai(),
+        error: None,
+    }
+}
+
 /// Detect all supported engines
 pub async fn detect_all_engines(
     claude_bin: Option<&str>,
@@ -489,13 +603,14 @@ pub async fn detect_all_engines(
     opencode_bin: Option<&str>,
 ) -> Vec<EngineStatus> {
     // Run detections in parallel
-    let (claude_status, codex_status, opencode_status) = tokio::join!(
+    let (claude_status, codex_status, opencode_status, openai_status) = tokio::join!(
         detect_claude_status(claude_bin),
         detect_codex_status(codex_bin),
         detect_opencode_status(opencode_bin),
+        detect_openai_status(),
     );
 
-    vec![claude_status, codex_status, opencode_status]
+    vec![claude_status, codex_status, opencode_status, openai_status]
 }
 
 /// Detect available engines and return the preferred default engine.
@@ -505,10 +620,11 @@ pub async fn detect_preferred_engine(
     codex_bin: Option<&str>,
     opencode_bin: Option<&str>,
 ) -> EngineType {
-    let (claude_status, codex_status, opencode_status) = tokio::join!(
+    let (claude_status, codex_status, opencode_status, openai_status) = tokio::join!(
         detect_claude_status(claude_bin),
         detect_codex_status(codex_bin),
         detect_opencode_status(opencode_bin),
+        detect_openai_status(),
     );
 
     // Priority: Claude first (more users have it installed)
@@ -520,6 +636,9 @@ pub async fn detect_preferred_engine(
     }
     if opencode_status.installed {
         return EngineType::OpenCode;
+    }
+    if openai_status.installed {
+        return EngineType::OpenAI;
     }
 
     // Default to Claude so error message is helpful
@@ -543,6 +662,7 @@ pub async fn resolve_engine_type(
         match engine.to_lowercase().as_str() {
             "claude" => return EngineType::Claude,
             "codex" => return EngineType::Codex,
+            "openai" => return EngineType::OpenAI,
             "opencode" => return EngineType::OpenCode,
             _ => {} // Invalid value, fall through
         }
@@ -553,6 +673,7 @@ pub async fn resolve_engine_type(
         match engine.to_lowercase().as_str() {
             "claude" => return EngineType::Claude,
             "codex" => return EngineType::Codex,
+            "openai" => return EngineType::OpenAI,
             "opencode" => return EngineType::OpenCode,
             _ => {} // Invalid value, fall through
         }

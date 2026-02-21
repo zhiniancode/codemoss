@@ -90,4 +90,57 @@ export interface CodexProviderConfig {
   customModels?: CodexCustomModel[];
 }
 
-export type VendorTab = "claude" | "codex";
+export interface OpenAIProviderModel {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface OpenAIProviderConfig {
+  id: string;
+  name: string;
+  remark?: string;
+  createdAt?: number;
+  isActive?: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+  defaultModel?: string;
+  models?: OpenAIProviderModel[];
+}
+
+export interface OpenAIProbeResult {
+  success: boolean;
+  fixedBaseUrl?: string;
+  models?: string[];
+  error?: string;
+  latencyMs?: number;
+}
+
+export type ProtocolType = "openai" | "gemini" | "anthropic" | "unknown";
+
+export type ProtocolSuggestionType =
+  | "switch_platform"
+  | "fix_url"
+  | "check_key"
+  | "none";
+
+export interface ProtocolSuggestion {
+  type: ProtocolSuggestionType;
+  message: string;
+  suggestedPlatform?: string;
+  i18nKey?: string;
+  i18nParams?: Record<string, string>;
+}
+
+export interface ProtocolDetectionResponse {
+  success: boolean;
+  protocol: ProtocolType;
+  confidence: number;
+  error?: string;
+  fixedBaseUrl?: string;
+  models?: string[];
+  latencyMs?: number;
+  suggestion?: ProtocolSuggestion;
+}
+
+export type VendorTab = "claude" | "codex" | "openai";

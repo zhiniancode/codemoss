@@ -157,7 +157,7 @@ export type ThreadAction =
       type: "ensureThread";
       workspaceId: string;
       threadId: string;
-      engine?: "codex" | "claude" | "opencode";
+      engine?: "codex" | "claude" | "opencode" | "openai";
     }
   | { type: "hideThread"; workspaceId: string; threadId: string }
   | { type: "removeThread"; workspaceId: string; threadId: string }
@@ -182,7 +182,7 @@ export type ThreadAction =
       type: "setThreadEngine";
       workspaceId: string;
       threadId: string;
-      engine: "codex" | "claude" | "opencode";
+      engine: "codex" | "claude" | "opencode" | "openai";
     }
   | {
       type: "setThreadTimestamp";
@@ -478,6 +478,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         ? "claude-pending-"
         : action.threadId.startsWith("opencode:")
           ? "opencode-pending-"
+          : action.threadId.startsWith("openai:")
+            ? "openai-pending-"
           : null;
       if (pendingPrefix) {
         const pendingIndexes: number[] = [];

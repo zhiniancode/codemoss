@@ -49,7 +49,7 @@ type ThreadEventHandlersOptions = {
   ) => Promise<void>;
   resolvePendingThreadForSession?: (
     workspaceId: string,
-    engine: "claude" | "opencode",
+    engine: "claude" | "opencode" | "openai",
   ) => string | null;
 };
 

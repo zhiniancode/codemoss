@@ -24,6 +24,8 @@ export function EngineIcon({
       return <Claude.Color size={size} className={className} style={style} />;
     case "codex":
       return <OpenAI size={size} className={className} style={style} />;
+    case "openai":
+      return <OpenAI size={size} className={className} style={style} />;
     case "gemini":
       return <Gemini.Color size={size} className={className} style={style} />;
     case "opencode":

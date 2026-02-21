@@ -53,7 +53,7 @@ type UseThreadMessagingOptions = {
   collaborationMode?: Record<string, unknown> | null;
   steerEnabled: boolean;
   customPrompts: CustomPromptOption[];
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
   threadStatusById: ThreadState["threadStatusById"];
   activeTurnIdByThread: ThreadState["activeTurnIdByThread"];
   rateLimitsByWorkspace: Record<string, RateLimitSnapshot | null>;
@@ -64,7 +64,7 @@ type UseThreadMessagingOptions = {
   getThreadEngine: (
     workspaceId: string,
     threadId: string,
-  ) => "claude" | "codex" | "opencode" | undefined;
+  ) => "claude" | "codex" | "opencode" | "openai" | undefined;
   markProcessing: (threadId: string, isProcessing: boolean) => void;
   markReviewing: (threadId: string, isReviewing: boolean) => void;
   setActiveTurnId: (threadId: string, turnId: string | null) => void;
@@ -87,7 +87,7 @@ type UseThreadMessagingOptions = {
   updateThreadParent: (parentId: string, childIds: string[]) => void;
   startThreadForWorkspace: (
     workspaceId: string,
-    options?: { activate?: boolean; engine?: "claude" | "codex" | "opencode" },
+    options?: { activate?: boolean; engine?: "claude" | "codex" | "opencode" | "openai" },
   ) => Promise<string | null>;
   resolveOpenCodeAgent?: (threadId: string | null) => string | null;
   resolveOpenCodeVariant?: (threadId: string | null) => string | null;
@@ -138,9 +138,15 @@ export function useThreadMessaging({
   const lastOpenCodeModelByThreadRef = useRef<Map<string, string>>(new Map());
   const normalizeEngineSelection = useCallback(
     (
-      engine: "claude" | "codex" | "gemini" | "opencode" | undefined,
-    ): "claude" | "codex" | "opencode" =>
-      engine === "claude" ? "claude" : engine === "opencode" ? "opencode" : "codex",
+      engine: "claude" | "codex" | "gemini" | "opencode" | "openai" | undefined,
+    ): "claude" | "codex" | "opencode" | "openai" =>
+      engine === "claude"
+        ? "claude"
+        : engine === "opencode"
+          ? "opencode"
+          : engine === "openai"
+            ? "openai"
+            : "codex",
     [],
   );
 
@@ -148,7 +154,7 @@ export function useThreadMessaging({
     (
       workspaceId: string,
       threadId: string,
-    ): "claude" | "codex" | "opencode" => {
+    ): "claude" | "codex" | "opencode" | "openai" => {
       const persistedEngine = getThreadEngine(workspaceId, threadId);
       if (persistedEngine) {
         return persistedEngine;
@@ -162,6 +168,9 @@ export function useThreadMessaging({
       ) {
         return "opencode";
       }
+      if (threadId.startsWith("openai:") || threadId.startsWith("openai-pending-")) {
+        return "openai";
+      }
       return normalizeEngineSelection(activeEngine);
     },
     [activeEngine, getThreadEngine, normalizeEngineSelection],
@@ -169,7 +178,7 @@ export function useThreadMessaging({
 
   const isThreadIdCompatibleWithEngine = useCallback(
     (
-      engine: "claude" | "codex" | "opencode",
+      engine: "claude" | "codex" | "opencode" | "openai",
       threadId: string,
     ): boolean => {
       if (engine === "claude") {
@@ -184,11 +193,19 @@ export function useThreadMessaging({
           threadId.startsWith("opencode-pending-")
         );
       }
+      if (engine === "openai") {
+        return (
+          threadId.startsWith("openai:") ||
+          threadId.startsWith("openai-pending-")
+        );
+      }
       return (
         !threadId.startsWith("claude:")
         && !threadId.startsWith("claude-pending-")
         && !threadId.startsWith("opencode:")
         && !threadId.startsWith("opencode-pending-")
+        && !threadId.startsWith("openai:")
+        && !threadId.startsWith("openai-pending-")
       );
     },
     [],
@@ -401,13 +418,16 @@ export function useThreadMessaging({
 
         const isClaudeSession = threadId.startsWith("claude:");
         const isOpenCodeSession = threadId.startsWith("opencode:");
+        const isOpenAISession = threadId.startsWith("openai:");
         const cliEngine = resolvedEngine === "codex" ? null : resolvedEngine;
         const realSessionId =
           resolvedEngine === "claude" && isClaudeSession
             ? threadId.slice("claude:".length)
             : resolvedEngine === "opencode" && isOpenCodeSession
               ? threadId.slice("opencode:".length)
-              : null;
+              : resolvedEngine === "openai" && isOpenAISession
+                ? threadId.slice("openai:".length)
+                : null;
 
         if (cliEngine) {
           // Claude/OpenCode: backend only streams assistant/tool events, so add user item locally.

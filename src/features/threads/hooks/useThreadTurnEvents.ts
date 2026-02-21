@@ -15,12 +15,15 @@ import type { ThreadAction } from "./useThreadsReducer";
  * Infer engine type from thread ID.
  * Claude/OpenCode threads use "<engine>:" or "<engine>-pending-" prefixes.
  */
-function inferEngineFromThreadId(threadId: string): "claude" | "codex" | "opencode" {
+function inferEngineFromThreadId(threadId: string): "claude" | "codex" | "opencode" | "openai" {
   if (threadId.startsWith("claude:") || threadId.startsWith("claude-pending-")) {
     return "claude";
   }
   if (threadId.startsWith("opencode:") || threadId.startsWith("opencode-pending-")) {
     return "opencode";
+  }
+  if (threadId.startsWith("openai:") || threadId.startsWith("openai-pending-")) {
+    return "openai";
   }
   return "codex";
 }
@@ -55,7 +58,7 @@ type UseThreadTurnEventsOptions = {
   ) => Promise<void>;
   resolvePendingThreadForSession?: (
     workspaceId: string,
-    engine: "claude" | "opencode",
+    engine: "claude" | "opencode" | "openai",
   ) => string | null;
 };
 
@@ -87,6 +90,8 @@ export function useThreadTurnEvents({
         ? "opencode"
         : threadId.startsWith("claude:")
           ? "claude"
+          : threadId.startsWith("openai:")
+            ? "openai"
           : null;
       if (!engine) {
         return null;
@@ -309,7 +314,7 @@ export function useThreadTurnEvents({
       workspaceId: string,
       threadId: string,
       sessionId: string,
-      engineHint?: "claude" | "opencode" | "codex" | "gemini" | null,
+      engineHint?: "claude" | "opencode" | "openai" | "codex" | "gemini" | null,
     ) => {
       const explicitEnginePrefix = threadId.startsWith("claude:")
         || threadId.startsWith("claude-pending-")
@@ -317,42 +322,56 @@ export function useThreadTurnEvents({
         : threadId.startsWith("opencode:")
           || threadId.startsWith("opencode-pending-")
           ? "opencode"
-          : null;
+          : threadId.startsWith("openai:")
+            || threadId.startsWith("openai-pending-")
+            ? "openai"
+            : null;
       const hintedEngine =
-        engineHint === "claude" || engineHint === "opencode"
+        engineHint === "claude" || engineHint === "opencode" || engineHint === "openai"
           ? engineHint
           : null;
       const pendingOpenCode = resolvePendingThreadForSession?.(workspaceId, "opencode") ?? null;
       const pendingClaude = resolvePendingThreadForSession?.(workspaceId, "claude") ?? null;
+      const pendingOpenAI = resolvePendingThreadForSession?.(workspaceId, "openai") ?? null;
+
+      const pendingEntries = [
+        ["opencode", pendingOpenCode],
+        ["claude", pendingClaude],
+        ["openai", pendingOpenAI],
+      ] as const;
+      const pendingEngines = pendingEntries.filter((entry) => Boolean(entry[1]));
 
       const enginePrefix =
         explicitEnginePrefix
         ?? hintedEngine
-        ?? (pendingOpenCode && !pendingClaude
-          ? "opencode"
-          : pendingClaude && !pendingOpenCode
-            ? "claude"
-            : null);
+        ?? (pendingEngines.length === 1 ? pendingEngines[0][0] : null);
       if (!enginePrefix) {
         return;
       }
 
       const newThreadId = `${enginePrefix}:${sessionId}`;
+
+      const pendingByEngine: Record<"claude" | "opencode" | "openai", string | null> = {
+        claude: pendingClaude,
+        opencode: pendingOpenCode,
+        openai: pendingOpenAI,
+      };
+
+      const otherPrefixes = ["claude", "opencode", "openai"].filter(
+        (prefix) => prefix !== enginePrefix,
+      );
+      const belongsToOtherEngine = otherPrefixes.some(
+        (prefix) =>
+          threadId.startsWith(`${prefix}:`) || threadId.startsWith(`${prefix}-pending-`),
+      );
+
+      const fallbackSourceThreadId =
+        threadId !== newThreadId && !belongsToOtherEngine ? threadId : null;
+
       const sourceThreadId = threadId.startsWith(`${enginePrefix}-pending-`)
         ? threadId
-        : enginePrefix === "opencode"
-          ? pendingOpenCode
-            ?? (threadId !== newThreadId &&
-              !threadId.startsWith("claude:") &&
-              !threadId.startsWith("claude-pending-")
-              ? threadId
-              : null)
-          : pendingClaude
-            ?? (threadId !== newThreadId &&
-              !threadId.startsWith("opencode:") &&
-              !threadId.startsWith("opencode-pending-")
-              ? threadId
-              : null);
+        : pendingByEngine[enginePrefix as "claude" | "opencode" | "openai"]
+          ?? fallbackSourceThreadId;
 
       if (!sourceThreadId || sourceThreadId === newThreadId) {
         return;

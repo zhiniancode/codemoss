@@ -12,9 +12,11 @@ use crate::codex::WorkspaceSession as CodexWorkspaceSession;
 
 use super::claude::{ClaudeSession, ClaudeSessionManager};
 use super::codex_adapter::CodexSessionAdapter;
+use super::openai::OpenAIWorkspaceSession;
 use super::opencode::OpenCodeSession;
 use super::status::{
     detect_all_engines, detect_claude_status, detect_codex_status, detect_opencode_status,
+    detect_openai_status,
 };
 use super::{EngineConfig, EngineStatus, EngineType};
 
@@ -35,6 +37,9 @@ pub struct EngineManager {
     /// OpenCode sessions per workspace
     opencode_sessions: Mutex<HashMap<String, Arc<OpenCodeSession>>>,
 
+    /// OpenAI-compatible sessions per workspace (holds per-thread histories)
+    openai_sessions: Mutex<HashMap<String, Arc<OpenAIWorkspaceSession>>>,
+
     /// Engine configurations
     engine_configs: RwLock<HashMap<EngineType, EngineConfig>>,
 }
@@ -48,6 +53,7 @@ impl EngineManager {
             claude_manager: ClaudeSessionManager::new(),
             codex_adapters: Mutex::new(HashMap::new()),
             opencode_sessions: Mutex::new(HashMap::new()),
+            openai_sessions: Mutex::new(HashMap::new()),
             engine_configs: RwLock::new(HashMap::new()),
         }
     }
@@ -93,6 +99,7 @@ impl EngineManager {
         let status = match engine_type {
             EngineType::Claude => detect_claude_status(bin).await,
             EngineType::Codex => detect_codex_status(bin).await,
+            EngineType::OpenAI => detect_openai_status().await,
             EngineType::OpenCode => detect_opencode_status(bin).await,
             _ => EngineStatus::with_error(engine_type, "Engine not supported yet".to_string()),
         };
@@ -249,6 +256,34 @@ impl EngineManager {
     /// Remove an OpenCode session
     pub async fn remove_opencode_session(&self, workspace_id: &str) {
         let mut sessions = self.opencode_sessions.lock().await;
+        sessions.remove(workspace_id);
+    }
+
+    // ==================== OpenAI Session Management ====================
+
+    pub async fn get_or_create_openai_session(
+        &self,
+        workspace_id: &str,
+    ) -> Arc<OpenAIWorkspaceSession> {
+        let mut sessions = self.openai_sessions.lock().await;
+        if let Some(existing) = sessions.get(workspace_id) {
+            return existing.clone();
+        }
+        let session = Arc::new(OpenAIWorkspaceSession::new(workspace_id.to_string()));
+        sessions.insert(workspace_id.to_string(), session.clone());
+        session
+    }
+
+    pub async fn get_openai_session(
+        &self,
+        workspace_id: &str,
+    ) -> Option<Arc<OpenAIWorkspaceSession>> {
+        let sessions = self.openai_sessions.lock().await;
+        sessions.get(workspace_id).cloned()
+    }
+
+    pub async fn remove_openai_session(&self, workspace_id: &str) {
+        let mut sessions = self.openai_sessions.lock().await;
         sessions.remove(workspace_id);
     }
 

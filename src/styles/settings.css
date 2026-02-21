@@ -1613,6 +1613,60 @@
   margin-top: 2px;
 }
 
+.vendor-hint-inline {
+  margin-top: 0;
+}
+
+.vendor-hint-error {
+  color: #e55;
+}
+
+.vendor-detect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.vendor-btn-inline {
+  padding: 4px 10px;
+}
+
+.vendor-openai-model-popup {
+  background: #fff;
+  color: #111;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.vendor-openai-model-popup-vars {
+  /* Ensure the scroll arrows' gradient (from-popover) matches the white popup. */
+  --popover: rgba(255, 255, 255, 0.99);
+  --popover-foreground: #111;
+  /* Tailwind color tokens map to --color-popover, not --popover directly. */
+  --color-popover: rgba(255, 255, 255, 0.99);
+  --color-popover-foreground: #111;
+}
+
+/* Base UI Select uses gradient overlays on scroll arrows; override them to avoid dark bands. */
+.vendor-openai-model-popup-vars [data-slot="select-scroll-down-arrow"]::before {
+  background: linear-gradient(to top, #fff 50%, rgba(255, 255, 255, 0)) !important;
+}
+
+.vendor-openai-model-popup-vars [data-slot="select-scroll-up-arrow"]::before {
+  background: linear-gradient(to bottom, #fff 50%, rgba(255, 255, 255, 0)) !important;
+}
+
+/* Ensure highlighted/selected rows stay readable on the white popup. */
+.vendor-openai-model-popup [data-slot="select-item"][data-highlighted] {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}
+
+.vendor-openai-model-popup [data-slot="select-item"][data-disabled] {
+  opacity: 0.6;
+}
+
 .vendor-optional {
   font-weight: 400;
   color: var(--text-secondary);

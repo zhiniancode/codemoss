@@ -109,6 +109,7 @@ export function ProviderDialog({
   useEffect(() => {
     if (isOpen) {
       const handleEscape = (e: KeyboardEvent) => {
+        if (e.isComposing) return;
         if (e.key === "Escape") onClose();
       };
       window.addEventListener("keydown", handleEscape);
@@ -152,7 +153,13 @@ export function ProviderDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="vendor-dialog-overlay" onClick={onClose}>
+    <div
+      className="vendor-dialog-overlay"
+      onMouseDown={(e) => {
+        // Only close when the press starts on the overlay itself.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         className="vendor-dialog"
         onClick={(e) => e.stopPropagation()}

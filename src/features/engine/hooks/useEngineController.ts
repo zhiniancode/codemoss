@@ -48,6 +48,7 @@ const ENGINE_DISPLAY_MAP: Record<
   codex: { displayName: "Codex CLI", shortName: "Codex" },
   gemini: { displayName: "Gemini CLI", shortName: "Gemini" },
   opencode: { displayName: "OpenCode", shortName: "OpenCode" },
+  openai: { displayName: "OpenAI Compatible", shortName: "OpenAI Compatible" },
 };
 
 /**
@@ -348,6 +349,17 @@ export function useEngineController({
     }
     initRef.current = true;
     refreshEngines();
+  }, [refreshEngines]);
+
+  // Refresh engine availability when vendor/API configuration changes.
+  useEffect(() => {
+    const handleEngineConfigChanged = () => {
+      void refreshEngines();
+    };
+    window.addEventListener("engineConfigChanged", handleEngineConfigChanged);
+    return () => {
+      window.removeEventListener("engineConfigChanged", handleEngineConfigChanged);
+    };
   }, [refreshEngines]);
 
   // Reset models when workspace changes

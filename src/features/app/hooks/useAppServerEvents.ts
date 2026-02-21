@@ -27,7 +27,7 @@ type AppServerEventHandlers = {
     workspaceId: string,
     threadId: string,
     sessionId: string,
-    engine?: "claude" | "opencode" | "codex" | "gemini" | null,
+    engine?: "claude" | "opencode" | "codex" | "gemini" | "openai" | null,
   ) => void;
   onBackgroundThreadAction?: (
     workspaceId: string,
@@ -196,7 +196,8 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
           rawEngine === "claude" ||
           rawEngine === "opencode" ||
           rawEngine === "codex" ||
-          rawEngine === "gemini"
+          rawEngine === "gemini" ||
+          rawEngine === "openai"
             ? rawEngine
             : null;
 

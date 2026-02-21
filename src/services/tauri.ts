@@ -1236,3 +1236,48 @@ export async function deleteCodexProvider(id: string): Promise<void> {
 export async function switchCodexProvider(id: string): Promise<void> {
   return invoke("vendor_switch_codex_provider", { id });
 }
+
+export async function getOpenAIProviders(): Promise<any[]> {
+  return invoke<any[]>("vendor_get_openai_providers");
+}
+
+export async function addOpenAIProvider(provider: any): Promise<void> {
+  return invoke("vendor_add_openai_provider", { provider });
+}
+
+export async function updateOpenAIProvider(
+  id: string,
+  updates: any,
+): Promise<void> {
+  return invoke("vendor_update_openai_provider", { id, updates });
+}
+
+export async function deleteOpenAIProvider(id: string): Promise<void> {
+  return invoke("vendor_delete_openai_provider", { id });
+}
+
+export async function switchOpenAIProvider(id: string): Promise<void> {
+  return invoke("vendor_switch_openai_provider", { id });
+}
+
+export async function probeOpenAIProvider(
+  baseUrl: string,
+  apiKey: string,
+  timeoutMs?: number,
+): Promise<any> {
+  return invoke("vendor_probe_openai_provider", { baseUrl, apiKey, timeoutMs });
+}
+
+export async function detectProtocol(
+  baseUrl: string,
+  apiKey: string,
+  timeoutMs?: number,
+  preferredProtocol?: string,
+): Promise<any> {
+  return invoke("vendor_detect_protocol", {
+    baseUrl,
+    apiKey,
+    timeoutMs,
+    preferredProtocol,
+  });
+}

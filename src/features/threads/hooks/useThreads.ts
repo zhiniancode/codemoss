@@ -42,14 +42,14 @@ type UseThreadsOptions = {
   steerEnabled?: boolean;
   customPrompts?: CustomPromptOption[];
   onMessageActivity?: () => void;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode" | "openai";
   resolveOpenCodeAgent?: (threadId: string | null) => string | null;
   resolveOpenCodeVariant?: (threadId: string | null) => string | null;
 };
 
 type PendingResolutionInput = {
   workspaceId: string;
-  engine: "claude" | "opencode";
+  engine: "claude" | "opencode" | "openai";
   threadsByWorkspace: Record<string, Array<{ id: string }>>;
   activeThreadIdByWorkspace: Record<string, string | null>;
   threadStatusById: Record<string, { isProcessing?: boolean } | undefined>;
@@ -254,7 +254,10 @@ export function useThreads({
   );
 
   const getThreadEngine = useCallback(
-    (workspaceId: string, threadId: string): "claude" | "codex" | "opencode" | undefined => {
+    (
+      workspaceId: string,
+      threadId: string,
+    ): "claude" | "codex" | "opencode" | "openai" | undefined => {
       const threads = state.threadsByWorkspace[workspaceId] ?? [];
       const thread = threads.find((t) => t.id === threadId);
       return thread?.engineSource;
@@ -265,7 +268,7 @@ export function useThreads({
   const resolvePendingThreadForSession = useCallback(
     (
       workspaceId: string,
-      engine: "claude" | "opencode",
+      engine: "claude" | "opencode" | "openai",
     ): string | null => {
       return resolvePendingThreadIdForSession({
         workspaceId,
@@ -311,6 +314,8 @@ export function useThreads({
         ? "claude"
         : activeEngine === "opencode"
           ? "opencode"
+          : activeEngine === "openai"
+            ? "openai"
           : "codex";
     if (currentEngine === targetEngine) {
       return;
