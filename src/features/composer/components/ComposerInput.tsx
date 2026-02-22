@@ -18,7 +18,6 @@ import Paperclip from "lucide-react/dist/esm/icons/paperclip";
 import Mic from "lucide-react/dist/esm/icons/mic";
 import Square from "lucide-react/dist/esm/icons/square";
 import Brain from "lucide-react/dist/esm/icons/brain";
-import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import GitFork from "lucide-react/dist/esm/icons/git-fork";
 import PlusCircle from "lucide-react/dist/esm/icons/plus-circle";
 import Info from "lucide-react/dist/esm/icons/info";
@@ -200,7 +199,6 @@ export function ComposerInput({
   isProcessing,
   onStop,
   onSend,
-  activeWorkspaceId = null,
   engineName,
   dictationState = "idle",
   dictationLevel = 0,
@@ -274,9 +272,6 @@ export function ComposerInput({
   contextUsage,
   accessMode,
   onSelectAccessMode,
-  openAIWorkspaces = [],
-  onSelectOpenAIWorkspace,
-  onPickOpenAIFolder,
   ghostTextSuffix,
   openCodeDock,
   opencodeProviderTone,
@@ -486,40 +481,8 @@ export function ComposerInput({
     const others = opencodeAgents.filter((agent) => !agent.isPrimary);
     return [...primary, ...others];
   }, [opencodeAgents]);
-
-  const sortedOpenAIWorkspaces = useMemo(() => {
-    return openAIWorkspaces
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [openAIWorkspaces]);
-
-  const selectedOpenAIWorkspace = useMemo(() => {
-    if (!activeWorkspaceId) {
-      return null;
-    }
-    return sortedOpenAIWorkspaces.find((ws) => ws.id === activeWorkspaceId) ?? null;
-  }, [activeWorkspaceId, sortedOpenAIWorkspaces]);
-
-  const openaiFolderLabel = selectedOpenAIWorkspace?.name ?? t("composer.folder");
-  const shouldShowOpenAIFolderPicker =
-    selectedEngine === "openai" || Boolean(selectedOpenAIWorkspace);
-
-  const handleSelectOpenAIFolder = useCallback(
-    (value: string) => {
-      if (!value) {
-        return;
-      }
-      if (value === "__pick__") {
-        void onPickOpenAIFolder?.();
-        return;
-      }
-      if (value === activeWorkspaceId) {
-        return;
-      }
-      void onSelectOpenAIWorkspace?.(value);
-    },
-    [activeWorkspaceId, onPickOpenAIFolder, onSelectOpenAIWorkspace],
-  );
+  // Custom API (OpenAI Compatible) workspaces are selected from the sidebar/workspace home.
+  // We intentionally do not show an in-composer "folder picker" dropdown to avoid confusion.
 
   return (
     <div className={`composer-input${isDragging ? " is-resizing" : ""}`}>
@@ -687,29 +650,6 @@ export function ComposerInput({
               </div>
             )}
 
-            {shouldShowOpenAIFolderPicker && (
-              <div className="composer-select-wrap" title={openaiFolderLabel}>
-                <span className="composer-icon" aria-hidden>
-                  <FolderOpen size={14} />
-                </span>
-                <span className="composer-select-value">{openaiFolderLabel}</span>
-                <select
-                  className="composer-select composer-select--model"
-                  aria-label={t("composer.folder")}
-                  value={selectedOpenAIWorkspace?.id ?? activeWorkspaceId ?? ""}
-                  onChange={(event) => handleSelectOpenAIFolder(event.target.value)}
-                  disabled={disabled || (!onSelectOpenAIWorkspace && !onPickOpenAIFolder)}
-                >
-                  {sortedOpenAIWorkspaces.map((ws) => (
-                    <option key={ws.id} value={ws.id}>
-                      {ws.name}
-                    </option>
-                  ))}
-                  <option value="__pick__">{t("composer.pickFolder")}</option>
-                </select>
-              </div>
-            )}
-
             {selectedEngine === "opencode" && onSelectOpenCodeAgent && (
               <div className="composer-select-wrap" title={selectedOpenCodeAgent || t("composer.agent")}>
                 <span className="composer-icon" aria-hidden>
@@ -777,7 +717,7 @@ export function ComposerInput({
               </div>
             )}
             
-            {accessMode && onSelectAccessMode && (
+            {accessMode && onSelectAccessMode && selectedEngine !== "openai" && (
               <div className="composer-select-wrap" title={t("composer.fullAccess")}>
                 <span className="composer-icon" aria-hidden>
                   <Lock size={14} />
