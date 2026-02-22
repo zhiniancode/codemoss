@@ -60,6 +60,7 @@ type WorkspaceHomeProps = {
   onContinueLatestConversation: () => void;
   onStartGuidedConversation: (prompt: string, engine: EngineType) => Promise<void>;
   onRevealWorkspace: () => Promise<void>;
+  onPickCustomAPIWorkspace?: () => Promise<void>;
   onDeleteConversations: (threadIds: string[]) => Promise<WorkspaceHomeDeleteResult>;
 };
 
@@ -83,6 +84,7 @@ export function WorkspaceHome({
   onContinueLatestConversation,
   onStartGuidedConversation,
   onRevealWorkspace,
+  onPickCustomAPIWorkspace,
   onDeleteConversations,
 }: WorkspaceHomeProps) {
   const { t } = useTranslation();
@@ -187,6 +189,7 @@ export function WorkspaceHome({
       ? t("workspace.workspaceTypeWorktree")
       : t("workspace.workspaceTypeMain");
   const branchLabel = currentBranch || workspace.worktree?.branch || t("workspace.unknownBranch");
+  const isCustomAPIWorkspace = (workspace.settings.engineType?.toLowerCase?.() ?? "") === "openai";
 
   const handleCopyPath = async () => {
     try {
@@ -218,6 +221,8 @@ export function WorkspaceHome({
     }
     onContinueLatestConversation();
   };
+
+  // Custom API chats can optionally attach a folder workspace via the chip action in the header.
 
   const handleStartGuide = async (guide: WorkspaceGuide) => {
     if (pendingGuideId || !selectedEngineOption || selectedEngineOption.disabled) {
@@ -329,6 +334,18 @@ export function WorkspaceHome({
             <FolderOpen size={14} aria-hidden />
             <span>{t("workspace.openProjectFolder")}</span>
           </button>
+          {isCustomAPIWorkspace && onPickCustomAPIWorkspace && (
+            <button
+              type="button"
+              className="workspace-home-chip-button"
+              onClick={() => {
+                void onPickCustomAPIWorkspace();
+              }}
+            >
+              <FolderOpen size={14} aria-hidden />
+              <span>{t("workspace.chooseProjectDir")}</span>
+            </button>
+          )}
         </div>
       </header>
 

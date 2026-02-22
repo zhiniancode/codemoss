@@ -1140,6 +1140,7 @@ const zh = {
     copyPath: "复制路径",
     pathCopied: "已复制路径",
     openProjectFolder: "打开项目目录",
+    chooseProjectDir: "选择项目目录",
     conversationType: "会话类型",
     engineClaudeCode: "Claude Code",
     engineCodex: "Codex",

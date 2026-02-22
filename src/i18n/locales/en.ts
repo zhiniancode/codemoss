@@ -1145,6 +1145,7 @@ const en = {
     copyPath: "Copy path",
     pathCopied: "Path copied",
     openProjectFolder: "Open project folder",
+    chooseProjectDir: "Choose project folder",
     conversationType: "Conversation type",
     engineClaudeCode: "Claude Code",
     engineCodex: "Codex",

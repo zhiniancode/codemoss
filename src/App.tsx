@@ -309,6 +309,7 @@ function MainApp() {
     addWorkspace,
     addWorkspaceFromPath,
     addOpenAIWorkspace,
+    addOpenAIWorkspaceFromPath,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
@@ -2681,8 +2682,12 @@ function MainApp() {
       const type = ws?.settings.engineType ?? null;
       return typeof type === "string" && type.toLowerCase() === "openai";
     };
-    const isScratch = (ws: WorkspaceInfo) =>
-      ws.path.toLowerCase().includes("openai-chat-workspace");
+    const normalizePath = (path: string) =>
+      path.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
+    const isScratch = (ws: WorkspaceInfo) => {
+      const normalized = normalizePath(ws.path);
+      return normalized.endsWith("/openai-chat-workspace");
+    };
 
     const openaiWorkspaces = workspaces.filter((ws) => {
       if (!isCustomAPIWorkspace(ws)) {
@@ -2692,7 +2697,10 @@ function MainApp() {
     });
     const realOpenAIWorkspaces = openaiWorkspaces.filter((ws) => !isScratch(ws));
 
-    if (isCustomAPIWorkspace(activeWorkspace) && activeWorkspace) {
+    // Prefer the current Custom API workspace only if it is a real folder workspace.
+    // If the current workspace is the scratch "no project" workspace, we prefer the last
+    // selected Custom API folder workspace instead.
+    if (activeWorkspace && isCustomAPIWorkspace(activeWorkspace) && !isScratch(activeWorkspace)) {
       return activeWorkspace;
     }
 
@@ -2703,6 +2711,25 @@ function MainApp() {
       return lastWorkspace;
     }
 
+    // If the user is currently inside a "CLI" workspace, prefer (or create) a Custom API workspace
+    // pointing at the same folder so the Custom API home opens in the current project by default.
+    if (activeWorkspace && !isCustomAPIWorkspace(activeWorkspace)) {
+      const activeNormalized = normalizePath(activeWorkspace.path);
+      const matchingOpenAIWorkspace =
+        realOpenAIWorkspaces.find((ws) => normalizePath(ws.path) === activeNormalized) ?? null;
+      if (matchingOpenAIWorkspace) {
+        return matchingOpenAIWorkspace;
+      }
+      try {
+        const created = await addOpenAIWorkspaceFromPath(activeWorkspace.path);
+        if (created) {
+          return created;
+        }
+      } catch {
+        // If we fail to create a per-project workspace, fall back to the scratch workspace.
+      }
+    }
+
     if (realOpenAIWorkspaces.length > 0) {
       return realOpenAIWorkspaces[0];
     }
@@ -2711,7 +2738,13 @@ function MainApp() {
     }
 
     return ensureOpenAIChatWorkspace();
-  }, [activeWorkspace, ensureOpenAIChatWorkspace, workspaces, workspacesById]);
+  }, [
+    activeWorkspace,
+    addOpenAIWorkspaceFromPath,
+    ensureOpenAIChatWorkspace,
+    workspaces,
+    workspacesById,
+  ]);
 
   const handleOpenCustomAPIHome = useCallback(async () => {
     // Entry point: open the Custom API workspace home without auto-starting a thread.
@@ -2805,6 +2838,65 @@ function MainApp() {
     setAppMode,
     setCenterMode,
     startThreadForWorkspace,
+  ]);
+
+  const handleSelectCustomAPIWorkspaceHome = useCallback(
+    async (workspaceId: string) => {
+      if (!workspaceId) return;
+      try {
+        exitDiffView();
+        resetPullRequestSelection();
+        setCenterMode("chat");
+        setAppMode("chat");
+
+        writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
+        selectWorkspace(workspaceId);
+        setActiveThreadId(null, workspaceId);
+        await setActiveEngine("openai");
+        if (isCompact) {
+          setActiveTab("codex");
+        }
+      } catch (error) {
+        alertError(error);
+      }
+    },
+    [
+      alertError,
+      exitDiffView,
+      isCompact,
+      resetPullRequestSelection,
+      selectWorkspace,
+      setActiveEngine,
+      setActiveTab,
+      setActiveThreadId,
+      setAppMode,
+      setCenterMode,
+    ],
+  );
+
+  const handlePickCustomAPIProjectDir = useCallback(async () => {
+    // Pick a folder, add it as a Custom API workspace, and open its workspace home.
+    try {
+      const openaiStatus =
+        engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      if (openaiStatus && !openaiStatus.installed) {
+        openSettings("vendors");
+        return;
+      }
+      const workspace = await addOpenAIWorkspace();
+      if (!workspace) {
+        return;
+      }
+      await handleSelectCustomAPIWorkspaceHome(workspace.id);
+    } catch (error) {
+      alertError(error);
+    }
+  }, [
+    addOpenAIWorkspace,
+    alertError,
+    engineStatuses,
+    handleSelectCustomAPIWorkspaceHome,
+    openSettings,
   ]);
 
   const handleAddOpenAIWorkspaceAndChat = useCallback(async () => {
@@ -4052,6 +4144,7 @@ function MainApp() {
       onContinueLatestConversation={handleContinueLatestConversation}
       onStartGuidedConversation={handleStartGuidedConversation}
       onRevealWorkspace={handleRevealActiveWorkspace}
+      onPickCustomAPIWorkspace={handlePickCustomAPIProjectDir}
       onDeleteConversations={handleDeleteWorkspaceConversations}
     />
   ) : null;
