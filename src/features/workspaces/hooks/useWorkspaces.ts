@@ -10,9 +10,11 @@ import type {
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import {
   addClone as addCloneService,
+  addOpenAIWorkspace as addOpenAIWorkspaceService,
   addWorkspace as addWorkspaceService,
   addWorktree as addWorktreeService,
   connectWorkspace as connectWorkspaceService,
+  ensureOpenAIChatWorkspace as ensureOpenAIChatWorkspaceService,
   isWorkspacePathDir as isWorkspacePathDirService,
   listWorkspaces,
   pickWorkspacePath,
@@ -260,6 +262,46 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     return addWorkspaceFromPath(selection);
   }, [addWorkspaceFromPath]);
 
+  const addOpenAIWorkspaceFromPath = useCallback(
+    async (path: string) => {
+      const selection = path.trim();
+      if (!selection) {
+        return null;
+      }
+      onDebug?.({
+        id: `${Date.now()}-client-add-openai-workspace`,
+        timestamp: Date.now(),
+        source: "client",
+        label: "workspace/add-openai",
+        payload: { path: selection },
+      });
+      try {
+        const workspace = await addOpenAIWorkspaceService(selection, null);
+        setWorkspaces((prev) => [...prev, workspace]);
+        setActiveWorkspaceId(workspace.id);
+        return workspace;
+      } catch (error) {
+        onDebug?.({
+          id: `${Date.now()}-client-add-openai-workspace-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "workspace/add-openai error",
+          payload: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+    [onDebug, setActiveWorkspaceId, setWorkspaces],
+  );
+
+  const addOpenAIWorkspace = useCallback(async () => {
+    const selection = await pickWorkspacePath();
+    if (!selection) {
+      return null;
+    }
+    return addOpenAIWorkspaceFromPath(selection);
+  }, [addOpenAIWorkspaceFromPath]);
+
   const filterWorkspacePaths = useCallback(async (paths: string[]) => {
     const trimmed = paths.map((path) => path.trim()).filter(Boolean);
     if (trimmed.length === 0) {
@@ -366,6 +408,38 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         timestamp: Date.now(),
         source: "error",
         label: "workspace/connect error",
+        payload: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  async function ensureOpenAIChatWorkspace(): Promise<WorkspaceInfo> {
+    onDebug?.({
+      id: `${Date.now()}-client-ensure-openai-chat-workspace`,
+      timestamp: Date.now(),
+      source: "client",
+      label: "workspace/ensure-openai-chat",
+      payload: {},
+    });
+    try {
+      const workspace = await ensureOpenAIChatWorkspaceService();
+      setWorkspaces((prev) => {
+        const idx = prev.findIndex((entry) => entry.id === workspace.id);
+        if (idx === -1) {
+          return [...prev, workspace];
+        }
+        const next = prev.slice();
+        next[idx] = workspace;
+        return next;
+      });
+      return workspace;
+    } catch (error) {
+      onDebug?.({
+        id: `${Date.now()}-client-ensure-openai-chat-workspace-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "workspace/ensure-openai-chat error",
         payload: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -828,10 +902,13 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     setActiveWorkspaceId,
     addWorkspace,
     addWorkspaceFromPath,
+    addOpenAIWorkspace,
+    addOpenAIWorkspaceFromPath,
     filterWorkspacePaths,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
+    ensureOpenAIChatWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,

@@ -10,21 +10,23 @@ type TabKey = "projects" | "codex" | "git" | "log";
 type TabBarProps = {
   activeTab: TabKey;
   onSelect: (tab: TabKey) => void;
+  tabs?: TabKey[];
 };
 
-export function TabBar({ activeTab, onSelect }: TabBarProps) {
+export function TabBar({ activeTab, onSelect, tabs }: TabBarProps) {
   const { t } = useTranslation();
 
-  const tabs: { id: TabKey; label: string; icon: ReactNode }[] = [
+  const allTabs: { id: TabKey; label: string; icon: ReactNode }[] = [
     { id: "projects", label: t("tabbar.projects"), icon: <FolderKanban className="tabbar-icon" /> },
     { id: "codex", label: t("tabbar.codex"), icon: <MessagesSquare className="tabbar-icon" /> },
     { id: "git", label: t("tabbar.git"), icon: <GitBranch className="tabbar-icon" /> },
     { id: "log", label: t("tabbar.log"), icon: <TerminalSquare className="tabbar-icon" /> },
   ];
+  const visibleTabs = tabs ? allTabs.filter((tab) => tabs.includes(tab.id)) : allTabs;
 
   return (
     <nav className="tabbar" aria-label="Primary">
-      {tabs.map((tab) => (
+      {visibleTabs.map((tab) => (
         <button
           key={tab.id}
           type="button"

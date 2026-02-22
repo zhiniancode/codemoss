@@ -32,7 +32,7 @@ const DEFAULT_ENGINE_INFO: Record<EngineType, { displayName: string; shortName: 
   codex: { displayName: "Codex CLI", shortName: "Codex" },
   gemini: { displayName: "Gemini CLI", shortName: "Gemini" },
   opencode: { displayName: "OpenCode", shortName: "OpenCode" },
-  openai: { displayName: "OpenAI Compatible", shortName: "OpenAI Compatible" },
+  openai: { displayName: "Custom API", shortName: "Custom API" },
 };
 
 /**
@@ -45,7 +45,8 @@ export function EngineSelector({
   disabled = false,
   showOnlyIfMultiple = true,
   showLabel = false,
-  showAllEngines = true,
+  // Default to installed engines only; "show all" is mainly useful for settings/debug screens.
+  showAllEngines = false,
   opencodeStatusTone,
 }: EngineSelectorProps & { showLabel?: boolean }) {
   const { t } = useTranslation();

@@ -48,7 +48,7 @@ const ENGINE_DISPLAY_MAP: Record<
   codex: { displayName: "Codex CLI", shortName: "Codex" },
   gemini: { displayName: "Gemini CLI", shortName: "Gemini" },
   opencode: { displayName: "OpenCode", shortName: "OpenCode" },
-  openai: { displayName: "OpenAI Compatible", shortName: "OpenAI Compatible" },
+  openai: { displayName: "Custom API", shortName: "Custom API" },
 };
 
 /**
@@ -258,7 +258,7 @@ export function useEngineController({
    * Get display information for all engines
    */
   const availableEngines = useMemo((): EngineDisplayInfo[] => {
-    return engineStatuses.map((status) => ({
+    const all = engineStatuses.map((status) => ({
       type: status.engineType,
       displayName:
         ENGINE_DISPLAY_MAP[status.engineType]?.displayName ?? status.engineType,
@@ -268,7 +268,20 @@ export function useEngineController({
       version: status.version,
       error: status.error,
     }));
-  }, [engineStatuses]);
+
+    // Keep OpenAI Compatible as a separate "conversation space" from the CLI engines.
+    // - In an OpenAI workspace: show only OpenAI.
+    // - In other workspaces (or no workspace selected): hide OpenAI from the engine switcher.
+    const workspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
+    const isOpenAIWorkspace =
+      typeof workspaceEngineType === "string" &&
+      workspaceEngineType.toLowerCase() === "openai";
+
+    if (isOpenAIWorkspace) {
+      return all.filter((e) => e.type === "openai");
+    }
+    return all.filter((e) => e.type !== "openai");
+  }, [activeWorkspace?.settings?.engineType, engineStatuses]);
 
   /**
    * Get display information for installed engines only

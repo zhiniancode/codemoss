@@ -25,6 +25,7 @@ type DesktopLayoutProps = {
   terminalDockNode: ReactNode;
   debugPanelNode: ReactNode;
   hasActivePlan: boolean;
+  showRightPanel: boolean;
   onSidebarResizeStart: (event: MouseEvent<HTMLDivElement>) => void;
   onRightPanelResizeStart: (event: MouseEvent<HTMLDivElement>) => void;
   onPlanPanelResizeStart: (event: MouseEvent<HTMLDivElement>) => void;
@@ -53,6 +54,7 @@ export function DesktopLayout({
   terminalDockNode,
   debugPanelNode,
   hasActivePlan,
+  showRightPanel,
   onSidebarResizeStart,
   onRightPanelResizeStart,
   onPlanPanelResizeStart,
@@ -162,24 +164,28 @@ export function DesktopLayout({
                   </div>
                 </div>
 
-                <div
-                  className="right-panel-resizer"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Resize right panel"
-                  onMouseDown={onRightPanelResizeStart}
-                />
-                <div className={`right-panel ${hasActivePlan ? "" : "plan-collapsed"}`}>
-                  <div className="right-panel-top">{gitDiffPanelNode}</div>
-                  <div
-                    className="right-panel-divider"
-                    role="separator"
-                    aria-orientation="horizontal"
-                    aria-label="Resize plan panel"
-                    onMouseDown={onPlanPanelResizeStart}
-                  />
-                  <div className="right-panel-bottom">{planPanelNode}</div>
-                </div>
+                {showRightPanel && (
+                  <>
+                    <div
+                      className="right-panel-resizer"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Resize right panel"
+                      onMouseDown={onRightPanelResizeStart}
+                    />
+                    <div className={`right-panel ${hasActivePlan ? "" : "plan-collapsed"}`}>
+                      <div className="right-panel-top">{gitDiffPanelNode}</div>
+                      <div
+                        className="right-panel-divider"
+                        role="separator"
+                        aria-orientation="horizontal"
+                        aria-label="Resize plan panel"
+                        onMouseDown={onPlanPanelResizeStart}
+                      />
+                      <div className="right-panel-bottom">{planPanelNode}</div>
+                    </div>
+                  </>
+                )}
 
                 {composerNode}
                 {terminalDockNode}

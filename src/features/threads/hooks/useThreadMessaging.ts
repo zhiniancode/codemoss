@@ -23,9 +23,11 @@ import {
   getOpenCodeMcpStatus as getOpenCodeMcpStatusService,
   getOpenCodeStats as getOpenCodeStatsService,
   importOpenCodeSession as importOpenCodeSessionService,
+  readWorkspaceFile as readWorkspaceFileService,
   shareOpenCodeSession as shareOpenCodeSessionService,
 } from "../../../services/tauri";
 import { expandCustomPromptText } from "../../../utils/customPrompts";
+import { languageFromPath } from "../../../utils/syntax";
 import {
   asString,
   extractRpcErrorMessage,
@@ -42,6 +44,7 @@ type SendMessageOptions = {
   effort?: string | null;
   collaborationMode?: Record<string, unknown> | null;
   accessMode?: AccessMode;
+  files?: string[];
 };
 
 type UseThreadMessagingOptions = {
@@ -220,7 +223,8 @@ export function useThreadMessaging({
       options?: SendMessageOptions,
     ) => {
       const messageText = text.trim();
-      if (!messageText && images.length === 0) {
+      const attachedFiles = options?.files ?? [];
+      if (!messageText && images.length === 0 && attachedFiles.length === 0) {
         return;
       }
       const resolvedEngine = resolveThreadEngine(workspace.id, threadId);
@@ -246,6 +250,45 @@ export function useThreadMessaging({
         }
         finalText = promptExpansion?.expanded ?? messageText;
       }
+
+      const normalizedFiles = Array.from(
+        new Set(
+          attachedFiles
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean),
+        ),
+      );
+      const shouldInlineFilesForSend =
+        resolvedEngine === "openai" && normalizedFiles.length > 0;
+      const buildInlineFileContext = async () => {
+        const parts: string[] = [];
+        const maxFiles = 8;
+        for (const relativePath of normalizedFiles.slice(0, maxFiles)) {
+          const response = await readWorkspaceFileService(workspace.id, relativePath);
+          const lang = languageFromPath(relativePath);
+          const fence = lang ? `\`\`\`${lang}` : "```";
+          const truncatedSuffix = response.truncated ? ` (${t("files.truncated")})` : "";
+          parts.push(
+            `[File: ${relativePath}${truncatedSuffix}]\n${fence}\n${response.content}\n\`\`\``,
+          );
+        }
+        return parts.join("\n\n");
+      };
+      let textForSend = finalText;
+      if (shouldInlineFilesForSend) {
+        try {
+          const context = await buildInlineFileContext();
+          textForSend = `${context}${finalText ? `\n\n${finalText}` : ""}`;
+        } catch (error) {
+          pushErrorToast({
+            title: "File attach failed",
+            message: error instanceof Error ? error.message : String(error),
+            durationMs: 3600,
+          });
+          return;
+        }
+      }
+
       const resolvedModel =
         options?.model !== undefined ? options.model : model;
       const resolvedEffort =
@@ -352,7 +395,7 @@ export function useThreadMessaging({
         (threadStatusById[threadId]?.isProcessing ?? false) && steerEnabled;
       if (wasProcessing) {
         const optimisticText = finalText;
-        if (optimisticText || images.length > 0) {
+        if (optimisticText || images.length > 0 || normalizedFiles.length > 0) {
           dispatch({
             type: "upsertItem",
             workspaceId: workspace.id,
@@ -365,6 +408,7 @@ export function useThreadMessaging({
               role: "user",
               text: optimisticText,
               images: images.length > 0 ? images : undefined,
+              files: normalizedFiles.length > 0 ? normalizedFiles : undefined,
             },
             hasCustomName: Boolean(getCustomName(workspace.id, threadId)),
           });
@@ -442,12 +486,13 @@ export function useThreadMessaging({
               role: "user",
               text: finalText,
               images: images.length > 0 ? images : undefined,
+              files: normalizedFiles.length > 0 ? normalizedFiles : undefined,
             },
             hasCustomName: Boolean(getCustomName(workspace.id, threadId)),
           });
 
           response = await engineSendMessageService(workspace.id, {
-            text: finalText,
+            text: textForSend,
             engine: resolvedEngine,
             model: modelForSend,
             effort: resolvedEffort,
@@ -633,12 +678,12 @@ export function useThreadMessaging({
   );
 
   const sendUserMessage = useCallback(
-    async (text: string, images: string[] = []) => {
+    async (text: string, images: string[] = [], files: string[] = []) => {
       if (!activeWorkspace) {
         return;
       }
       const messageText = text.trim();
-      if (!messageText && images.length === 0) {
+      if (!messageText && images.length === 0 && files.length === 0) {
         return;
       }
       const promptExpansion = expandCustomPromptText(messageText, customPrompts);
@@ -695,6 +740,7 @@ export function useThreadMessaging({
           // Send message to the new thread
           await sendMessageToThread(activeWorkspace, newThreadId, finalText, images, {
             skipPromptExpansion: true,
+            files,
           });
           return;
         }
@@ -707,6 +753,7 @@ export function useThreadMessaging({
       }
       await sendMessageToThread(activeWorkspace, threadId, finalText, images, {
         skipPromptExpansion: true,
+        files,
       });
     },
     [

@@ -22,7 +22,7 @@ const ENGINE_NAMES: Record<EngineType, string> = {
   codex: "Codex",
   gemini: "Gemini",
   opencode: "OpenCode",
-  openai: "OpenAI Compatible",
+  openai: "Custom API",
 };
 
 function formatElapsed(ms: number): string {

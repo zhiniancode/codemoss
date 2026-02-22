@@ -158,6 +158,9 @@ type LayoutNodesOptions = {
   onAddAgent: (workspace: WorkspaceInfo) => Promise<void>;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => Promise<void>;
   onAddCloneAgent: (workspace: WorkspaceInfo) => Promise<void>;
+  onOpenAIChat: () => void;
+  onAddOpenAIWorkspace: () => void;
+  onSelectOpenAIWorkspace: (workspaceId: string) => void | Promise<void>;
   onToggleWorkspaceCollapse: (workspaceId: string, collapsed: boolean) => void;
   onSelectThread: (workspaceId: string, threadId: string) => void;
   onDeleteThread: (workspaceId: string, threadId: string) => void;
@@ -351,8 +354,8 @@ type LayoutNodesOptions = {
   onRevealWorkspacePrompts: () => void | Promise<void>;
   onRevealGeneralPrompts: () => void | Promise<void>;
   canRevealGeneralPrompts: boolean;
-  onSend: (text: string, images: string[]) => void | Promise<void>;
-  onQueue: (text: string, images: string[]) => void | Promise<void>;
+  onSend: (text: string, images: string[], files: string[]) => void | Promise<void>;
+  onQueue: (text: string, images: string[], files: string[]) => void | Promise<void>;
   onStop: () => void;
   canStop: boolean;
   isReviewing: boolean;
@@ -388,9 +391,12 @@ type LayoutNodesOptions = {
   draftText: string;
   onDraftChange: (next: string) => void;
   activeImages: string[];
+  activeContextFiles: string[];
   onPickImages: () => void | Promise<void>;
+  onPickContextFiles: () => void | Promise<void>;
   onAttachImages: (paths: string[]) => void;
   onRemoveImage: (path: string) => void;
+  onRemoveContextFile: (path: string) => void;
   prefillDraft: QueuedMessage | null;
   onPrefillHandled: (id: string) => void;
   insertText: QueuedMessage | null;
@@ -428,6 +434,7 @@ type LayoutNodesOptions = {
   directories: string[];
   gitignoredFiles: Set<string>;
   onInsertComposerText: (text: string) => void;
+  onAttachContextFile: (path: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   composerEditorSettings: ComposerEditorSettings;
   textareaHeight: number;
@@ -584,6 +591,8 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onAddAgent={options.onAddAgent}
       onAddWorktreeAgent={options.onAddWorktreeAgent}
       onAddCloneAgent={options.onAddCloneAgent}
+      onOpenAIChat={options.onOpenAIChat}
+      onAddOpenAIWorkspace={options.onAddOpenAIWorkspace}
       onToggleWorkspaceCollapse={options.onToggleWorkspaceCollapse}
       onSelectThread={options.onSelectThread}
       onDeleteThread={options.onDeleteThread}
@@ -680,9 +689,12 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       draftText={options.draftText}
       onDraftChange={options.onDraftChange}
       attachedImages={options.activeImages}
+      attachedFiles={options.activeContextFiles}
       onPickImages={options.onPickImages}
+      onPickContextFiles={options.onPickContextFiles}
       onAttachImages={options.onAttachImages}
       onRemoveImage={options.onRemoveImage}
+      onRemoveContextFile={options.onRemoveContextFile}
       prefillDraft={options.prefillDraft}
       onPrefillHandled={options.onPrefillHandled}
       insertText={options.insertText}
@@ -711,11 +723,22 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onSelectOpenCodeVariant={options.onSelectOpenCodeVariant}
       accessMode={options.accessMode}
       onSelectAccessMode={options.onSelectAccessMode}
+      openAIWorkspaces={options.workspaces.filter((ws) => {
+        const engineType = ws.settings.engineType ?? null;
+        return (
+          typeof engineType === "string" &&
+          engineType.toLowerCase() === "openai" &&
+          (ws.kind ?? "main") !== "worktree"
+        );
+      })}
+      onSelectOpenAIWorkspace={options.onSelectOpenAIWorkspace}
+      onPickOpenAIFolder={options.onAddOpenAIWorkspace}
       skills={options.skills}
       prompts={options.prompts}
       commands={options.commands ?? []}
       files={options.files}
       directories={options.directories}
+      onAttachContextFile={options.onAttachContextFile}
       textareaRef={options.textareaRef}
       historyKey={options.activeWorkspace?.id ?? null}
       editorSettings={options.composerEditorSettings}
@@ -861,18 +884,32 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     </>
   );
 
+  const activeWorkspaceEngineType = options.activeWorkspace?.settings.engineType ?? null;
+  const isOpenAIWorkspace =
+    typeof activeWorkspaceEngineType === "string" &&
+    activeWorkspaceEngineType.toLowerCase() === "openai";
+
+  const phoneTabs = isOpenAIWorkspace
+    ? (["projects", "codex"] as Array<"projects" | "codex" | "git" | "log">)
+    : undefined;
+  const tabletTabs = isOpenAIWorkspace ? (["codex"] as Array<"codex" | "git" | "log">) : undefined;
+
   const tabletNavNode = (
-    <TabletNav activeTab={options.tabletNavTab} onSelect={options.onSelectTab} />
+    <TabletNav
+      activeTab={options.tabletNavTab}
+      onSelect={options.onSelectTab}
+      tabs={tabletTabs}
+    />
   );
 
   const tabBarNode = (
-    <TabBar activeTab={options.activeTab} onSelect={options.onSelectTab} />
+    <TabBar activeTab={options.activeTab} onSelect={options.onSelectTab} tabs={phoneTabs} />
   );
 
   const sidebarSelectedDiffPath =
     options.centerMode === "diff" ? options.selectedDiffPath : null;
 
-  let gitDiffPanelNode: ReactNode;
+  let gitDiffPanelNode: ReactNode = null;
   if (options.filePanelMode === "files" && options.activeWorkspace) {
     gitDiffPanelNode = (
       <FileTreePanel
@@ -880,9 +917,11 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         workspacePath={options.activeWorkspace.path}
         files={options.files}
         isLoading={options.fileTreeLoading}
+        showPanelTabs={!isOpenAIWorkspace}
         filePanelMode={options.filePanelMode}
         onFilePanelModeChange={options.onFilePanelModeChange}
-        onInsertText={options.onInsertComposerText}
+        onInsertText={isOpenAIWorkspace ? undefined : options.onInsertComposerText}
+        onAttachFile={isOpenAIWorkspace ? options.onAttachContextFile : undefined}
         onOpenFile={options.onOpenFile}
         openTargets={options.openAppTargets}
         openAppIconById={options.openAppIconById}

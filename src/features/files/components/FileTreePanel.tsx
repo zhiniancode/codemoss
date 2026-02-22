@@ -37,9 +37,11 @@ type FileTreePanelProps = {
   workspacePath: string;
   files: string[];
   isLoading: boolean;
+  showPanelTabs?: boolean;
   filePanelMode: PanelTabId;
   onFilePanelModeChange: (mode: PanelTabId) => void;
   onInsertText?: (text: string) => void;
+  onAttachFile?: (path: string) => void;
   onOpenFile?: (path: string) => void;
   openTargets: OpenAppTarget[];
   openAppIconById: Record<string, string>;
@@ -148,9 +150,11 @@ export function FileTreePanel({
   workspacePath,
   files,
   isLoading,
+  showPanelTabs = true,
   filePanelMode,
   onFilePanelModeChange,
   onInsertText,
+  onAttachFile,
   onOpenFile,
   openTargets,
   openAppIconById,
@@ -637,6 +641,16 @@ export function FileTreePanel({
             openNewFilePrompt(parentFolder);
           },
         }),
+        ...(onAttachFile && !isFolder
+          ? [
+              await MenuItem.new({
+                text: t("files.attachToChat"),
+                action: () => {
+                  onAttachFile(relativePath);
+                },
+              }),
+            ]
+          : []),
         await MenuItem.new({
           text: t("files.duplicateItem"),
           action: async () => {
@@ -655,7 +669,7 @@ export function FileTreePanel({
             await revealItemInDir(resolvePath(relativePath));
           },
         }),
-        ...(onInsertText && !isFolder
+        ...(onInsertText && !onAttachFile && !isFolder
           ? [
               await MenuItem.new({
                 text: t("files.insertLspDiagnostics"),
@@ -684,7 +698,16 @@ export function FileTreePanel({
       const position = new LogicalPosition(event.clientX, event.clientY);
       await menu.popup(position, window);
     },
-    [resolvePath, copyPath, trashItem, duplicateItem, openNewFilePrompt, t],
+    [
+      resolvePath,
+      copyPath,
+      trashItem,
+      duplicateItem,
+      openNewFilePrompt,
+      t,
+      onInsertText,
+      onAttachFile,
+    ],
   );
 
   useEffect(() => {
@@ -775,10 +798,22 @@ export function FileTreePanel({
             className="ghost icon-button file-tree-action"
             onClick={(event) => {
               event.stopPropagation();
+              if (node.type === "file" && onAttachFile) {
+                onAttachFile(node.path);
+                return;
+              }
               onInsertText?.(node.path);
             }}
-            aria-label={t("files.mentionFile", { name: node.name })}
-            title={t("files.mentionInChat")}
+            aria-label={
+              onAttachFile
+                ? t("files.attachFile", { name: node.name })
+                : t("files.mentionFile", { name: node.name })
+            }
+            title={
+              onAttachFile
+                ? t("files.attachToChat")
+                : t("files.mentionInChat")
+            }
           >
             <Plus size={10} aria-hidden />
           </button>
@@ -795,7 +830,9 @@ export function FileTreePanel({
   return (
     <aside className="diff-panel file-tree-panel" ref={panelRef}>
       <div className="git-panel-header">
-        <PanelTabs active={filePanelMode} onSelect={onFilePanelModeChange} />
+        {showPanelTabs && (
+          <PanelTabs active={filePanelMode} onSelect={onFilePanelModeChange} />
+        )}
         <div className="file-tree-meta">
           <div className="file-tree-count">
           {filteredFiles.length

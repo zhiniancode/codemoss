@@ -637,8 +637,16 @@ export function SettingsView({
         return;
       }
 
-      // Use `code` so shortcuts are stable across keyboard layouts/IME.
-      if (event.code === "Escape") {
+      // Prefer `code` so shortcuts are stable across keyboard layouts/IME,
+      // but keep a `key` fallback for environments that don't populate `code`
+      // (e.g. some tests / older WebViews).
+      const isEscape = event.code === "Escape" || event.key === "Escape";
+      const isCloseKeyW =
+        (event.metaKey || event.ctrlKey) &&
+        (event.code === "KeyW" ||
+          (typeof event.key === "string" && event.key.toLowerCase() === "w"));
+
+      if (isEscape) {
         if (isEditableTarget) {
           return;
         }
@@ -647,7 +655,7 @@ export function SettingsView({
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.code === "KeyW") {
+      if (isCloseKeyW) {
         if (isEditableTarget) {
           return;
         }

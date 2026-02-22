@@ -94,6 +94,8 @@ type SidebarProps = {
   appMode: AppMode;
   onAppModeChange: (mode: AppMode) => void;
   onOpenMemory: () => void;
+  onOpenAIChat: () => void;
+  onAddOpenAIWorkspace: () => void;
   topbarNode?: ReactNode;
 };
 
@@ -152,6 +154,8 @@ export function Sidebar({
   appMode,
   onAppModeChange,
   onOpenMemory,
+  onOpenAIChat,
+  onAddOpenAIWorkspace,
   topbarNode,
 }: SidebarProps) {
   const { t } = useTranslation();
@@ -231,6 +235,11 @@ export function Sidebar({
     [normalizedQuery],
   );
 
+  const isOpenAIWorkspace = useCallback((workspace: WorkspaceInfo) => {
+    const type = workspace.settings.engineType ?? null;
+    return typeof type === "string" && type.toLowerCase() === "openai";
+  }, []);
+
   const pinnedThreadRows = useMemo(() => {
     type ThreadRow = { thread: ThreadSummary; depth: number };
     const groups: Array<{
@@ -240,6 +249,10 @@ export function Sidebar({
     }> = [];
 
     workspaces.forEach((workspace) => {
+      if (isOpenAIWorkspace(workspace)) {
+        // Keep OpenAI Compatible threads separate from the Projects/CLI area.
+        return;
+      }
       if (!isWorkspaceMatch(workspace)) {
         return;
       }
@@ -297,6 +310,7 @@ export function Sidebar({
     threadsByWorkspace,
     getThreadRows,
     getPinTimestamp,
+    isOpenAIWorkspace,
     isWorkspaceMatch,
     pinnedThreadsVersion,
   ]);
@@ -308,16 +322,26 @@ export function Sidebar({
   const { sidebarBodyRef, scrollFade, updateScrollFade } =
     useSidebarScrollFade(scrollFadeDeps);
 
-  const filteredGroupedWorkspaces = useMemo(
-    () =>
-      groupedWorkspaces
-        .map((group) => ({
-          ...group,
-          workspaces: group.workspaces.filter(isWorkspaceMatch),
-        }))
-        .filter((group) => group.workspaces.length > 0),
-    [groupedWorkspaces, isWorkspaceMatch],
-  );
+  const filteredOpenAIWorkspaces = useMemo(() => {
+    const roots = workspaces.filter(
+      (entry) =>
+        (entry.kind ?? "main") !== "worktree" &&
+        !entry.parentId &&
+        isOpenAIWorkspace(entry),
+    );
+    return roots.filter(isWorkspaceMatch);
+  }, [isOpenAIWorkspace, isWorkspaceMatch, workspaces]);
+
+  const filteredGroupedWorkspaces = useMemo(() => {
+    return groupedWorkspaces
+      .map((group) => ({
+        ...group,
+        workspaces: group.workspaces.filter(
+          (workspace) => !isOpenAIWorkspace(workspace) && isWorkspaceMatch(workspace),
+        ),
+      }))
+      .filter((group) => group.workspaces.length > 0);
+  }, [groupedWorkspaces, isOpenAIWorkspace, isWorkspaceMatch]);
 
   const isSearchActive = Boolean(normalizedQuery);
 
@@ -442,10 +466,15 @@ export function Sidebar({
   }, [isSearchOpen, searchQuery]);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => {
+    let canceled = false;
+    const handle = setTimeout(() => {
+      if (canceled) return;
       setDebouncedQuery(searchQuery);
     }, 150);
-    return () => window.clearTimeout(handle);
+    return () => {
+      canceled = true;
+      clearTimeout(handle);
+    };
   }, [searchQuery]);
 
   return (
@@ -514,6 +543,7 @@ export function Sidebar({
           <aside className="sidebar-tree-rail-column" aria-label={t("sidebar.pluginMarket")}>
             <SidebarMarketLinks
               onOpenMemory={onOpenMemory}
+              onOpenAIChat={onOpenAIChat}
               appMode={appMode}
               onAppModeChange={onAppModeChange}
               onOpenSettings={onOpenSettings}
@@ -534,7 +564,7 @@ export function Sidebar({
             <div className="sidebar-section-header">
               <div className="sidebar-section-title">
                 <Folders className="sidebar-section-title-icon" aria-hidden />
-                {t("sidebar.projects")}
+                {t("sidebar.workspaces")}
               </div>
               <button
                 className="sidebar-title-add sidebar-title-toggle-all"
@@ -558,21 +588,124 @@ export function Sidebar({
                   <ChevronsDownUp size={14} aria-hidden />
                 )}
               </button>
-              <button
-                className="sidebar-title-add"
-                onClick={onAddWorkspace}
-                data-tauri-drag-region="false"
-                aria-label={t("sidebar.addWorkspace")}
-                type="button"
-              >
-                <span
-                  className="codicon codicon-new-folder"
-                  aria-hidden
-                  style={{ fontSize: "16px" }}
-                />
-              </button>
             </div>
             <div className="workspace-list">
+          <div className="openai-section">
+              <div className="workspace-group-header">
+                <div className="workspace-group-label">{t("sidebar.openaiSection")}</div>
+                <div className="workspace-group-actions">
+                  <button
+                    className="sidebar-title-add"
+                    onClick={onOpenAIChat}
+                    data-tauri-drag-region="false"
+                    aria-label={t("sidebar.openaiNewChat")}
+                    title={t("sidebar.openaiNewChat")}
+                    type="button"
+                  >
+                    <span
+                      className="codicon codicon-comment-discussion"
+                      aria-hidden
+                      style={{ fontSize: "15px" }}
+                    />
+                  </button>
+                  <button
+                    className="sidebar-title-add"
+                    onClick={onAddOpenAIWorkspace}
+                    data-tauri-drag-region="false"
+                    aria-label={t("sidebar.openaiAddFolder")}
+                    title={t("sidebar.openaiAddFolder")}
+                    type="button"
+                  >
+                    <span
+                      className="codicon codicon-new-folder"
+                      aria-hidden
+                      style={{ fontSize: "16px" }}
+                    />
+                  </button>
+                </div>
+              </div>
+              {filteredOpenAIWorkspaces.length === 0 && (
+                <div className="empty">{t("sidebar.openaiEmpty")}</div>
+              )}
+              {filteredOpenAIWorkspaces.map((entry) => {
+                const threads = threadsByWorkspace[entry.id] ?? [];
+                const isCollapsed = entry.settings.sidebarCollapsed;
+                const isExpanded = expandedWorkspaces.has(entry.id);
+                const { unpinnedRows, totalRoots: totalThreadRoots } = getThreadRows(
+                  threads,
+                  isExpanded,
+                  entry.id,
+                  getPinTimestamp,
+                );
+                const nextCursor = threadListCursorByWorkspace[entry.id] ?? null;
+                const showThreadList =
+                  !isCollapsed && (threads.length > 0 || Boolean(nextCursor));
+                const isLoadingThreads = threadListLoadingByWorkspace[entry.id] ?? false;
+                const showThreadLoader =
+                  !isCollapsed && isLoadingThreads && threads.length === 0;
+                const isPaging = threadListPagingByWorkspace[entry.id] ?? false;
+                const hasPrimaryActiveThread =
+                  entry.id === activeWorkspaceId && Boolean(activeThreadId);
+
+                return (
+                  <WorkspaceCard
+                    key={entry.id}
+                    workspace={entry}
+                    workspaceName={renderHighlightedName(entry.name)}
+                    isActive={entry.id === activeWorkspaceId}
+                    hasPrimaryActiveThread={hasPrimaryActiveThread}
+                    isCollapsed={isCollapsed}
+                    onSelectWorkspace={onSelectWorkspace}
+                    onShowWorkspaceMenu={showWorkspaceMenu}
+                    onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
+                    onAddAgent={onAddAgent}
+                  >
+                    {showThreadList && (
+                      <ThreadList
+                        workspaceId={entry.id}
+                        pinnedRows={[]}
+                        unpinnedRows={unpinnedRows}
+                        totalThreadRoots={totalThreadRoots}
+                        isExpanded={isExpanded}
+                        nextCursor={nextCursor}
+                        isPaging={isPaging}
+                        activeWorkspaceId={activeWorkspaceId}
+                        activeThreadId={activeThreadId}
+                        threadStatusById={threadStatusById}
+                        getThreadTime={getThreadTime}
+                        isThreadPinned={isThreadPinned}
+                        isThreadAutoNaming={isThreadAutoNaming}
+                        onToggleExpanded={handleToggleExpanded}
+                        onLoadOlderThreads={onLoadOlderThreads}
+                        onSelectThread={onSelectThread}
+                        onShowThreadMenu={showThreadMenu}
+                      />
+                    )}
+                    {showThreadLoader && <ThreadLoading />}
+                  </WorkspaceCard>
+                );
+              })}
+            </div>
+
+            <div className="workspace-group-header">
+              <div className="workspace-group-label">{t("sidebar.cliSection")}</div>
+              <div className="workspace-group-actions">
+                <button
+                  className="sidebar-title-add"
+                  onClick={onAddWorkspace}
+                  data-tauri-drag-region="false"
+                  aria-label={t("sidebar.addWorkspace")}
+                  title={t("sidebar.addWorkspace")}
+                  type="button"
+                >
+                  <span
+                    className="codicon codicon-new-folder"
+                    aria-hidden
+                    style={{ fontSize: "16px" }}
+                  />
+                </button>
+              </div>
+            </div>
           {pinnedThreadRows.length > 0 && (
             <div className="pinned-section">
               <div className="workspace-group-header">
@@ -708,7 +841,7 @@ export function Sidebar({
               </WorkspaceGroup>
             );
           })}
-          {!filteredGroupedWorkspaces.length && (
+          {!filteredGroupedWorkspaces.length && filteredOpenAIWorkspaces.length === 0 && (
             <div className="empty">
               {isSearchActive
                 ? t("sidebar.noProjectsMatch")

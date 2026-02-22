@@ -9,6 +9,7 @@ type TabletNavTab = "codex" | "git" | "log";
 type TabletNavProps = {
   activeTab: TabletNavTab;
   onSelect: (tab: TabletNavTab) => void;
+  tabs?: TabletNavTab[];
 };
 
 const tabIcons: Record<TabletNavTab, ReactNode> = {
@@ -25,12 +26,13 @@ const tabI18nKeys: Record<TabletNavTab, string> = {
   log: "tabbar.log",
 };
 
-export function TabletNav({ activeTab, onSelect }: TabletNavProps) {
+export function TabletNav({ activeTab, onSelect, tabs }: TabletNavProps) {
   const { t } = useTranslation();
+  const visibleKeys = tabs ?? tabKeys;
   return (
     <nav className="tablet-nav" aria-label="Workspace">
       <div className="tablet-nav-group">
-        {tabKeys.map((id) => (
+        {visibleKeys.map((id) => (
           <button
             key={id}
             type="button"

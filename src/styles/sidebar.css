@@ -481,6 +481,12 @@
   padding: 0 4px 0 2px;
 }
 
+.workspace-group-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .workspace-group-header.is-toggleable {
   cursor: pointer;
 }

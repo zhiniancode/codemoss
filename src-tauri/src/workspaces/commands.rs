@@ -267,6 +267,30 @@ pub(crate) async fn add_workspace(
     }
 }
 
+#[tauri::command]
+pub(crate) async fn add_openai_workspace(
+    path: String,
+    codex_bin: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkspaceInfo, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let path = remote_backend::normalize_path_for_remote(path);
+        let codex_bin = codex_bin.map(remote_backend::normalize_path_for_remote);
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "add_openai_workspace",
+            json!({ "path": path, "codex_bin": codex_bin }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    // Force OpenAI-compatible engine for this workspace.
+    add_workspace_for_openai(path, codex_bin, &state).await
+}
+
 /// Add workspace for OpenAI-compatible engine (no persistent session needed)
 async fn add_workspace_for_openai(
     path: String,
@@ -310,7 +334,97 @@ async fn add_workspace_for_openai(
         id: entry.id,
         name: entry.name,
         path: entry.path,
-        connected: false,
+        connected: true, // OpenAI compatible engine is sessionless
+        codex_bin: entry.codex_bin,
+        kind: entry.kind,
+        parent_id: entry.parent_id,
+        worktree: entry.worktree,
+        settings: entry.settings,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn ensure_openai_chat_workspace(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkspaceInfo, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        // Best-effort remote support: if the remote backend doesn't implement
+        // this command yet, it will return an error to the caller.
+        let response =
+            remote_backend::call_remote(&*state, app, "ensure_openai_chat_workspace", json!({}))
+                .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    // Use app data dir as a stable, writable "scratch" workspace that doesn't
+    // require the user to import a repo first.
+    let data_dir = state
+        .storage_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .or_else(|| app.path().app_data_dir().ok())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+
+    let scratch_dir = data_dir.join("openai-chat-workspace");
+    std::fs::create_dir_all(&scratch_dir)
+        .map_err(|err| format!("Failed to create OpenAI chat workspace folder: {err}"))?;
+    if !scratch_dir.is_dir() {
+        return Err("OpenAI chat workspace path is not a folder.".to_string());
+    }
+    let scratch_path = scratch_dir.to_string_lossy().to_string();
+
+    // Find an existing entry, or create a new one.
+    let mut maybe_entry: Option<WorkspaceEntry> = None;
+    {
+        let workspaces = state.workspaces.lock().await;
+        maybe_entry = workspaces
+            .values()
+            .find(|entry| entry.path == scratch_path)
+            .cloned();
+    }
+
+    let mut entry = if let Some(existing) = maybe_entry {
+        existing
+    } else {
+        let mut settings = WorkspaceSettings::default();
+        settings.engine_type = Some("openai".to_string());
+
+        WorkspaceEntry {
+            id: Uuid::new_v4().to_string(),
+            name: "OpenAI Chat".to_string(),
+            path: scratch_path.clone(),
+            codex_bin: None,
+            kind: WorkspaceKind::Main,
+            parent_id: None,
+            worktree: None,
+            settings,
+        }
+    };
+
+    // Ensure engine_type is correct for the scratch workspace.
+    let should_force_openai = entry
+        .settings
+        .engine_type
+        .as_deref()
+        .map(|t| !t.eq_ignore_ascii_case("openai"))
+        .unwrap_or(true);
+    if should_force_openai {
+        entry.settings.engine_type = Some("openai".to_string());
+    }
+
+    {
+        let mut workspaces = state.workspaces.lock().await;
+        workspaces.insert(entry.id.clone(), entry.clone());
+        let list: Vec<_> = workspaces.values().cloned().collect();
+        write_workspaces(&state.storage_path, &list)?;
+    }
+
+    Ok(WorkspaceInfo {
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+        connected: true, // OpenAI compatible engine is sessionless
         codex_bin: entry.codex_bin,
         kind: entry.kind,
         parent_id: entry.parent_id,
@@ -1063,30 +1177,32 @@ pub(crate) async fn connect_workspace(
             .ok_or_else(|| "workspace not found".to_string())?
     };
 
-    // Check engine type - default to Claude if not specified
-    let is_claude_engine = entry
+    // Sessionless engines don't need a persistent workspace session.
+    // Default to Claude when engine_type is missing (legacy behavior).
+    let engine_type = entry
         .settings
         .engine_type
         .as_deref()
-        .map(|e| e.eq_ignore_ascii_case("claude"))
-        .unwrap_or(true);
+        .unwrap_or("claude")
+        .to_ascii_lowercase();
+    let is_sessionless_engine =
+        matches!(engine_type.as_str(), "claude" | "openai" | "opencode" | "gemini");
 
-    if is_claude_engine {
-        // For Claude: No persistent session needed, already "connected"
-        Ok(())
-    } else {
-        // For Codex: Use existing session spawn logic
-        workspaces_core::connect_workspace_core(
-            id,
-            &state.workspaces,
-            &state.sessions,
-            &state.app_settings,
-            |entry, default_bin, codex_args, codex_home| {
-                spawn_with_app(&app, entry, default_bin, codex_args, codex_home)
-            },
-        )
-        .await
+    if is_sessionless_engine {
+        return Ok(());
     }
+
+    // Codex CLI engine: Use existing session spawn logic.
+    workspaces_core::connect_workspace_core(
+        id,
+        &state.workspaces,
+        &state.sessions,
+        &state.app_settings,
+        |entry, default_bin, codex_args, codex_home| {
+            spawn_with_app(&app, entry, default_bin, codex_args, codex_home)
+        },
+    )
+    .await
 }
 
 #[tauri::command]

@@ -139,6 +139,7 @@ import { toggleSearchContentFilters } from "./features/search/utils/contentFilte
 import {
   getOpenCodeAgentsList,
   getWorkspaceFiles,
+  pickFiles,
   pickWorkspacePath,
   readPanelLockPasswordFile,
   writePanelLockPasswordFile,
@@ -152,6 +153,7 @@ import type {
   WorkspaceInfo,
 } from "./types";
 import { writeClientStoreValue } from "./services/clientStorage";
+import { pushErrorToast } from "./services/toasts";
 import { useOpenAppIcons } from "./features/app/hooks/useOpenAppIcons";
 import { useCodeCssVars } from "./features/app/hooks/useCodeCssVars";
 import { useAccountSwitching } from "./features/app/hooks/useAccountSwitching";
@@ -305,9 +307,11 @@ function MainApp() {
     setActiveWorkspaceId,
     addWorkspace,
     addWorkspaceFromPath,
+    addOpenAIWorkspace,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
+    ensureOpenAIChatWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,
@@ -574,6 +578,36 @@ function MainApp() {
     engineModelsAsOptions,
     engineStatuses,
   } = useEngineController({ activeWorkspace, onDebug: addDebugEntry });
+
+  useEffect(() => {
+    const workspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
+    const isOpenAIWorkspace =
+      typeof workspaceEngineType === "string" &&
+      workspaceEngineType.toLowerCase() === "openai";
+
+    if (isOpenAIWorkspace) {
+      if (activeEngine !== "openai") {
+        void setActiveEngine("openai");
+      }
+      return;
+    }
+
+    if (activeEngine === "openai") {
+      // Avoid leaving the UI in an OpenAI engine state when the active workspace is a CLI workspace.
+      const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
+      const fallback =
+        preferredCliOrder.find(
+          (engine) =>
+            (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
+        ) ?? "claude";
+      void setActiveEngine(fallback);
+    }
+  }, [
+    activeEngine,
+    activeWorkspace?.settings?.engineType,
+    engineStatuses,
+    setActiveEngine,
+  ]);
   const [openCodeAgents, setOpenCodeAgents] = useState<OpenCodeAgentOption[]>([]);
   const [openCodeAgentByThreadId, setOpenCodeAgentByThreadId] = useState<Record<string, string | null>>({});
   const [openCodeVariantByThreadId, setOpenCodeVariantByThreadId] = useState<
@@ -1532,6 +1566,9 @@ function MainApp() {
     removeImage,
     clearActiveImages,
     removeImagesForThread,
+    activeContextFiles,
+    attachContextFiles,
+    removeContextFile,
     activeQueue,
     handleSend,
     queueMessage,
@@ -1567,6 +1604,71 @@ function MainApp() {
     startLsp,
     startShare,
   });
+
+  const pickContextFiles = useCallback(async () => {
+    if (!activeWorkspaceId || !activeWorkspace) {
+      return;
+    }
+    const engineType = activeWorkspace.settings.engineType ?? null;
+    const isOpenAIWorkspace =
+      typeof engineType === "string" && engineType.toLowerCase() === "openai";
+    if (!isOpenAIWorkspace) {
+      return;
+    }
+
+    const picked = await pickFiles({
+      multiple: true,
+      defaultPath: activeWorkspace.path,
+      title: "选择要添加到对话的文件",
+    });
+    if (picked.length === 0) {
+      return;
+    }
+
+    const normalizeFsPath = (value: string) =>
+      value.replace(/\//g, "\\").replace(/[\\]+$/, "");
+
+    const workspaceRoot = normalizeFsPath(activeWorkspace.path);
+    const workspaceRootLower = workspaceRoot.toLowerCase();
+
+    const relPaths: string[] = [];
+    const invalidPaths: string[] = [];
+    for (const absPath of picked) {
+      const normalized = absPath.replace(/\//g, "\\");
+      const normalizedLower = normalized.toLowerCase();
+      if (
+        normalizedLower === workspaceRootLower ||
+        !normalizedLower.startsWith(`${workspaceRootLower}\\`)
+      ) {
+        invalidPaths.push(absPath);
+        continue;
+      }
+
+      const rel = normalized.slice(workspaceRoot.length).replace(/^[\\]+/, "");
+      if (!rel.trim()) {
+        invalidPaths.push(absPath);
+        continue;
+      }
+      relPaths.push(rel.replace(/\\/g, "/"));
+    }
+
+    if (relPaths.length === 0) {
+      pushErrorToast({
+        title: "无法添加文件",
+        message: "请选择当前工作区文件夹内的文件。",
+      });
+      return;
+    }
+
+    if (invalidPaths.length > 0) {
+      pushErrorToast({
+        title: "部分文件未添加",
+        message: `${invalidPaths.length} 个文件不在当前工作区文件夹内，已忽略。`,
+      });
+    }
+
+    attachContextFiles(relPaths);
+  }, [activeWorkspace, activeWorkspaceId, attachContextFiles]);
 
   const handleInsertComposerText = useComposerInsert({
     activeThreadId,
@@ -2409,7 +2511,7 @@ function MainApp() {
   );
 
   const handleComposerSendWithKanban = useCallback(
-    async (text: string, images: string[]) => {
+    async (text: string, images: string[], files: string[]) => {
       const trimmedOriginalText = text.trim();
       const { panelId, cleanText } = resolveComposerKanbanPanel(trimmedOriginalText);
       const textForSending = cleanText;
@@ -2417,7 +2519,7 @@ function MainApp() {
       if (!panelId || !activeWorkspaceId || isPullRequestComposer) {
         const fallbackText =
           textForSending.length > 0 ? textForSending : trimmedOriginalText;
-        await handleComposerSend(fallbackText, images);
+        await handleComposerSend(fallbackText, images, files);
         return;
       }
 
@@ -2426,6 +2528,7 @@ function MainApp() {
         await handleComposerSend(
           textForSending.length > 0 ? textForSending : trimmedOriginalText,
           images,
+          files,
         );
         return;
       }
@@ -2533,8 +2636,8 @@ function MainApp() {
   );
 
   const handleComposerSendWithEditorFallback = useCallback(
-    async (text: string, images: string[]) => {
-      await handleComposerSendWithKanban(text, images);
+    async (text: string, images: string[], files: string[]) => {
+      await handleComposerSendWithKanban(text, images, files);
       if (!isCompact && centerMode === "editor") {
         setCenterMode("chat");
       }
@@ -2543,8 +2646,8 @@ function MainApp() {
   );
 
   const handleComposerQueueWithEditorFallback = useCallback(
-    async (text: string, images: string[]) => {
-      await handleComposerQueue(text, images);
+    async (text: string, images: string[], files: string[]) => {
+      await handleComposerQueue(text, images, files);
       if (!isCompact && centerMode === "editor") {
         setCenterMode("chat");
       }
@@ -2571,6 +2674,164 @@ function MainApp() {
       setActiveThreadId,
     ],
   );
+
+  const handleOpenAIChat = useCallback(async () => {
+    // Quick entry point: start an OpenAI-compatible chat without requiring the user to import a workspace.
+    try {
+      exitDiffView();
+      resetPullRequestSelection();
+      setCenterMode("chat");
+      setAppMode("chat");
+
+      const openaiStatus = engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      if (openaiStatus && !openaiStatus.installed) {
+        // Bring the user to vendor settings to configure an OpenAI-compatible endpoint.
+        openSettings("vendors");
+        return;
+      }
+
+      const workspace = await ensureOpenAIChatWorkspace();
+      selectWorkspace(workspace.id);
+      setActiveThreadId(null, workspace.id);
+      await setActiveEngine("openai");
+
+      const threadId = await startThreadForWorkspace(workspace.id, {
+        activate: true,
+        engine: "openai",
+      });
+      if (!threadId) {
+        return;
+      }
+      setActiveThreadId(threadId, workspace.id);
+      if (isCompact) {
+        setActiveTab("codex");
+      }
+    } catch (error) {
+      alertError(error);
+    }
+  }, [
+    alertError,
+    engineStatuses,
+    ensureOpenAIChatWorkspace,
+    exitDiffView,
+    isCompact,
+    openSettings,
+    resetPullRequestSelection,
+    selectWorkspace,
+    setActiveEngine,
+    setActiveTab,
+    setActiveThreadId,
+    setAppMode,
+    setCenterMode,
+    startThreadForWorkspace,
+  ]);
+
+  const handleAddOpenAIWorkspaceAndChat = useCallback(async () => {
+    // Create an OpenAI-compatible workspace from a user-selected folder and start a chat.
+    try {
+      exitDiffView();
+      resetPullRequestSelection();
+      setCenterMode("chat");
+      setAppMode("chat");
+
+      const openaiStatus =
+        engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      if (openaiStatus && !openaiStatus.installed) {
+        openSettings("vendors");
+        return;
+      }
+
+      const workspace = await addOpenAIWorkspace();
+      if (!workspace) {
+        return;
+      }
+      selectWorkspace(workspace.id);
+      setActiveThreadId(null, workspace.id);
+      await setActiveEngine("openai");
+
+      const threadId = await startThreadForWorkspace(workspace.id, {
+        activate: true,
+        engine: "openai",
+      });
+      if (!threadId) {
+        return;
+      }
+      setActiveThreadId(threadId, workspace.id);
+      if (isCompact) {
+        setActiveTab("codex");
+      }
+    } catch (error) {
+      alertError(error);
+    }
+  }, [
+    addOpenAIWorkspace,
+    alertError,
+    engineStatuses,
+    exitDiffView,
+    isCompact,
+    openSettings,
+    resetPullRequestSelection,
+    selectWorkspace,
+    setActiveEngine,
+    setActiveTab,
+    setActiveThreadId,
+    setAppMode,
+    setCenterMode,
+    startThreadForWorkspace,
+  ]);
+
+  const handleSelectOpenAIWorkspaceAndChat = useCallback(async (workspaceId: string) => {
+    if (!workspaceId) {
+      return;
+    }
+
+    // Switch to an existing OpenAI workspace (folder) and start a new chat in it.
+    try {
+      exitDiffView();
+      resetPullRequestSelection();
+      setCenterMode("chat");
+      setAppMode("chat");
+
+      const openaiStatus =
+        engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      if (openaiStatus && !openaiStatus.installed) {
+        openSettings("vendors");
+        return;
+      }
+
+      selectWorkspace(workspaceId);
+      setActiveThreadId(null, workspaceId);
+      await setActiveEngine("openai");
+
+      const threadId = await startThreadForWorkspace(workspaceId, {
+        activate: true,
+        engine: "openai",
+      });
+      if (!threadId) {
+        return;
+      }
+      setActiveThreadId(threadId, workspaceId);
+      if (isCompact) {
+        setActiveTab("codex");
+      }
+    } catch (error) {
+      alertError(error);
+    }
+  }, [
+    alertError,
+    engineStatuses,
+    exitDiffView,
+    isCompact,
+    openSettings,
+    resetPullRequestSelection,
+    selectWorkspace,
+    setActiveEngine,
+    setActiveTab,
+    setActiveThreadId,
+    setAppMode,
+    setCenterMode,
+    startThreadForWorkspace,
+  ]);
 
   const handleStartWorkspaceConversation = useCallback(async (engine: EngineType = "claude") => {
     if (!activeWorkspace) {
@@ -3128,6 +3389,21 @@ function MainApp() {
   const dropOverlayActive = isWorkspaceDropActive;
   const dropOverlayText = "Drop Project Here";
   const showWorkspaceView = Boolean(activeWorkspace && !showHome && !showKanban);
+  const activeWorkspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
+  const isOpenAIWorkspace =
+    typeof activeWorkspaceEngineType === "string" &&
+    activeWorkspaceEngineType.toLowerCase() === "openai";
+
+  useEffect(() => {
+    if (!isOpenAIWorkspace) {
+      return;
+    }
+    if (activeTab === "git" || activeTab === "log") {
+      setActiveTab("codex");
+    }
+  }, [activeTab, isOpenAIWorkspace]);
+
+  const showRightPanel = true;
   const shouldShowSidebarTopbarContent =
     !isCompact && !sidebarCollapsed && showWorkspaceView;
   const appClassName = `app ${isCompact ? "layout-compact" : "layout-desktop"}${
@@ -3207,6 +3483,23 @@ function MainApp() {
       setCenterMode("chat");
       selectWorkspace(workspaceId);
       setActiveThreadId(null, workspaceId);
+      const target = workspacesById.get(workspaceId);
+      const workspaceEngineType = target?.settings?.engineType ?? null;
+      if (
+        typeof workspaceEngineType === "string" &&
+        workspaceEngineType.toLowerCase() === "openai"
+      ) {
+        void setActiveEngine("openai");
+      } else if (activeEngine === "openai") {
+        // Avoid leaving the UI in an OpenAI engine state when switching back to CLI workspaces.
+        const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
+        const fallback =
+          preferredCliOrder.find(
+            (engine) =>
+              (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
+          ) ?? "claude";
+        void setActiveEngine(fallback);
+      }
     },
     onConnectWorkspace: async (workspace) => {
       await connectWorkspace(workspace);
@@ -3217,6 +3510,9 @@ function MainApp() {
     onAddAgent: handleAddAgent,
     onAddWorktreeAgent: handleAddWorktreeAgent,
     onAddCloneAgent: handleAddCloneAgent,
+    onOpenAIChat: handleOpenAIChat,
+    onAddOpenAIWorkspace: handleAddOpenAIWorkspaceAndChat,
+    onSelectOpenAIWorkspace: handleSelectOpenAIWorkspaceAndChat,
     onToggleWorkspaceCollapse: (workspaceId, collapsed) => {
       const target = workspacesById.get(workspaceId);
       if (!target) {
@@ -3232,11 +3528,32 @@ function MainApp() {
       setCenterMode("chat");
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
-      // Auto-switch engine based on thread's engineSource
+
+      // Keep OpenAI Compatible as an isolated conversation space:
+      // When a thread belongs to an OpenAI workspace, always switch engine to OpenAI.
+      const workspace = workspacesById.get(workspaceId);
+      const workspaceEngineType = workspace?.settings?.engineType ?? null;
+      const isOpenAIWorkspace =
+        typeof workspaceEngineType === "string" &&
+        workspaceEngineType.toLowerCase() === "openai";
+      if (isOpenAIWorkspace) {
+        void setActiveEngine("openai");
+        return;
+      }
+
+      // Otherwise, auto-switch engine based on thread's engineSource (if any).
       const threads = threadsByWorkspace[workspaceId] ?? [];
       const thread = threads.find((t) => t.id === threadId);
       if (thread?.engineSource) {
-        setActiveEngine(thread.engineSource);
+        void setActiveEngine(thread.engineSource);
+      } else if (activeEngine === "openai") {
+        const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
+        const fallback =
+          preferredCliOrder.find(
+            (engine) =>
+              (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
+          ) ?? "claude";
+        void setActiveEngine(fallback);
       }
     },
     onDeleteThread: async (workspaceId, threadId) => {
@@ -3523,9 +3840,12 @@ function MainApp() {
     draftText: activeDraft,
     onDraftChange: handleDraftChange,
     activeImages,
+    activeContextFiles,
     onPickImages: pickImages,
+    onPickContextFiles: pickContextFiles,
     onAttachImages: attachImages,
     onRemoveImage: removeImage,
+    onRemoveContextFile: removeContextFile,
     prefillDraft,
     onPrefillHandled: (id) => {
       if (prefillDraft?.id === id) {
@@ -3569,6 +3889,9 @@ function MainApp() {
     directories,
     gitignoredFiles,
     onInsertComposerText: handleInsertComposerText,
+    onAttachContextFile: (path) => {
+      attachContextFiles([path]);
+    },
     textareaRef: composerInputRef,
     composerEditorSettings,
     textareaHeight,
@@ -3715,6 +4038,7 @@ function MainApp() {
         isTablet={isTablet}
         showHome={showHome}
         showKanban={showKanban}
+        showRightPanel={showRightPanel}
         kanbanNode={
           showKanban ? (
             <KanbanView

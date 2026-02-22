@@ -21,6 +21,8 @@ type UseComposerAutocompleteStateArgs = {
   commands?: CustomCommandOption[];
   files: string[];
   directories?: string[];
+  fileSelectionMode?: "insert" | "attach";
+  onAttachFile?: (path: string) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   setText: (next: string) => void;
   setSelectionStart: (next: number | null) => void;
@@ -75,6 +77,8 @@ export function useComposerAutocompleteState({
   commands = [],
   files,
   directories = [],
+  fileSelectionMode = "insert",
+  onAttachFile,
   textareaRef,
   setText,
   setSelectionStart,
@@ -106,14 +110,15 @@ export function useComposerAutocompleteState({
       isFileTriggerActive(text, selectionStart)
         ? (() => {
             const query = getFileTriggerQuery(text, selectionStart) ?? "";
-            const directoryItems: AutocompleteItem[] = directories
-              .slice(0, MAX_FILE_SUGGESTIONS)
-              .map((path) => ({
-                id: `dir:${path}`,
-                label: `${path}/`,
-                insertText: `${path}/`,
-                isDirectory: true,
-              }));
+            const includeDirectories = fileSelectionMode !== "attach";
+            const directoryItems: AutocompleteItem[] = includeDirectories
+              ? directories.slice(0, MAX_FILE_SUGGESTIONS).map((path) => ({
+                  id: `dir:${path}`,
+                  label: `${path}/`,
+                  insertText: `${path}/`,
+                  isDirectory: true,
+                }))
+              : [];
             const fileItemsList: AutocompleteItem[] = (query
               ? files
               : files.slice(0, MAX_FILE_SUGGESTIONS)
@@ -126,7 +131,7 @@ export function useComposerAutocompleteState({
             return [...directoryItems, ...fileItemsList];
           })()
         : [],
-    [directories, files, selectionStart, text],
+    [directories, fileSelectionMode, files, selectionStart, text],
   );
 
   const promptItems = useMemo<AutocompleteItem[]>(
@@ -279,6 +284,28 @@ export function useComposerAutocompleteState({
       const actualInsert = triggerChar === "@"
         ? insert.replace(/^@+/, "")
         : insert;
+
+      if (triggerChar === "@" && fileSelectionMode === "attach") {
+        // OpenAI Compatible: selecting @file adds it as a context attachment chip
+        // instead of inserting the path into the message text.
+        if (!item.isDirectory && typeof onAttachFile === "function") {
+          onAttachFile(actualInsert);
+        }
+        const nextText = `${before}${after}`;
+        setText(nextText);
+        closeAutocomplete();
+        requestAnimationFrame(() => {
+          const textarea = textareaRef.current;
+          if (!textarea) {
+            return;
+          }
+          const nextCursor = before.length;
+          textarea.focus();
+          textarea.setSelectionRange(nextCursor, nextCursor);
+          setSelectionStart(nextCursor);
+        });
+        return;
+      }
       const needsSpace = promptRange
         ? false
         : after.length === 0
@@ -308,6 +335,8 @@ export function useComposerAutocompleteState({
     [
       autocompleteRange,
       closeAutocomplete,
+      fileSelectionMode,
+      onAttachFile,
       selectionStart,
       setSelectionStart,
       setText,

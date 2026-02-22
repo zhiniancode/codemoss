@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { EngineType, QueuedMessage, WorkspaceInfo } from "../../../types";
+import { useComposerContextFiles } from "../../composer/hooks/useComposerContextFiles";
 import { useComposerImages } from "../../composer/hooks/useComposerImages";
 import { useQueuedSend } from "../../threads/hooks/useQueuedSend";
 
@@ -73,6 +74,15 @@ export function useComposerController({
   } = useComposerImages({ activeThreadId, activeWorkspaceId });
 
   const {
+    activeFiles: activeContextFiles,
+    attachFiles: attachContextFiles,
+    removeFile: removeContextFile,
+    clearActiveFiles: clearActiveContextFiles,
+    setFilesForThread: setContextFilesForThread,
+    removeFilesForThread: removeContextFilesForThread,
+  } = useComposerContextFiles({ activeThreadId, activeWorkspaceId });
+
+  const {
     activeQueue,
     handleSend,
     queueMessage,
@@ -136,9 +146,10 @@ export function useComposerController({
       }
       removeQueuedMessage(activeThreadId, item.id);
       setImagesForThread(activeThreadId, item.images ?? []);
+      setContextFilesForThread(activeThreadId, item.files ?? []);
       setPrefillDraft(item);
     },
-    [activeThreadId, removeQueuedMessage, setImagesForThread],
+    [activeThreadId, removeQueuedMessage, setContextFilesForThread, setImagesForThread],
   );
 
   const handleDeleteQueued = useCallback(
@@ -169,6 +180,12 @@ export function useComposerController({
     clearActiveImages,
     setImagesForThread,
     removeImagesForThread,
+    activeContextFiles,
+    attachContextFiles,
+    removeContextFile,
+    clearActiveContextFiles,
+    setContextFilesForThread,
+    removeContextFilesForThread,
     activeQueue,
     handleSend,
     queueMessage,

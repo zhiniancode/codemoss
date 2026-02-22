@@ -8,6 +8,7 @@ type AppLayoutProps = {
   isTablet: boolean;
   showHome: boolean;
   showKanban: boolean;
+  showRightPanel: boolean;
   kanbanNode: ReactNode;
   showGitDetail: boolean;
   activeTab: "projects" | "codex" | "git" | "log";
@@ -48,6 +49,7 @@ export const AppLayout = memo(function AppLayout({
   isTablet,
   showHome,
   showKanban,
+  showRightPanel,
   kanbanNode,
   showGitDetail,
   activeTab,
@@ -157,6 +159,7 @@ export const AppLayout = memo(function AppLayout({
       terminalDockNode={terminalDockNode}
       debugPanelNode={debugPanelNode}
       hasActivePlan={hasActivePlan}
+      showRightPanel={showRightPanel}
       onSidebarResizeStart={onSidebarResizeStart}
       onRightPanelResizeStart={onRightPanelResizeStart}
       onPlanPanelResizeStart={onPlanPanelResizeStart}

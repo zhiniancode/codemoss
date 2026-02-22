@@ -122,24 +122,42 @@ export function MainHeader({
   const renameConfirmRef = useRef<HTMLButtonElement | null>(null);
   const renameOnCancel = worktreeRename?.onCancel;
 
+  const scopedGroupedWorkspaces = useMemo(() => {
+    if (!groupedWorkspaces) {
+      return [];
+    }
+    const engineType = workspace.settings.engineType ?? null;
+    const isOpenAIWorkspace =
+      typeof engineType === "string" && engineType.toLowerCase() === "openai";
+
+    // Keep OpenAI Compatible workspaces separate from CLI workspaces in the project picker.
+    // In an OpenAI workspace: only show OpenAI workspaces (folders). Otherwise: hide OpenAI workspaces.
+    return groupedWorkspaces
+      .map((group) => ({
+        ...group,
+        workspaces: group.workspaces.filter((ws) => {
+          const wsEngineType = ws.settings.engineType ?? null;
+          const isWsOpenAI =
+            typeof wsEngineType === "string" && wsEngineType.toLowerCase() === "openai";
+          return isOpenAIWorkspace ? isWsOpenAI : !isWsOpenAI;
+        }),
+      }))
+      .filter((group) => group.workspaces.length > 0);
+  }, [groupedWorkspaces, workspace.settings.engineType]);
+
   // 判断是否显示项目选择菜单
   const showProjectMenu = Boolean(
-    groupedWorkspaces &&
-    groupedWorkspaces.length > 0 &&
-    onSelectWorkspace
+    scopedGroupedWorkspaces.length > 0 && onSelectWorkspace
   );
 
   // 项目搜索过滤
   const trimmedProjectQuery = projectQuery.trim();
   const lowercaseProjectQuery = trimmedProjectQuery.toLowerCase();
   const filteredGroups = useMemo(() => {
-    if (!groupedWorkspaces) {
-      return [];
-    }
     if (trimmedProjectQuery.length === 0) {
-      return groupedWorkspaces;
+      return scopedGroupedWorkspaces;
     }
-    return groupedWorkspaces
+    return scopedGroupedWorkspaces
       .map((group) => ({
         ...group,
         workspaces: group.workspaces.filter((ws) =>
@@ -147,7 +165,7 @@ export function MainHeader({
         ),
       }))
       .filter((group) => group.workspaces.length > 0);
-  }, [groupedWorkspaces, lowercaseProjectQuery, trimmedProjectQuery]);
+  }, [lowercaseProjectQuery, scopedGroupedWorkspaces, trimmedProjectQuery]);
 
   const trimmedQuery = branchQuery.trim();
   const lowercaseQuery = trimmedQuery.toLowerCase();

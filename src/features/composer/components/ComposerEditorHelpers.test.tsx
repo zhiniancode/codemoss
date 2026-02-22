@@ -271,7 +271,7 @@ describe("Composer editor helpers", () => {
       );
     });
 
-    expect(onSend).toHaveBeenCalledWith("/export", []);
+    expect(onSend).toHaveBeenCalledWith("/export", [], []);
     harness.unmount();
   });
 

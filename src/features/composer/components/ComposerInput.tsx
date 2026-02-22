@@ -10,13 +10,15 @@ import type {
 } from "react";
 import type { AutocompleteItem } from "../hooks/useComposerAutocomplete";
 import { formatCollaborationModeLabel } from "../../../utils/collaborationModes";
-import type { AccessMode, EngineType, ThreadTokenUsage } from "../../../types";
+import type { AccessMode, EngineType, ThreadTokenUsage, WorkspaceInfo } from "../../../types";
 import type { OpenCodeAgentOption } from "../../../types";
 import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
 import ImagePlus from "lucide-react/dist/esm/icons/image-plus";
+import Paperclip from "lucide-react/dist/esm/icons/paperclip";
 import Mic from "lucide-react/dist/esm/icons/mic";
 import Square from "lucide-react/dist/esm/icons/square";
 import Brain from "lucide-react/dist/esm/icons/brain";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import GitFork from "lucide-react/dist/esm/icons/git-fork";
 import PlusCircle from "lucide-react/dist/esm/icons/plus-circle";
 import Info from "lucide-react/dist/esm/icons/info";
@@ -31,6 +33,7 @@ import FileIcon from "../../../components/FileIcon";
 import { EngineSelector } from "../../engine/components/EngineSelector";
 import { useComposerImageDrop } from "../hooks/useComposerImageDrop";
 import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerContextFiles } from "./ComposerContextFiles";
 import { ComposerGhostText } from "./ComposerGhostText";
 import { DictationWaveform } from "../../dictation/components/DictationWaveform";
 import { ReviewInlinePrompt } from "./ReviewInlinePrompt";
@@ -46,6 +49,7 @@ type ComposerInputProps = {
   isProcessing: boolean;
   onStop: () => void;
   onSend: () => void;
+  activeWorkspaceId?: string | null;
   engineName?: string;
   dictationState?: "idle" | "listening" | "processing";
   dictationLevel?: number;
@@ -58,9 +62,12 @@ type ComposerInputProps = {
   dictationHint?: string | null;
   onDismissDictationHint?: () => void;
   attachments?: string[];
+  contextFiles?: string[];
   onAddAttachment?: () => void;
+  onPickContextFiles?: () => void | Promise<void>;
   onAttachImages?: (paths: string[]) => void;
   onRemoveAttachment?: (path: string) => void;
+  onRemoveContextFile?: (path: string) => void;
   onTextChange: (next: string, selectionStart: number | null) => void;
   onTextPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onSelectionChange: (selectionStart: number | null) => void;
@@ -122,6 +129,9 @@ type ComposerInputProps = {
   contextUsage?: ThreadTokenUsage | null;
   accessMode?: AccessMode;
   onSelectAccessMode?: (mode: AccessMode) => void;
+  openAIWorkspaces?: WorkspaceInfo[];
+  onSelectOpenAIWorkspace?: (workspaceId: string) => void | Promise<void>;
+  onPickOpenAIFolder?: () => void | Promise<void>;
   ghostTextSuffix?: string;
   openCodeDock?: ReactNode;
 };
@@ -190,6 +200,7 @@ export function ComposerInput({
   isProcessing,
   onStop,
   onSend,
+  activeWorkspaceId = null,
   engineName,
   dictationState = "idle",
   dictationLevel = 0,
@@ -202,9 +213,12 @@ export function ComposerInput({
   dictationHint = null,
   onDismissDictationHint,
   attachments = [],
+  contextFiles = [],
   onAddAttachment,
+  onPickContextFiles,
   onAttachImages,
   onRemoveAttachment,
+  onRemoveContextFile,
   onTextChange,
   onTextPaste,
   onSelectionChange,
@@ -260,6 +274,9 @@ export function ComposerInput({
   contextUsage,
   accessMode,
   onSelectAccessMode,
+  openAIWorkspaces = [],
+  onSelectOpenAIWorkspace,
+  onPickOpenAIFolder,
   ghostTextSuffix,
   openCodeDock,
   opencodeProviderTone,
@@ -470,6 +487,40 @@ export function ComposerInput({
     return [...primary, ...others];
   }, [opencodeAgents]);
 
+  const sortedOpenAIWorkspaces = useMemo(() => {
+    return openAIWorkspaces
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [openAIWorkspaces]);
+
+  const selectedOpenAIWorkspace = useMemo(() => {
+    if (!activeWorkspaceId) {
+      return null;
+    }
+    return sortedOpenAIWorkspaces.find((ws) => ws.id === activeWorkspaceId) ?? null;
+  }, [activeWorkspaceId, sortedOpenAIWorkspaces]);
+
+  const openaiFolderLabel = selectedOpenAIWorkspace?.name ?? t("composer.folder");
+  const shouldShowOpenAIFolderPicker =
+    selectedEngine === "openai" || Boolean(selectedOpenAIWorkspace);
+
+  const handleSelectOpenAIFolder = useCallback(
+    (value: string) => {
+      if (!value) {
+        return;
+      }
+      if (value === "__pick__") {
+        void onPickOpenAIFolder?.();
+        return;
+      }
+      if (value === activeWorkspaceId) {
+        return;
+      }
+      void onSelectOpenAIWorkspace?.(value);
+    },
+    [activeWorkspaceId, onPickOpenAIFolder, onSelectOpenAIWorkspace],
+  );
+
   return (
     <div className={`composer-input${isDragging ? " is-resizing" : ""}`}>
       {/* Resize handle at the top */}
@@ -498,6 +549,11 @@ export function ComposerInput({
           attachments={attachments}
           disabled={disabled}
           onRemoveAttachment={onRemoveAttachment}
+        />
+        <ComposerContextFiles
+          files={contextFiles}
+          disabled={disabled}
+          onRemoveFile={onRemoveContextFile}
         />
         <div className="composer-textarea-wrapper">
           <textarea
@@ -542,6 +598,19 @@ export function ComposerInput({
             >
               <ImagePlus size={14} aria-hidden />
             </button>
+
+            {selectedEngine === "openai" && (
+              <button
+                type="button"
+                className="composer-attach"
+                onClick={() => void onPickContextFiles?.()}
+                disabled={disabled || !onPickContextFiles}
+                aria-label={t("composer.addFile")}
+                title={t("composer.addFile")}
+              >
+                <Paperclip size={14} aria-hidden />
+              </button>
+            )}
             
             {engines && selectedEngine && onSelectEngine && (
               <EngineSelector
@@ -614,6 +683,29 @@ export function ComposerInput({
                       {model.displayName || model.model}
                     </option>
                   ))}
+                </select>
+              </div>
+            )}
+
+            {shouldShowOpenAIFolderPicker && (
+              <div className="composer-select-wrap" title={openaiFolderLabel}>
+                <span className="composer-icon" aria-hidden>
+                  <FolderOpen size={14} />
+                </span>
+                <span className="composer-select-value">{openaiFolderLabel}</span>
+                <select
+                  className="composer-select composer-select--model"
+                  aria-label={t("composer.folder")}
+                  value={selectedOpenAIWorkspace?.id ?? activeWorkspaceId ?? ""}
+                  onChange={(event) => handleSelectOpenAIFolder(event.target.value)}
+                  disabled={disabled || (!onSelectOpenAIWorkspace && !onPickOpenAIFolder)}
+                >
+                  {sortedOpenAIWorkspaces.map((ws) => (
+                    <option key={ws.id} value={ws.id}>
+                      {ws.name}
+                    </option>
+                  ))}
+                  <option value="__pick__">{t("composer.pickFolder")}</option>
                 </select>
               </div>
             )}

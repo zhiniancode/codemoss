@@ -55,7 +55,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("First", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("First", [], []);
 
     await act(async () => {
       rerender({ ...options, isProcessing: true });
@@ -71,7 +71,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(2);
-    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Second", []);
+    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Second", [], []);
   });
 
   it("waits for processing to start before sending the next queued message", async () => {
@@ -90,7 +90,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Alpha", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Alpha", [], []);
   });
 
   it("queues send while processing when steer is disabled", async () => {
@@ -119,7 +119,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Steer", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Steer", [], []);
     expect(result.current.activeQueue).toHaveLength(0);
   });
 
@@ -146,7 +146,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(2);
-    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Retry", []);
+    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Retry", [], []);
   });
 
   it("queues messages per thread and only flushes the active thread", async () => {
@@ -177,7 +177,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Thread-1", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Thread-1", [], []);
   });
 
   it("connects workspace before sending when disconnected", async () => {
@@ -198,7 +198,7 @@ describe("useQueuedSend", () => {
       ...workspace,
       connected: false,
     });
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Connect", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Connect", [], []);
   });
 
   it("ignores images for queued review messages and blocks while reviewing", async () => {
@@ -238,7 +238,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("After review", []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("After review", [], []);
   });
 
   it("starts a new thread for /new and sends the remaining text there", async () => {
@@ -440,7 +440,7 @@ describe("useQueuedSend", () => {
     expect(options.sendUserMessage).toHaveBeenCalledWith("Images", [
       "img-1",
       "img-2",
-    ]);
+    ], []);
   });
 
   it("releases stalled in-flight queue item for opencode only", async () => {

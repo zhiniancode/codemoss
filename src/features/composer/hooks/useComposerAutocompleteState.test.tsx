@@ -34,6 +34,49 @@ describe("useComposerAutocompleteState file mentions", () => {
       "src/App.tsx",
     );
   });
+
+  it("in attach mode, selecting a file attaches it and removes the @ query without inserting text", () => {
+    vi.useFakeTimers();
+    const files = ["src/App.tsx", "src/main.tsx"];
+    const text = "Check @";
+    const selectionStart = text.length;
+    const textareaRef = createRef<HTMLTextAreaElement>();
+    textareaRef.current = {
+      focus: vi.fn(),
+      setSelectionRange: vi.fn(),
+    } as unknown as HTMLTextAreaElement;
+    const setText = vi.fn();
+    const setSelectionStart = vi.fn();
+    const onAttachFile = vi.fn();
+
+    const { result } = renderHook(() =>
+      useComposerAutocompleteState({
+        text,
+        selectionStart,
+        disabled: false,
+        skills: [],
+        prompts: [],
+        files,
+        fileSelectionMode: "attach",
+        onAttachFile,
+        textareaRef,
+        setText,
+        setSelectionStart,
+      }),
+    );
+
+    const match = result.current.autocompleteMatches.find(
+      (item) => item.label === "src/App.tsx",
+    );
+    expect(match).toBeTruthy();
+    result.current.applyAutocomplete(match!);
+
+    expect(onAttachFile).toHaveBeenCalledWith("src/App.tsx");
+    expect(setText).toHaveBeenCalledWith("Check ");
+
+    vi.runAllTimers();
+    vi.useRealTimers();
+  });
 });
 
 describe("useComposerAutocompleteState slash commands", () => {

@@ -15,7 +15,7 @@ type UseQueuedSendOptions = {
     workspaceId: string,
     options?: { activate?: boolean; engine?: EngineType },
   ) => Promise<string | null>;
-  sendUserMessage: (text: string, images?: string[]) => Promise<void>;
+  sendUserMessage: (text: string, images?: string[], files?: string[]) => Promise<void>;
   sendUserMessageToThread: (
     workspace: WorkspaceInfo,
     threadId: string,
@@ -37,8 +37,8 @@ type UseQueuedSendOptions = {
 type UseQueuedSendResult = {
   queuedByThread: Record<string, QueuedMessage[]>;
   activeQueue: QueuedMessage[];
-  handleSend: (text: string, images?: string[]) => Promise<void>;
-  queueMessage: (text: string, images?: string[]) => Promise<void>;
+  handleSend: (text: string, images?: string[], files?: string[]) => Promise<void>;
+  queueMessage: (text: string, images?: string[], files?: string[]) => Promise<void>;
   removeQueuedMessage: (threadId: string, messageId: string) => void;
 };
 
@@ -215,11 +215,12 @@ export function useQueuedSend({
   );
 
   const handleSend = useCallback(
-    async (text: string, images: string[] = []) => {
+    async (text: string, images: string[] = [], files: string[] = []) => {
       const trimmed = text.trim();
       const command = parseSlashCommand(trimmed);
       const nextImages = command ? [] : images;
-      if (!trimmed && nextImages.length === 0) {
+      const nextFiles = command ? [] : files;
+      if (!trimmed && nextImages.length === 0 && nextFiles.length === 0) {
         return;
       }
       if (activeThreadId && isReviewing) {
@@ -231,6 +232,7 @@ export function useQueuedSend({
           text: trimmed,
           createdAt: Date.now(),
           images: nextImages,
+          files: nextFiles,
         };
         enqueueMessage(activeThreadId, item);
         clearActiveImages();
@@ -244,7 +246,7 @@ export function useQueuedSend({
         clearActiveImages();
         return;
       }
-      await sendUserMessage(trimmed, nextImages);
+      await sendUserMessage(trimmed, nextImages, nextFiles);
       clearActiveImages();
     },
     [
@@ -262,11 +264,12 @@ export function useQueuedSend({
   );
 
   const queueMessage = useCallback(
-    async (text: string, images: string[] = []) => {
+    async (text: string, images: string[] = [], files: string[] = []) => {
       const trimmed = text.trim();
       const command = parseSlashCommand(trimmed);
       const nextImages = command ? [] : images;
-      if (!trimmed && nextImages.length === 0) {
+      const nextFiles = command ? [] : files;
+      if (!trimmed && nextImages.length === 0 && nextFiles.length === 0) {
         return;
       }
       if (activeThreadId && isReviewing) {
@@ -280,6 +283,7 @@ export function useQueuedSend({
         text: trimmed,
         createdAt: Date.now(),
         images: nextImages,
+        files: nextFiles,
       };
       enqueueMessage(activeThreadId, item);
       clearActiveImages();
@@ -380,7 +384,7 @@ export function useQueuedSend({
         if (command) {
           await runSlashCommand(command, trimmed);
         } else {
-          await sendUserMessage(nextItem.text, nextItem.images ?? []);
+          await sendUserMessage(nextItem.text, nextItem.images ?? [], nextItem.files ?? []);
         }
       } catch {
         setInFlightByThread((prev) => ({ ...prev, [threadId]: null }));

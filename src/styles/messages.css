@@ -352,6 +352,34 @@
   padding-bottom: 8px;
 }
 
+.message-file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.message-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-card-strong);
+  color: var(--text-muted);
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.message-file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
 .message-image-thumb {
   border: none;
   padding: 0;

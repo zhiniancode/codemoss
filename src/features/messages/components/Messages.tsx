@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import Brain from "lucide-react/dist/esm/icons/brain";
 import Check from "lucide-react/dist/esm/icons/check";
 import Copy from "lucide-react/dist/esm/icons/copy";
+import FileText from "lucide-react/dist/esm/icons/file-text";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import X from "lucide-react/dist/esm/icons/x";
 import type {
@@ -534,6 +535,18 @@ const MessageRow = memo(function MessageRow({
       .filter(Boolean) as MessageImage[];
   }, [item.images]);
 
+  const fileItems = useMemo(() => {
+    if (!item.files || item.files.length === 0) {
+      return [];
+    }
+    return item.files.map((path) => {
+      const normalized = path.replace(/\\/g, "/");
+      const parts = normalized.split("/").filter(Boolean);
+      const name = parts.length ? parts[parts.length - 1] : path;
+      return { path, name };
+    });
+  }, [item.files]);
+
   return (
     <div className={`message ${item.role}`}>
       <div className="bubble message-bubble">
@@ -543,6 +556,16 @@ const MessageRow = memo(function MessageRow({
             onOpen={setLightboxIndex}
             hasText={hasText}
           />
+        )}
+        {fileItems.length > 0 && (
+          <div className="message-file-chips">
+            {fileItems.map((file) => (
+              <span key={file.path} className="message-file-chip" title={file.path}>
+                <FileText size={12} aria-hidden />
+                <span className="message-file-chip-name">{file.name}</span>
+              </span>
+            ))}
+          </div>
         )}
         {hasText && (
           <Markdown

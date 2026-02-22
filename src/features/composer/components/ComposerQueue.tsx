@@ -54,9 +54,16 @@ export function ComposerQueue({
                   ? item.images.length === 1
                     ? "Image"
                     : "Images"
+                  : item.files?.length
+                    ? item.files.length === 1
+                      ? "File"
+                      : "Files"
                   : "")}
               {item.images?.length
                 ? ` · ${item.images.length} image${item.images.length === 1 ? "" : "s"}`
+                : ""}
+              {item.files?.length
+                ? ` · ${item.files.length} file${item.files.length === 1 ? "" : "s"}`
                 : ""}
             </span>
             <button

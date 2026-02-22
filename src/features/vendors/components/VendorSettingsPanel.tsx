@@ -33,7 +33,7 @@ export function VendorSettingsPanel() {
             Codex
           </TabsTab>
           <TabsTab className="vendor-tab" value="openai">
-            OpenAI Compatible
+            Custom API
           </TabsTab>
         </TabsList>
 

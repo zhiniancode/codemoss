@@ -11,6 +11,7 @@ import type {
   QueuedMessage,
   ThreadTokenUsage,
   TurnPlan,
+  WorkspaceInfo,
 } from "../../../types";
 import type {
   ReviewPromptState,
@@ -56,8 +57,8 @@ type ComposerProps = {
   kanbanContextMode?: "new" | "inherit";
   onKanbanContextModeChange?: (mode: "new" | "inherit") => void;
   items?: ConversationItem[];
-  onSend: (text: string, images: string[]) => void;
-  onQueue: (text: string, images: string[]) => void;
+  onSend: (text: string, images: string[], files: string[]) => void;
+  onQueue: (text: string, images: string[], files: string[]) => void;
   onStop: () => void;
   canStop: boolean;
   disabled?: boolean;
@@ -87,11 +88,15 @@ type ComposerProps = {
   onSelectOpenCodeVariant?: (variant: string | null) => void;
   accessMode: "read-only" | "current" | "full-access";
   onSelectAccessMode: (mode: "read-only" | "current" | "full-access") => void;
+  openAIWorkspaces?: WorkspaceInfo[];
+  onSelectOpenAIWorkspace?: (workspaceId: string) => void | Promise<void>;
+  onPickOpenAIFolder?: () => void | Promise<void>;
   skills: { name: string; description?: string }[];
   prompts: CustomPromptOption[];
   commands?: CustomCommandOption[];
   files: string[];
   directories?: string[];
+  onAttachContextFile?: (path: string) => void;
   contextUsage?: ThreadTokenUsage | null;
   queuedMessages?: QueuedMessage[];
   onEditQueued?: (item: QueuedMessage) => void;
@@ -101,9 +106,12 @@ type ComposerProps = {
   onDraftChange?: (text: string) => void;
   historyKey?: string | null;
   attachedImages?: string[];
+  attachedFiles?: string[];
   onPickImages?: () => void;
+  onPickContextFiles?: () => void | Promise<void>;
   onAttachImages?: (paths: string[]) => void;
   onRemoveImage?: (path: string) => void;
+  onRemoveContextFile?: (path: string) => void;
   prefillDraft?: QueuedMessage | null;
   onPrefillHandled?: (id: string) => void;
   insertText?: QueuedMessage | null;
@@ -295,11 +303,15 @@ export function Composer({
   onSelectOpenCodeVariant,
   accessMode,
   onSelectAccessMode,
+  openAIWorkspaces = [],
+  onSelectOpenAIWorkspace,
+  onPickOpenAIFolder,
   skills,
   prompts,
   commands = [],
   files,
   directories = [],
+  onAttachContextFile,
   contextUsage = null,
   queuedMessages = [],
   onEditQueued,
@@ -309,9 +321,12 @@ export function Composer({
   onDraftChange,
   historyKey = null,
   attachedImages = [],
+  attachedFiles = [],
   onPickImages,
+  onPickContextFiles,
   onAttachImages,
   onRemoveImage,
+  onRemoveContextFile,
   prefillDraft = null,
   onPrefillHandled,
   insertText = null,
@@ -365,6 +380,7 @@ export function Composer({
   onOpenDiffPath,
 }: ComposerProps) {
   const { t } = useTranslation();
+  const showManagementToolbar = selectedEngine !== "openai";
   const [text, setText] = useState(draftText);
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [selectedSkillNames, setSelectedSkillNames] = useState<string[]>([]);
@@ -624,6 +640,8 @@ export function Composer({
     commands,
     files,
     directories,
+    fileSelectionMode: selectedEngine === "openai" ? "attach" : "insert",
+    onAttachFile: onAttachContextFile,
     textareaRef,
     setText: setComposerText,
     setSelectionStart,
@@ -640,7 +658,7 @@ export function Composer({
   } = usePromptHistory({
     historyKey,
     text,
-    hasAttachments: attachedImages.length > 0,
+    hasAttachments: attachedImages.length > 0 || attachedFiles.length > 0,
     disabled,
     isAutocompleteOpen: suggestionsOpen,
     textareaRef,
@@ -690,11 +708,11 @@ export function Composer({
       return;
     }
     const trimmed = text.trim();
-    if (!trimmed && attachedImages.length === 0 && !selectedOpenCodeDirectCommand) {
+    if (!trimmed && attachedImages.length === 0 && attachedFiles.length === 0 && !selectedOpenCodeDirectCommand) {
       return;
     }
     if (selectedOpenCodeDirectCommand) {
-      onSend(`/${selectedOpenCodeDirectCommand}`, []);
+      onSend(`/${selectedOpenCodeDirectCommand}`, [], []);
       setSelectedCommonsNames((prev) =>
         prev.filter(
           (name) => normalizeCommandChipName(name) !== selectedOpenCodeDirectCommand,
@@ -722,11 +740,12 @@ export function Composer({
         })
       : trimmed;
     const finalTextWithReference = applyActiveFileReference(finalText);
-    onSend(finalTextWithReference, attachedImages);
+    onSend(finalTextWithReference, attachedImages, attachedFiles);
     resetHistoryNavigation();
     setComposerText("");
   }, [
     attachedImages,
+    attachedFiles,
     disabled,
     applyActiveFileReference,
     opencodeDisconnected,
@@ -753,11 +772,11 @@ export function Composer({
       return;
     }
     const trimmed = text.trim();
-    if (!trimmed && attachedImages.length === 0 && !selectedOpenCodeDirectCommand) {
+    if (!trimmed && attachedImages.length === 0 && attachedFiles.length === 0 && !selectedOpenCodeDirectCommand) {
       return;
     }
     if (selectedOpenCodeDirectCommand) {
-      onQueue(`/${selectedOpenCodeDirectCommand}`, []);
+      onQueue(`/${selectedOpenCodeDirectCommand}`, [], []);
       setSelectedCommonsNames((prev) =>
         prev.filter(
           (name) => normalizeCommandChipName(name) !== selectedOpenCodeDirectCommand,
@@ -783,12 +802,13 @@ export function Composer({
         })
       : trimmed;
     const finalTextWithReference = applyActiveFileReference(finalText);
-    onQueue(finalTextWithReference, attachedImages);
+    onQueue(finalTextWithReference, attachedImages, attachedFiles);
     inlineCompletion.clear();
     resetHistoryNavigation();
     setComposerText("");
   }, [
     attachedImages,
+    attachedFiles,
     disabled,
     applyActiveFileReference,
     opencodeDisconnected,
@@ -1100,9 +1120,8 @@ export function Composer({
           </button>
         ) : (
           <>
-            <div
-          className="composer-management-toolbar"
-            >
+            {showManagementToolbar && (
+              <div className="composer-management-toolbar">
           <div className="composer-toolbar-left" data-pill-count={allPills.length > 0 ? `+${allPills.length}` : undefined}>
             <div className="composer-context-actions">
               <div className="composer-context-menu">
@@ -1411,7 +1430,8 @@ export function Composer({
               </ComposerContextMenuPopover>
             </div>
           )}
-        </div>
+              </div>
+            )}
 
         <ComposerInput
           text={text}
@@ -1423,6 +1443,7 @@ export function Composer({
           isProcessing={isProcessing}
           onStop={onStop}
           onSend={handleSend}
+          activeWorkspaceId={activeWorkspaceId}
           engineName={currentEngineName}
           dictationEnabled={dictationEnabled}
           dictationState={dictationState}
@@ -1435,9 +1456,12 @@ export function Composer({
           dictationHint={dictationHint}
           onDismissDictationHint={onDismissDictationHint}
           attachments={attachedImages}
+          contextFiles={attachedFiles}
           onAddAttachment={onPickImages}
+          onPickContextFiles={onPickContextFiles}
           onAttachImages={onAttachImages}
           onRemoveAttachment={onRemoveImage}
+          onRemoveContextFile={onRemoveContextFile}
           onTextChange={handleTextChangeWithHistory}
           onSelectionChange={handleSelectionChange}
           onTextPaste={handleTextPaste}
@@ -1641,6 +1665,9 @@ export function Composer({
           contextUsage={contextUsage}
           accessMode={accessMode}
           onSelectAccessMode={onSelectAccessMode}
+          openAIWorkspaces={openAIWorkspaces}
+          onSelectOpenAIWorkspace={onSelectOpenAIWorkspace}
+          onPickOpenAIFolder={onPickOpenAIFolder}
           openCodeDock={
             <OpenCodeControlPanel
               embedded
@@ -1662,7 +1689,7 @@ export function Composer({
                 setOpenCodeProviderToneReady(true);
                 setOpenCodeProviderTone(tone);
               }}
-              onRunOpenCodeCommand={(command) => onSend(command, [])}
+              onRunOpenCodeCommand={(command) => onSend(command, [], [])}
             />
           }
         />

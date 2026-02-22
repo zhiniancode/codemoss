@@ -71,7 +71,6 @@ const START_CONVERSATION_ENGINE_OPTIONS: Array<{
   { type: "codex", labelKey: "workspace.engineCodex" },
   { type: "gemini", labelKey: "workspace.engineGemini" },
   { type: "opencode", labelKey: "workspace.engineOpenCode" },
-  { type: "openai", labelKey: "workspace.engineOpenAICompatible" },
 ];
 
 export function WorkspaceHome({
@@ -104,7 +103,13 @@ export function WorkspaceHome({
     recentThreads.length > 0 && recentThreads.every((thread) => selectedThreadIds[thread.threadId]);
   const startConversationEngineOptions = useMemo(
     () =>
-      START_CONVERSATION_ENGINE_OPTIONS.map((option) => {
+      // Keep OpenAI Compatible as a separate conversation space, not mixed with CLI engines.
+      // - In OpenAI workspaces: only OpenAI is offered.
+      // - In other workspaces: OpenAI is hidden here (use the left-rail entry instead).
+      (workspace.settings.engineType?.toLowerCase() === "openai"
+        ? [{ type: "openai" as const, labelKey: "workspace.engineOpenAICompatible" }]
+        : START_CONVERSATION_ENGINE_OPTIONS
+      ).map((option) => {
         const statusKey = getEngineAvailabilityStatusKey(engines, option.type);
         return {
           ...option,
@@ -112,7 +117,7 @@ export function WorkspaceHome({
           statusKey,
         };
       }),
-    [engines],
+    [engines, workspace.settings.engineType],
   );
   const selectedEngineOption = useMemo(
     () =>

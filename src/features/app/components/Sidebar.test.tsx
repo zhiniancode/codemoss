@@ -9,11 +9,15 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {
-        "sidebar.projects": "Projects",
+        "sidebar.workspaces": "Workspaces",
+        "sidebar.cliSection": "CLI Workspaces",
         "sidebar.addWorkspace": "Add workspace",
         "sidebar.openHome": "Open home",
         "sidebar.toggleSearch": "Toggle search",
         "sidebar.searchProjects": "Search projects",
+        "sidebar.openaiSection": "Custom API",
+        "sidebar.openaiNewChat": "New Custom API chat",
+        "sidebar.openaiAddFolder": "Add Custom API folder",
       };
       return translations[key] ?? key;
     },
@@ -81,6 +85,8 @@ const baseProps = {
   appMode: "chat" as const,
   onAppModeChange: vi.fn(),
   onOpenMemory: vi.fn(),
+  onOpenAIChat: vi.fn(),
+  onAddOpenAIWorkspace: vi.fn(),
 };
 
 describe("Sidebar", () => {

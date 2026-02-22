@@ -42,6 +42,12 @@ export function useGitPanelController({
   prDiffsLoading: boolean;
   prDiffsError: string | null;
 }) {
+  const workspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
+  const isOpenAIWorkspace =
+    typeof workspaceEngineType === "string" &&
+    workspaceEngineType.toLowerCase() === "openai";
+  const activeWorkspaceForGit = isOpenAIWorkspace ? null : activeWorkspace;
+
   const [centerMode, setCenterMode] = useState<"chat" | "diff" | "editor" | "memory">("chat");
   const [openFileTabs, setOpenFileTabs] = useState<string[]>([]);
   const [activeEditorFilePath, setActiveEditorFilePath] = useState<string | null>(null);
@@ -57,9 +63,22 @@ export function useGitPanelController({
   const [gitDiffListView, setGitDiffListViewState] = useState<"flat" | "tree">(
     () => readGitDiffListView(activeWorkspace?.id),
   );
-  const [filePanelMode, setFilePanelMode] = useState<
+  const [filePanelModeState, setFilePanelModeState] = useState<
     "git" | "files" | "prompts"
   >("git");
+  const filePanelMode = isOpenAIWorkspace ? "files" : filePanelModeState;
+  const setFilePanelMode = useCallback(
+    (mode: "git" | "files" | "prompts") => {
+      if (isOpenAIWorkspace) {
+        // In OpenAI workspaces we treat the right panel as a file-context browser,
+        // not a git/diff surface.
+        setFilePanelModeState("files");
+        return;
+      }
+      setFilePanelModeState(mode);
+    },
+    [isOpenAIWorkspace],
+  );
   const [selectedPullRequest, setSelectedPullRequest] =
     useState<GitHubPullRequest | null>(null);
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
@@ -70,7 +89,7 @@ export function useGitPanelController({
   );
 
   const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(
-    activeWorkspace,
+    activeWorkspaceForGit,
   );
   const gitStatusRefreshTimeoutRef = useRef<number | null>(null);
   const activeWorkspaceIdRef = useRef<string | null>(activeWorkspace?.id ?? null);
@@ -87,6 +106,16 @@ export function useGitPanelController({
   useEffect(() => {
     activeWorkspaceRef.current = activeWorkspace;
   }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || !isOpenAIWorkspace) {
+      return;
+    }
+    // OpenAI Compatible workspaces are "files as context" first; hide diff UX by default.
+    setFilePanelModeState("files");
+    setCenterMode("chat");
+    setSelectedDiffPath(null);
+  }, [activeWorkspace?.id, isOpenAIWorkspace]);
 
   useEffect(() => {
     return () => {
@@ -120,36 +149,36 @@ export function useGitPanelController({
     (isCompact ? compactTab === "git" : gitPanelMode === "diff");
   const shouldPreloadDiffs = Boolean(
     gitDiffPreloadEnabled &&
-      activeWorkspace &&
-      !preloadedWorkspaceIdsRef.current.has(activeWorkspace.id),
+      activeWorkspaceForGit &&
+      !preloadedWorkspaceIdsRef.current.has(activeWorkspaceForGit.id),
   );
   const shouldLoadLocalDiffs =
-    Boolean(activeWorkspace) &&
+    Boolean(activeWorkspaceForGit) &&
     (shouldPreloadDiffs ||
       diffUiVisible ||
       Boolean(selectedDiffPath));
   const shouldLoadDiffs =
-    Boolean(activeWorkspace) &&
+    Boolean(activeWorkspaceForGit) &&
     (diffSource === "local" ? shouldLoadLocalDiffs : diffUiVisible);
-  const shouldLoadGitLog = gitPanelMode === "log" && Boolean(activeWorkspace);
+  const shouldLoadGitLog = gitPanelMode === "log" && Boolean(activeWorkspaceForGit);
 
   const {
     diffs: gitDiffs,
     isLoading: isDiffLoading,
     error: diffError,
     refresh: refreshGitDiffs,
-  } = useGitDiffs(activeWorkspace, gitStatus.files, shouldLoadLocalDiffs);
+  } = useGitDiffs(activeWorkspaceForGit, gitStatus.files, shouldLoadLocalDiffs);
 
   useEffect(() => {
-    if (!activeWorkspace || !shouldPreloadDiffs) {
+    if (!activeWorkspaceForGit || !shouldPreloadDiffs) {
       return;
     }
     if (!isDiffLoading && !diffError && gitDiffs.length === 0) {
       return;
     }
-    preloadedWorkspaceIdsRef.current.add(activeWorkspace.id);
+    preloadedWorkspaceIdsRef.current.add(activeWorkspaceForGit.id);
   }, [
-    activeWorkspace,
+    activeWorkspaceForGit,
     diffError,
     gitDiffs.length,
     isDiffLoading,
@@ -167,14 +196,14 @@ export function useGitPanelController({
     isLoading: gitLogLoading,
     error: gitLogError,
     refresh: refreshGitLog,
-  } = useGitLog(activeWorkspace, shouldLoadGitLog);
+  } = useGitLog(activeWorkspaceForGit, shouldLoadGitLog);
 
   const {
     diffs: gitCommitDiffs,
     isLoading: gitCommitDiffsLoading,
     error: gitCommitDiffsError,
   } = useGitCommitDiffs(
-    activeWorkspace,
+    activeWorkspaceForGit,
     selectedCommitSha,
     shouldLoadDiffs && diffSource === "commit",
   );

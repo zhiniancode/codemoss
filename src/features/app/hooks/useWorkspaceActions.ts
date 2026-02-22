@@ -117,8 +117,14 @@ export function useWorkspaceActions({
       if (!workspace.connected) {
         await connectWorkspace(workspace);
       }
+      const workspaceEngineType = workspace.settings.engineType ?? null;
+      const resolvedEngine =
+        typeof workspaceEngineType === "string" &&
+        workspaceEngineType.toLowerCase() === "openai"
+          ? "openai"
+          : activeEngine;
       await startThreadForWorkspace(workspace.id, {
-        engine: activeEngine,
+        engine: resolvedEngine,
       });
       if (isCompact) {
         setActiveTab("codex");

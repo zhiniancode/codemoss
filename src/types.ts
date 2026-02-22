@@ -8,6 +8,8 @@ export type WorkspaceSettings = {
   launchScript?: string | null;
   launchScripts?: LaunchScriptEntry[] | null;
   worktreeSetupScript?: string | null;
+  // Persisted by the backend as workspace "engineType" (e.g. "claude", "codex", "openai").
+  engineType?: EngineType | null;
 };
 
 export type LaunchScriptIconId =
@@ -77,6 +79,7 @@ export type ConversationItem =
       role: "user" | "assistant";
       text: string;
       images?: string[];
+      files?: string[];
     }
   | { id: string; kind: "reasoning"; summary: string; content: string }
   | { id: string; kind: "diff"; title: string; diff: string; status?: string }
@@ -456,6 +459,7 @@ export type QueuedMessage = {
   text: string;
   createdAt: number;
   images?: string[];
+  files?: string[];
 };
 
 export type ModelOption = {

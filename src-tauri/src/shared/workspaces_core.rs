@@ -45,17 +45,22 @@ pub(crate) async fn list_workspaces_core(
     let mut result = Vec::new();
     for entry in workspaces.values() {
         // Determine connected status based on engine type:
-        // - Claude: Always "connected" (no persistent session needed)
-        // - Codex: Check if session exists in sessions HashMap
-        let is_claude_engine = entry
+        // - Sessionless engines: Always "connected" (no persistent daemon needed).
+        // - Codex CLI engine: Connected only when a session exists.
+        //
+        // NOTE: Historically, missing engine_type defaults to Claude.
+        let engine_type = entry
             .settings
             .engine_type
             .as_deref()
-            .map(|e| e.eq_ignore_ascii_case("claude"))
-            .unwrap_or(true); // Default to Claude if not specified
-
-        let connected = if is_claude_engine {
-            true // Claude is always "connected"
+            .unwrap_or("claude")
+            .to_ascii_lowercase();
+        let is_sessionless_engine = matches!(
+            engine_type.as_str(),
+            "claude" | "openai" | "opencode" | "gemini"
+        );
+        let connected = if is_sessionless_engine {
+            true
         } else {
             sessions.contains_key(&entry.id)
         };

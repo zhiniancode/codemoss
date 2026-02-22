@@ -30,8 +30,8 @@ type UsePullRequestComposerOptions = {
     options?: { model?: string | null; effort?: string | null },
   ) => Promise<void>;
   clearActiveImages: () => void;
-  handleSend: (text: string, images: string[]) => Promise<void>;
-  queueMessage: (text: string, images: string[]) => Promise<void>;
+  handleSend: (text: string, images: string[], files: string[]) => Promise<void>;
+  queueMessage: (text: string, images: string[], files: string[]) => Promise<void>;
 };
 
 export function usePullRequestComposer({
@@ -99,7 +99,9 @@ export function usePullRequestComposer({
   }, [setDiffSource, setSelectedPullRequest]);
 
   const handleSendPullRequestQuestion = useCallback(
-    async (text: string, images: string[] = []) => {
+    async (_text: string, _images: string[] = [], _files: string[] = []) => {
+      const text = _text;
+      const images = _images;
       const trimmed = text.trim();
       if (!activeWorkspace || !selectedPullRequest) {
         return;

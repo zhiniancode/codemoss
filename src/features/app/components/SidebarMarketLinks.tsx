@@ -10,9 +10,11 @@ import Terminal from "lucide-react/dist/esm/icons/terminal";
 import { useTranslation } from "react-i18next";
 import type { AppMode } from "../../../types";
 import { pushErrorToast } from "../../../services/toasts";
+import { EngineIcon } from "../../engine/components/EngineIcon";
 
 type SidebarMarketLinksProps = {
   onOpenMemory: () => void;
+  onOpenAIChat: () => void;
   appMode: AppMode;
   onAppModeChange: (mode: AppMode) => void;
   onOpenSettings: () => void;
@@ -25,6 +27,7 @@ type SidebarMarketLinksProps = {
 
 export function SidebarMarketLinks({
   onOpenMemory,
+  onOpenAIChat,
   appMode,
   onAppModeChange,
   onOpenSettings,
@@ -76,6 +79,18 @@ export function SidebarMarketLinks({
       </div>
       <div className="sidebar-market-rail-divider" aria-hidden />
       <div className="sidebar-market-rail-section">
+        <button
+          type="button"
+          className="sidebar-market-rail-item"
+          data-market-item="openai-chat"
+          onClick={onOpenAIChat}
+          title={t("workspace.engineOpenAICompatible")}
+          aria-label={t("workspace.engineOpenAICompatible")}
+          data-tauri-drag-region="false"
+        >
+          <EngineIcon engine="openai" size={18} className="sidebar-market-rail-icon" />
+          <span className="sidebar-market-rail-text">{t("workspace.engineOpenAICompatible")}</span>
+        </button>
         <button
           type="button"
           className="sidebar-market-rail-item"
