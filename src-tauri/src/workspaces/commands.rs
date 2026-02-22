@@ -359,14 +359,42 @@ pub(crate) async fn ensure_openai_chat_workspace(
 
     // Use app data dir as a stable, writable "scratch" workspace that doesn't
     // require the user to import a repo first.
-    let data_dir = state
-        .storage_path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .or_else(|| app.path().app_data_dir().ok())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+    //
+    // Windows: store under `%APPDATA%\\codemoss\\openai-chat-workspace` instead of the
+    // bundle-id-scoped app data dir to keep the path stable across app id changes.
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .or_else(|| state.storage_path.parent().map(|p| p.to_path_buf()));
+    let data_dir = match app_data_dir {
+        Some(dir) => {
+            #[cfg(target_os = "windows")]
+            {
+                dir.parent()
+                    .map(|p| p.join("codemoss"))
+                    .unwrap_or(dir)
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                dir
+            }
+        }
+        None => std::env::current_dir().unwrap_or_else(|_| ".".into()),
+    };
 
     let scratch_dir = data_dir.join("openai-chat-workspace");
+    // Best-effort migration: if the old bundle-id scoped scratch dir exists, move it.
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(old_data_dir) = app.path().app_data_dir() {
+            let old_scratch_dir = old_data_dir.join("openai-chat-workspace");
+            if old_scratch_dir.is_dir() && !scratch_dir.is_dir() {
+                let _ = std::fs::create_dir_all(&data_dir);
+                let _ = std::fs::rename(&old_scratch_dir, &scratch_dir);
+            }
+        }
+    }
     std::fs::create_dir_all(&scratch_dir)
         .map_err(|err| format!("Failed to create OpenAI chat workspace folder: {err}"))?;
     if !scratch_dir.is_dir() {
