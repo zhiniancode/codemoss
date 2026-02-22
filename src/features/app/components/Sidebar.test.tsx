@@ -85,7 +85,8 @@ const baseProps = {
   appMode: "chat" as const,
   onAppModeChange: vi.fn(),
   onOpenMemory: vi.fn(),
-  onOpenAIChat: vi.fn(),
+  onOpenCustomAPIHome: vi.fn(),
+  onNewCustomAPIChat: vi.fn(),
   onAddOpenAIWorkspace: vi.fn(),
 };
 

@@ -94,7 +94,8 @@ type SidebarProps = {
   appMode: AppMode;
   onAppModeChange: (mode: AppMode) => void;
   onOpenMemory: () => void;
-  onOpenAIChat: () => void;
+  onOpenCustomAPIHome: () => void;
+  onNewCustomAPIChat: () => void;
   onAddOpenAIWorkspace: () => void;
   topbarNode?: ReactNode;
 };
@@ -154,7 +155,8 @@ export function Sidebar({
   appMode,
   onAppModeChange,
   onOpenMemory,
-  onOpenAIChat,
+  onOpenCustomAPIHome,
+  onNewCustomAPIChat,
   onAddOpenAIWorkspace,
   topbarNode,
 }: SidebarProps) {
@@ -543,7 +545,7 @@ export function Sidebar({
           <aside className="sidebar-tree-rail-column" aria-label={t("sidebar.pluginMarket")}>
             <SidebarMarketLinks
               onOpenMemory={onOpenMemory}
-              onOpenAIChat={onOpenAIChat}
+              onOpenCustomAPIHome={onOpenCustomAPIHome}
               appMode={appMode}
               onAppModeChange={onAppModeChange}
               onOpenSettings={onOpenSettings}
@@ -596,7 +598,7 @@ export function Sidebar({
                 <div className="workspace-group-actions">
                   <button
                     className="sidebar-title-add"
-                    onClick={onOpenAIChat}
+                    onClick={onNewCustomAPIChat}
                     data-tauri-drag-region="false"
                     aria-label={t("sidebar.openaiNewChat")}
                     title={t("sidebar.openaiNewChat")}

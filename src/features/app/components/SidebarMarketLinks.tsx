@@ -14,7 +14,7 @@ import { EngineIcon } from "../../engine/components/EngineIcon";
 
 type SidebarMarketLinksProps = {
   onOpenMemory: () => void;
-  onOpenAIChat: () => void;
+  onOpenCustomAPIHome: () => void;
   appMode: AppMode;
   onAppModeChange: (mode: AppMode) => void;
   onOpenSettings: () => void;
@@ -27,7 +27,7 @@ type SidebarMarketLinksProps = {
 
 export function SidebarMarketLinks({
   onOpenMemory,
-  onOpenAIChat,
+  onOpenCustomAPIHome,
   appMode,
   onAppModeChange,
   onOpenSettings,
@@ -83,7 +83,7 @@ export function SidebarMarketLinks({
           type="button"
           className="sidebar-market-rail-item"
           data-market-item="openai-chat"
-          onClick={onOpenAIChat}
+          onClick={onOpenCustomAPIHome}
           title={t("workspace.engineOpenAICompatible")}
           aria-label={t("workspace.engineOpenAICompatible")}
           data-tauri-drag-region="false"

@@ -392,7 +392,7 @@ pub(crate) async fn ensure_openai_chat_workspace(
 
         WorkspaceEntry {
             id: Uuid::new_v4().to_string(),
-            name: "OpenAI Chat".to_string(),
+            name: "Custom API Chat".to_string(),
             path: scratch_path.clone(),
             codex_bin: None,
             kind: WorkspaceKind::Main,
@@ -411,6 +411,11 @@ pub(crate) async fn ensure_openai_chat_workspace(
         .unwrap_or(true);
     if should_force_openai {
         entry.settings.engine_type = Some("openai".to_string());
+    }
+
+    // Keep the scratch workspace name stable even if older builds used a different label.
+    if entry.name.trim().is_empty() || entry.name == "OpenAI Chat" {
+        entry.name = "Custom API Chat".to_string();
     }
 
     {

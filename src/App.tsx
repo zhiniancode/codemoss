@@ -152,7 +152,7 @@ import type {
   OpenCodeAgentOption,
   WorkspaceInfo,
 } from "./types";
-import { writeClientStoreValue } from "./services/clientStorage";
+import { getClientStoreSync, writeClientStoreValue } from "./services/clientStorage";
 import { pushErrorToast } from "./services/toasts";
 import { useOpenAppIcons } from "./features/app/hooks/useOpenAppIcons";
 import { useCodeCssVars } from "./features/app/hooks/useCodeCssVars";
@@ -180,6 +180,7 @@ const GitHubPanelData = lazy(() =>
 
 const PANEL_LOCK_DEFAULT_PASSWORD = "123456";
 const LOCK_LIVE_SESSION_LIMIT = 12;
+const LAST_CUSTOM_API_WORKSPACE_ID_KEY = "lastCustomApiWorkspaceId";
 const LOCK_LIVE_PREVIEW_MAX = 180;
 const OPENCODE_VARIANT_OPTIONS = ["minimal", "low", "medium", "high", "max"];
 
@@ -2675,22 +2676,102 @@ function MainApp() {
     ],
   );
 
-  const handleOpenAIChat = useCallback(async () => {
-    // Quick entry point: start an OpenAI-compatible chat without requiring the user to import a workspace.
+  const getOrCreateCustomAPIWorkspace = useCallback(async (): Promise<WorkspaceInfo> => {
+    const isCustomAPIWorkspace = (ws: WorkspaceInfo | null | undefined) => {
+      const type = ws?.settings.engineType ?? null;
+      return typeof type === "string" && type.toLowerCase() === "openai";
+    };
+    const isScratch = (ws: WorkspaceInfo) =>
+      ws.path.toLowerCase().includes("openai-chat-workspace");
+
+    const openaiWorkspaces = workspaces.filter((ws) => {
+      if (!isCustomAPIWorkspace(ws)) {
+        return false;
+      }
+      return (ws.kind ?? "main") !== "worktree";
+    });
+    const realOpenAIWorkspaces = openaiWorkspaces.filter((ws) => !isScratch(ws));
+
+    if (isCustomAPIWorkspace(activeWorkspace) && activeWorkspace) {
+      return activeWorkspace;
+    }
+
+    const lastWorkspaceId =
+      getClientStoreSync<string>("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY) ?? null;
+    const lastWorkspace = lastWorkspaceId ? workspacesById.get(lastWorkspaceId) : null;
+    if (lastWorkspace && isCustomAPIWorkspace(lastWorkspace) && !isScratch(lastWorkspace)) {
+      return lastWorkspace;
+    }
+
+    if (realOpenAIWorkspaces.length > 0) {
+      return realOpenAIWorkspaces[0];
+    }
+    if (openaiWorkspaces.length > 0) {
+      return openaiWorkspaces[0];
+    }
+
+    return ensureOpenAIChatWorkspace();
+  }, [activeWorkspace, ensureOpenAIChatWorkspace, workspaces, workspacesById]);
+
+  const handleOpenCustomAPIHome = useCallback(async () => {
+    // Entry point: open the Custom API workspace home without auto-starting a thread.
     try {
       exitDiffView();
       resetPullRequestSelection();
       setCenterMode("chat");
       setAppMode("chat");
 
-      const openaiStatus = engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      const openaiStatus =
+        engineStatuses.find((status) => status.engineType === "openai") ?? null;
       if (openaiStatus && !openaiStatus.installed) {
-        // Bring the user to vendor settings to configure an OpenAI-compatible endpoint.
         openSettings("vendors");
         return;
       }
 
-      const workspace = await ensureOpenAIChatWorkspace();
+      const workspace = await getOrCreateCustomAPIWorkspace();
+      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
+      selectWorkspace(workspace.id);
+      setActiveThreadId(null, workspace.id);
+      await setActiveEngine("openai");
+      if (isCompact) {
+        setActiveTab("codex");
+      }
+    } catch (error) {
+      alertError(error);
+    }
+  }, [
+    alertError,
+    engineStatuses,
+    exitDiffView,
+    getOrCreateCustomAPIWorkspace,
+    isCompact,
+    openSettings,
+    resetPullRequestSelection,
+    selectWorkspace,
+    setActiveEngine,
+    setActiveTab,
+    setActiveThreadId,
+    setAppMode,
+    setCenterMode,
+  ]);
+
+  const handleNewCustomAPIChat = useCallback(async () => {
+    // Start a new Custom API chat thread for the active (or default) Custom API workspace.
+    try {
+      exitDiffView();
+      resetPullRequestSelection();
+      setCenterMode("chat");
+      setAppMode("chat");
+
+      const openaiStatus =
+        engineStatuses.find((status) => status.engineType === "openai") ?? null;
+      if (openaiStatus && !openaiStatus.installed) {
+        openSettings("vendors");
+        return;
+      }
+
+      const workspace = await getOrCreateCustomAPIWorkspace();
+      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
       selectWorkspace(workspace.id);
       setActiveThreadId(null, workspace.id);
       await setActiveEngine("openai");
@@ -2712,8 +2793,8 @@ function MainApp() {
   }, [
     alertError,
     engineStatuses,
-    ensureOpenAIChatWorkspace,
     exitDiffView,
+    getOrCreateCustomAPIWorkspace,
     isCompact,
     openSettings,
     resetPullRequestSelection,
@@ -2745,6 +2826,7 @@ function MainApp() {
       if (!workspace) {
         return;
       }
+      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
       selectWorkspace(workspace.id);
       setActiveThreadId(null, workspace.id);
       await setActiveEngine("openai");
@@ -2799,6 +2881,7 @@ function MainApp() {
         return;
       }
 
+      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
       selectWorkspace(workspaceId);
       setActiveThreadId(null, workspaceId);
       await setActiveEngine("openai");
@@ -3489,6 +3572,7 @@ function MainApp() {
         typeof workspaceEngineType === "string" &&
         workspaceEngineType.toLowerCase() === "openai"
       ) {
+        writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
         void setActiveEngine("openai");
       } else if (activeEngine === "openai") {
         // Avoid leaving the UI in an OpenAI engine state when switching back to CLI workspaces.
@@ -3510,7 +3594,8 @@ function MainApp() {
     onAddAgent: handleAddAgent,
     onAddWorktreeAgent: handleAddWorktreeAgent,
     onAddCloneAgent: handleAddCloneAgent,
-    onOpenAIChat: handleOpenAIChat,
+    onOpenCustomAPIHome: handleOpenCustomAPIHome,
+    onNewCustomAPIChat: handleNewCustomAPIChat,
     onAddOpenAIWorkspace: handleAddOpenAIWorkspaceAndChat,
     onSelectOpenAIWorkspace: handleSelectOpenAIWorkspaceAndChat,
     onToggleWorkspaceCollapse: (workspaceId, collapsed) => {
