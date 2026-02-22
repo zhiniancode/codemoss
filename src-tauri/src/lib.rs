@@ -240,6 +240,7 @@ pub fn run() {
             workspaces::update_workspace_codex_bin,
             workspaces::connect_workspace,
             workspaces::ensure_openai_chat_workspace,
+            workspaces::retarget_openai_workspace,
             workspaces::list_workspace_files,
             workspaces::read_workspace_file,
             workspaces::write_workspace_file,

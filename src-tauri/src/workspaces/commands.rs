@@ -562,6 +562,77 @@ async fn add_workspace_for_opencode(
 }
 
 #[tauri::command]
+pub(crate) async fn retarget_openai_workspace(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkspaceInfo, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let path = remote_backend::normalize_path_for_remote(path);
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "retarget_openai_workspace",
+            json!({ "workspaceId": workspace_id, "path": path }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    use std::path::PathBuf;
+
+    if !PathBuf::from(&path).is_dir() {
+        return Err("Workspace path must be a folder.".to_string());
+    }
+
+    let name = PathBuf::from(&path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Workspace")
+        .to_string();
+
+    let entry = {
+        let mut workspaces = state.workspaces.lock().await;
+        let mut entry = workspaces
+            .get(&workspace_id)
+            .cloned()
+            .ok_or("workspace not found")?;
+
+        let is_openai = entry
+            .settings
+            .engine_type
+            .as_deref()
+            .map(|t| t.eq_ignore_ascii_case("openai"))
+            .unwrap_or(false);
+        if !is_openai {
+            return Err("Workspace is not a Custom API workspace.".to_string());
+        }
+
+        entry.path = path.clone();
+        entry.name = name.clone();
+        entry.settings.engine_type = Some("openai".to_string());
+
+        workspaces.insert(entry.id.clone(), entry.clone());
+        let list: Vec<_> = workspaces.values().cloned().collect();
+        write_workspaces(&state.storage_path, &list)?;
+        entry
+    };
+
+    Ok(WorkspaceInfo {
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+        codex_bin: entry.codex_bin,
+        connected: true,
+        kind: entry.kind,
+        parent_id: entry.parent_id,
+        worktree: entry.worktree,
+        settings: entry.settings,
+    })
+}
+
+#[tauri::command]
 pub(crate) async fn add_clone(
     source_workspace_id: String,
     copy_name: String,

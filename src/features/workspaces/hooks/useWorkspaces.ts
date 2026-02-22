@@ -18,6 +18,7 @@ import {
   isWorkspacePathDir as isWorkspacePathDirService,
   listWorkspaces,
   pickWorkspacePath,
+  retargetOpenAIWorkspace as retargetOpenAIWorkspaceService,
   removeWorkspace as removeWorkspaceService,
   removeWorktree as removeWorktreeService,
   renameWorktree as renameWorktreeService,
@@ -301,6 +302,49 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     }
     return addOpenAIWorkspaceFromPath(selection);
   }, [addOpenAIWorkspaceFromPath]);
+
+  const retargetOpenAIWorkspaceFromPath = useCallback(
+    async (workspaceId: string, path: string) => {
+      const selection = path.trim();
+      if (!selection) {
+        return null;
+      }
+      onDebug?.({
+        id: `${Date.now()}-client-retarget-openai-workspace`,
+        timestamp: Date.now(),
+        source: "client",
+        label: "workspace/retarget-openai",
+        payload: { workspaceId, path: selection },
+      });
+      try {
+        const workspace = await retargetOpenAIWorkspaceService(workspaceId, selection);
+        setWorkspaces((prev) => prev.map((entry) => (entry.id === workspaceId ? workspace : entry)));
+        setActiveWorkspaceId(workspaceId);
+        return workspace;
+      } catch (error) {
+        onDebug?.({
+          id: `${Date.now()}-client-retarget-openai-workspace-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "workspace/retarget-openai error",
+          payload: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+    [onDebug, setActiveWorkspaceId, setWorkspaces],
+  );
+
+  const retargetOpenAIWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const selection = await pickWorkspacePath();
+      if (!selection) {
+        return null;
+      }
+      return retargetOpenAIWorkspaceFromPath(workspaceId, selection);
+    },
+    [retargetOpenAIWorkspaceFromPath],
+  );
 
   const filterWorkspacePaths = useCallback(async (paths: string[]) => {
     const trimmed = paths.map((path) => path.trim()).filter(Boolean);
@@ -904,6 +948,8 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     addWorkspaceFromPath,
     addOpenAIWorkspace,
     addOpenAIWorkspaceFromPath,
+    retargetOpenAIWorkspace,
+    retargetOpenAIWorkspaceFromPath,
     filterWorkspacePaths,
     addCloneAgent,
     addWorktreeAgent,

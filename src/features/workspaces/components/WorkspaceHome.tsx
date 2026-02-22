@@ -60,7 +60,7 @@ type WorkspaceHomeProps = {
   onContinueLatestConversation: () => void;
   onStartGuidedConversation: (prompt: string, engine: EngineType) => Promise<void>;
   onRevealWorkspace: () => Promise<void>;
-  onPickCustomAPIWorkspace?: () => Promise<void>;
+  onPickCustomAPIWorkspace?: (workspaceId: string) => Promise<void>;
   onDeleteConversations: (threadIds: string[]) => Promise<WorkspaceHomeDeleteResult>;
 };
 
@@ -339,7 +339,7 @@ export function WorkspaceHome({
               type="button"
               className="workspace-home-chip-button"
               onClick={() => {
-                void onPickCustomAPIWorkspace();
+                void onPickCustomAPIWorkspace(workspace.id);
               }}
             >
               <FolderOpen size={14} aria-hidden />

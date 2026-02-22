@@ -310,6 +310,7 @@ function MainApp() {
     addWorkspaceFromPath,
     addOpenAIWorkspace,
     addOpenAIWorkspaceFromPath,
+    retargetOpenAIWorkspace,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
@@ -2840,42 +2841,8 @@ function MainApp() {
     startThreadForWorkspace,
   ]);
 
-  const handleSelectCustomAPIWorkspaceHome = useCallback(
-    async (workspaceId: string) => {
-      if (!workspaceId) return;
-      try {
-        exitDiffView();
-        resetPullRequestSelection();
-        setCenterMode("chat");
-        setAppMode("chat");
-
-        writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
-        selectWorkspace(workspaceId);
-        setActiveThreadId(null, workspaceId);
-        await setActiveEngine("openai");
-        if (isCompact) {
-          setActiveTab("codex");
-        }
-      } catch (error) {
-        alertError(error);
-      }
-    },
-    [
-      alertError,
-      exitDiffView,
-      isCompact,
-      resetPullRequestSelection,
-      selectWorkspace,
-      setActiveEngine,
-      setActiveTab,
-      setActiveThreadId,
-      setAppMode,
-      setCenterMode,
-    ],
-  );
-
-  const handlePickCustomAPIProjectDir = useCallback(async () => {
-    // Pick a folder, add it as a Custom API workspace, and open its workspace home.
+  const handlePickCustomAPIProjectDir = useCallback(async (workspaceId: string) => {
+    // Pick a folder and retarget the current Custom API workspace to that folder.
     try {
       const openaiStatus =
         engineStatuses.find((status) => status.engineType === "openai") ?? null;
@@ -2883,20 +2850,22 @@ function MainApp() {
         openSettings("vendors");
         return;
       }
-      const workspace = await addOpenAIWorkspace();
+      if (!workspaceId) {
+        return;
+      }
+      const workspace = await retargetOpenAIWorkspace(workspaceId);
       if (!workspace) {
         return;
       }
-      await handleSelectCustomAPIWorkspaceHome(workspace.id);
+      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
     } catch (error) {
       alertError(error);
     }
   }, [
-    addOpenAIWorkspace,
     alertError,
     engineStatuses,
-    handleSelectCustomAPIWorkspaceHome,
     openSettings,
+    retargetOpenAIWorkspace,
   ]);
 
   const handleAddOpenAIWorkspaceAndChat = useCallback(async () => {

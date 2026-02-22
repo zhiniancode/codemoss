@@ -167,6 +167,13 @@ export async function ensureOpenAIChatWorkspace(): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("ensure_openai_chat_workspace");
 }
 
+export async function retargetOpenAIWorkspace(
+  workspaceId: string,
+  path: string,
+): Promise<WorkspaceInfo> {
+  return invoke<WorkspaceInfo>("retarget_openai_workspace", { workspaceId, path });
+}
+
 export async function isWorkspacePathDir(path: string): Promise<boolean> {
   return invoke<boolean>("is_workspace_path_dir", { path });
 }
