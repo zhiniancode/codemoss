@@ -1339,6 +1339,75 @@ pub(crate) async fn open_workspace_in(
     args: Vec<String>,
     command: Option<String>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    fn resolve_windows_app_command(app: &str) -> (std::ffi::OsString, Vec<String>) {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+
+        fn env_path(name: &str) -> Option<PathBuf> {
+            std::env::var_os(name).map(PathBuf::from)
+        }
+
+        fn first_existing(paths: Vec<PathBuf>) -> Option<PathBuf> {
+            paths.into_iter().find(|p| p.is_file())
+        }
+
+        fn with_program_dirs(rel: &str) -> Vec<PathBuf> {
+            let mut out = Vec::new();
+            if let Some(local) = env_path("LOCALAPPDATA") {
+                out.push(local.join("Programs").join(rel));
+            }
+            if let Some(pf) = env_path("ProgramFiles") {
+                out.push(pf.join(rel));
+            }
+            if let Some(pf86) = env_path("ProgramFiles(x86)") {
+                out.push(pf86.join(rel));
+            }
+            out
+        }
+
+        let trimmed = app.trim();
+        if trimmed.is_empty() {
+            return (OsString::from(""), Vec::new());
+        }
+
+        // If the app looks like a direct executable path, run it as-is.
+        let lower = trimmed.to_lowercase();
+        if trimmed.contains('\\') || trimmed.contains('/') || lower.ends_with(".exe") {
+            return (OsString::from(trimmed), Vec::new());
+        }
+
+        let key = lower.as_str();
+        match key {
+            // VS Code
+            "visual studio code" | "vscode" | "code" => {
+                let candidates = with_program_dirs(r"Microsoft VS Code\Code.exe");
+                if let Some(found) = first_existing(candidates) {
+                    return (found.into_os_string(), Vec::new());
+                }
+                (OsString::from("code"), Vec::new())
+            }
+            // Cursor
+            "cursor" => {
+                let candidates = with_program_dirs(r"Cursor\Cursor.exe");
+                if let Some(found) = first_existing(candidates) {
+                    return (found.into_os_string(), Vec::new());
+                }
+                (OsString::from("cursor"), Vec::new())
+            }
+            // Zed
+            "zed" => {
+                let candidates = with_program_dirs(r"Zed\Zed.exe");
+                if let Some(found) = first_existing(candidates) {
+                    return (found.into_os_string(), Vec::new());
+                }
+                (OsString::from("zed"), Vec::new())
+            }
+            // Fallback: assume it's an executable on PATH.
+            _ => (OsString::from(trimmed), Vec::new()),
+        }
+    }
+
     let target_label = command
         .as_ref()
         .map(|value| format!("command `{value}`"))
@@ -1351,13 +1420,41 @@ pub(crate) async fn open_workspace_in(
         cmd.status()
             .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
     } else if let Some(app) = app {
-        let mut cmd = crate::utils::std_command("open");
-        cmd.arg("-a").arg(app).arg(path);
-        if !args.is_empty() {
-            cmd.arg("--args").args(args);
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = crate::utils::std_command("open");
+            cmd.arg("-a").arg(app).arg(path);
+            if !args.is_empty() {
+                cmd.arg("--args").args(args);
+            }
+            cmd.status()
+                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
         }
-        cmd.status()
-            .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
+
+        #[cfg(target_os = "windows")]
+        {
+            let (resolved_command, pre_args) = resolve_windows_app_command(&app);
+            if resolved_command.is_empty() {
+                return Err("Missing app or command".to_string());
+            }
+            let mut cmd = crate::utils::std_command(resolved_command);
+            cmd.args(pre_args).args(args).arg(path);
+            cmd.status()
+                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
+        }
+
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            // Best effort on Linux/other platforms: treat the app label as an executable.
+            let trimmed = app.trim();
+            if trimmed.is_empty() {
+                return Err("Missing app or command".to_string());
+            }
+            let mut cmd = crate::utils::std_command(trimmed);
+            cmd.args(args).arg(path);
+            cmd.status()
+                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
+        }
     } else {
         return Err("Missing app or command".to_string());
     };
