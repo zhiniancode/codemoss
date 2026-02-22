@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-const GITHUB_URL = "https://github.com/zhukunpenglinyutong/codemoss";
+const GITHUB_URL = "https://github.com/zhiniancode/codemoss";
 
 export function AboutView() {
   const { t } = useTranslation();

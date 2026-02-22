@@ -68,7 +68,7 @@
 
 功能太多了，就不赘述了，大家可以下载之后自行探索
 
-下载地址（GitHub Releases）：https://github.com/zhukunpenglinyutong/codemoss/releases
+下载地址（GitHub Releases）：https://github.com/zhiniancode/codemoss/releases
 
 ---
 
@@ -87,8 +87,8 @@
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/zhukunpenglinyutong">
-        <img src="https://avatars.githubusercontent.com/u/31264015?size=100" width="100" height="100" alt="zhukunpenglinyutong" style="border-radius: 50%; border: 3px solid #ff6b35; box-shadow: 0 0 15px rgba(255, 107, 53, 0.6);" />
+      <a href="https://github.com/zhiniancode">
+        <img src="https://avatars.githubusercontent.com/zhiniancode?size=100" width="100" height="100" alt="zhiniancode" style="border-radius: 50%; border: 3px solid #ff6b35; box-shadow: 0 0 15px rgba(255, 107, 53, 0.6);" />
       </a>
       <div>🔥🔥🔥</div>
     </td>
@@ -105,13 +105,13 @@
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zhukunpenglinyutong/codemoss&type=date&legend=top-left)](https://www.star-history.com/#zhukunpenglinyutong/codemoss&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=zhiniancode/codemoss&type=date&legend=top-left)](https://www.star-history.com/#zhiniancode/codemoss&type=date&legend=top-left)
 
 <!-- LINK GROUP -->
 
-[github-contributors-shield]: https://img.shields.io/github/contributors/zhukunpenglinyutong/codemoss?color=c4f042&labelColor=black&style=flat-square
-[github-forks-shield]: https://img.shields.io/github/forks/zhukunpenglinyutong/codemoss?color=8ae8ff&labelColor=black&style=flat-square
-[github-issues-link]: https://github.com/zhukunpenglinyutong/codemoss/issues
-[github-issues-shield]: https://img.shields.io/github/issues/zhukunpenglinyutong/codemoss?color=ff80eb&labelColor=black&style=flat-square
-[github-license-link]: https://github.com/zhukunpenglinyutong/codemoss/blob/main/LICENSE
-[github-stars-shield]: https://img.shields.io/github/stars/zhukunpenglinyutong/codemoss?color=ffcb47&labelColor=black&style=flat-square
+[github-contributors-shield]: https://img.shields.io/github/contributors/zhiniancode/codemoss?color=c4f042&labelColor=black&style=flat-square
+[github-forks-shield]: https://img.shields.io/github/forks/zhiniancode/codemoss?color=8ae8ff&labelColor=black&style=flat-square
+[github-issues-link]: https://github.com/zhiniancode/codemoss/issues
+[github-issues-shield]: https://img.shields.io/github/issues/zhiniancode/codemoss?color=ff80eb&labelColor=black&style=flat-square
+[github-license-link]: https://github.com/zhiniancode/codemoss/blob/main/LICENSE
+[github-stars-shield]: https://img.shields.io/github/stars/zhiniancode/codemoss?color=ffcb47&labelColor=black&style=flat-square

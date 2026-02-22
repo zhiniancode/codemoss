@@ -3341,7 +3341,7 @@ export function SettingsView({
                   <button
                     type="button"
                     className="ghost"
-                    onClick={() => void openUrl("https://github.com/zhukunpenglinyutong/codemoss")}
+                    onClick={() => void openUrl("https://github.com/zhiniancode/codemoss")}
                   >
                     {t("about.github")}
                   </button>

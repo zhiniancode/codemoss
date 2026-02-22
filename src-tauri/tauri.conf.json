@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CodeMoss",
   "version": "0.1.8",
-  "identifier": "com.zhukunpenglinyutong.codemoss",
+  "identifier": "com.zhiniancode.codemoss",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -67,7 +67,7 @@
       "active": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCOUY2RkIzOUFFNTBBQjgKUldTNEN1V2FzMitmeXpxVWkxMXUrM05UVHRJQTNaTHNZcVo4SktSQUJNSVM2VDEzSzVtaUhHWGcK",
       "endpoints": [
-        "https://github.com/zhukunpenglinyutong/codemoss/releases/latest/download/latest.json"
+        "https://github.com/zhiniancode/codemoss/releases/latest/download/latest.json"
       ]
     }
   }

@@ -31,9 +31,9 @@ const TAURI_DIR = join(ROOT_DIR, "src-tauri");
 
 // Configuration
 const CONFIG = {
-  codesignIdentity:
-    process.env.CODESIGN_IDENTITY ||
-    "Developer ID Application: kunpeng zhu (RLHBM56QRH)",
+  // macOS signing identity. Keep empty by default so forks don't accidentally
+  // ship with someone else's certificate name.
+  codesignIdentity: process.env.CODESIGN_IDENTITY || "",
   notaryProfile: process.env.NOTARY_PROFILE || "CodeMoss-Notarize",
   entitlements: join(TAURI_DIR, "Entitlements.plist"),
   openssl: {
@@ -206,6 +206,14 @@ async function buildMacOS(arch, options = {}) {
   // Sign and bundle OpenSSL
   if (!skipSign) {
     console.log("\nBundling OpenSSL and signing...");
+    if (!CONFIG.codesignIdentity) {
+      console.error("\nError: CODESIGN_IDENTITY is not set.\n");
+      console.log("Set it to your certificate name, e.g.:");
+      console.log('  export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"');
+      console.log("\nOr build without signing:");
+      console.log("  node scripts/build-platform.mjs mac-arm64 --skip-sign");
+      process.exit(1);
+    }
 
     if (arch === "universal") {
       // Create universal OpenSSL dylibs
