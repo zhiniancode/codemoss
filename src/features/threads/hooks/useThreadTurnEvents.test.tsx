@@ -41,6 +41,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
   const renameAutoTitlePendingKey = vi.fn();
   const renameThreadTitleMapping = vi.fn();
   const resolvePendingThreadForSession = vi.fn();
+  const renamePendingMemoryCaptureKey = vi.fn();
   const pendingInterruptsRef = {
     current: new Set(overrides.pendingInterrupts ?? []),
   };
@@ -66,6 +67,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
       renameAutoTitlePendingKey,
       renameThreadTitleMapping,
       resolvePendingThreadForSession,
+      renamePendingMemoryCaptureKey,
     }),
   );
 
@@ -85,6 +87,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
     renameAutoTitlePendingKey,
     renameThreadTitleMapping,
     resolvePendingThreadForSession,
+    renamePendingMemoryCaptureKey,
     pendingInterruptsRef,
     interruptedThreadsRef,
   };
@@ -296,6 +299,7 @@ describe("useThreadTurnEvents", () => {
       renameCustomNameKey,
       renameAutoTitlePendingKey,
       renameThreadTitleMapping,
+      renamePendingMemoryCaptureKey,
     } = makeOptions();
 
     act(() => {
@@ -319,6 +323,10 @@ describe("useThreadTurnEvents", () => {
     );
     expect(renameAutoTitlePendingKey).toHaveBeenCalledWith(
       "ws-1",
+      "claude-pending-abc",
+      "claude:session-xyz",
+    );
+    expect(renamePendingMemoryCaptureKey).toHaveBeenCalledWith(
       "claude-pending-abc",
       "claude:session-xyz",
     );

@@ -256,6 +256,11 @@ export type ThreadAction =
       requestId: number | string;
       workspaceId: string;
     }
+  | {
+      type: "clearUserInputRequestsForThread";
+      workspaceId: string;
+      threadId: string;
+    }
   | { type: "setThreadTokenUsage"; threadId: string; tokenUsage: ThreadTokenUsage }
   | {
       type: "setRateLimits";
@@ -333,8 +338,718 @@ function mergeStreamingText(existing: string, delta: string) {
   return `${existing}${delta}`;
 }
 
+const REASONING_BOUNDARY_MIN_TRAILING_CHARS = 6;
+const REASONING_BOUNDARY_PUNCTUATION_REGEX = /[。！？!?;；:：]$/;
+const REASONING_FRAGMENT_MIN_RUN = 5;
+const REASONING_FRAGMENT_MAX_LENGTH = 14;
+const REASONING_FRAGMENT_MIN_TOTAL_CHARS = 12;
+const REASONING_FRAGMENT_EDGE_MIN_LENGTH = 6;
+const PARAGRAPH_BREAK_SPLIT_REGEX = /\r?\n[^\S\r\n]*\r?\n+/;
+
+function hasParagraphBreak(value: string) {
+  return PARAGRAPH_BREAK_SPLIT_REGEX.test(value);
+}
+
+function shouldMergeReasoningFragment(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= REASONING_FRAGMENT_MAX_LENGTH &&
+    !looksLikeMarkdownBlockStart(trimmed)
+  );
+}
+
+function joinReasoningFragments(segments: string[]) {
+  return segments.reduce((combined, segment) => {
+    if (!segment) {
+      return combined;
+    }
+    if (!combined) {
+      return segment;
+    }
+    const previousChar = combined[combined.length - 1] ?? "";
+    const nextChar = segment[0] ?? "";
+    const shouldInsertSpace =
+      /[A-Za-z0-9]/.test(previousChar) && /[A-Za-z0-9]/.test(nextChar);
+    return shouldInsertSpace ? `${combined} ${segment}` : `${combined}${segment}`;
+  }, "");
+}
+
+function extractReasoningBlockquoteText(paragraph: string) {
+  const lines = paragraph.split(/\r?\n/);
+  const fragments: string[] = [];
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    const match = line.match(/^\s*>\s?(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const content = match[1].trim();
+    if (!content || looksLikeMarkdownBlockStart(content)) {
+      return null;
+    }
+    fragments.push(content);
+  }
+  if (fragments.length === 0) {
+    return null;
+  }
+  return joinReasoningFragments(fragments);
+}
+
+function trimReasoningMergeWindow(
+  entries: string[],
+  start: number,
+  end: number,
+) {
+  let mergeStart = start;
+  let mergeEnd = end;
+  while (mergeStart < mergeEnd) {
+    const edge = entries[mergeStart] ?? "";
+    if (
+      edge.length >= REASONING_FRAGMENT_EDGE_MIN_LENGTH &&
+      REASONING_BOUNDARY_PUNCTUATION_REGEX.test(edge.trim())
+    ) {
+      mergeStart += 1;
+      continue;
+    }
+    break;
+  }
+  while (mergeEnd > mergeStart) {
+    const edge = entries[mergeEnd - 1] ?? "";
+    if (
+      edge.length >= REASONING_FRAGMENT_EDGE_MIN_LENGTH &&
+      REASONING_BOUNDARY_PUNCTUATION_REGEX.test(edge.trim())
+    ) {
+      mergeEnd -= 1;
+      continue;
+    }
+    break;
+  }
+  return { mergeStart, mergeEnd };
+}
+
+function normalizeReasoningFragmentedParagraphs(value: string) {
+  if (!hasParagraphBreak(value) || value.includes("```")) {
+    return value;
+  }
+  const paragraphs = value.split(PARAGRAPH_BREAK_SPLIT_REGEX);
+  if (paragraphs.length < REASONING_FRAGMENT_MIN_RUN) {
+    return value;
+  }
+  const trimmedParagraphs = paragraphs.map((entry) => entry.trim());
+
+  const normalized: string[] = [];
+  let changed = false;
+  let index = 0;
+  while (index < paragraphs.length) {
+    const current = paragraphs[index] ?? "";
+    const currentQuoteText = extractReasoningBlockquoteText(current);
+    if (
+      currentQuoteText &&
+      shouldMergeReasoningFragment(currentQuoteText)
+    ) {
+      let cursor = index;
+      const quoteEntries: string[] = [];
+      while (cursor < paragraphs.length) {
+        const candidateQuoteText = extractReasoningBlockquoteText(paragraphs[cursor] ?? "");
+        if (
+          !candidateQuoteText ||
+          !shouldMergeReasoningFragment(candidateQuoteText)
+        ) {
+          break;
+        }
+        quoteEntries.push(candidateQuoteText.trim());
+        cursor += 1;
+      }
+
+      const { mergeStart, mergeEnd } = trimReasoningMergeWindow(
+        quoteEntries,
+        0,
+        quoteEntries.length,
+      );
+      if (mergeStart > 0) {
+        normalized.push(...quoteEntries.slice(0, mergeStart).map((entry) => `> ${entry}`));
+      }
+      const mergeCandidates = quoteEntries.slice(mergeStart, mergeEnd);
+      const mergeTotalChars = mergeCandidates.reduce((sum, entry) => sum + entry.length, 0);
+      if (
+        mergeCandidates.length >= REASONING_FRAGMENT_MIN_RUN &&
+        mergeTotalChars >= REASONING_FRAGMENT_MIN_TOTAL_CHARS
+      ) {
+        normalized.push(`> ${joinReasoningFragments(mergeCandidates)}`);
+        changed = true;
+      } else {
+        normalized.push(...mergeCandidates.map((entry) => `> ${entry}`));
+      }
+      if (mergeEnd < quoteEntries.length) {
+        normalized.push(...quoteEntries.slice(mergeEnd).map((entry) => `> ${entry}`));
+      }
+      index = cursor;
+      continue;
+    }
+
+    if (!shouldMergeReasoningFragment(current)) {
+      normalized.push(current);
+      index += 1;
+      continue;
+    }
+
+    let cursor = index;
+    while (cursor < paragraphs.length) {
+      const candidate = paragraphs[cursor] ?? "";
+      if (!shouldMergeReasoningFragment(candidate)) {
+        break;
+      }
+      cursor += 1;
+    }
+
+    const { mergeStart, mergeEnd } = trimReasoningMergeWindow(
+      trimmedParagraphs,
+      index,
+      cursor,
+    );
+
+    if (mergeStart > index) {
+      normalized.push(...paragraphs.slice(index, mergeStart));
+    }
+
+    const mergeCandidates = trimmedParagraphs.slice(mergeStart, mergeEnd).filter(Boolean);
+    const mergeTotalChars = mergeCandidates.reduce((sum, entry) => sum + entry.length, 0);
+    if (
+      mergeCandidates.length >= REASONING_FRAGMENT_MIN_RUN &&
+      mergeTotalChars >= REASONING_FRAGMENT_MIN_TOTAL_CHARS
+    ) {
+      normalized.push(joinReasoningFragments(mergeCandidates));
+      changed = true;
+    } else {
+      normalized.push(...paragraphs.slice(mergeStart, mergeEnd));
+    }
+
+    if (mergeEnd < cursor) {
+      normalized.push(...paragraphs.slice(mergeEnd, cursor));
+    }
+    index = cursor;
+  }
+  return changed ? normalized.join("\n\n") : value;
+}
+
+function dedupeReasoningParagraphs(value: string) {
+  if (!value) {
+    return value;
+  }
+  const paragraphs = value
+    .split(PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (paragraphs.length <= 1) {
+    return value;
+  }
+  const deduped: string[] = [];
+  for (const paragraph of paragraphs) {
+    const previous = deduped[deduped.length - 1];
+    if (
+      previous &&
+      compactStreamingText(previous) === compactStreamingText(paragraph) &&
+      compactStreamingText(paragraph).length >= 8
+    ) {
+      continue;
+    }
+    deduped.push(paragraph);
+  }
+  return deduped.join("\n\n");
+}
+
+function dedupeRepeatedReasoningSentences(value: string) {
+  if (!value) {
+    return value;
+  }
+  const sliceByCompactLength = (text: string, targetCompactLength: number) => {
+    let compactLength = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      if (!/\s/.test(text[index])) {
+        compactLength += 1;
+      }
+      if (compactLength >= targetCompactLength) {
+        return text.slice(0, index + 1).trim();
+      }
+    }
+    return text.trim();
+  };
+
+  const collapseRepeatedParagraph = (paragraph: string) => {
+    const trimmed = paragraph.trim();
+    if (trimmed.length < 12) {
+      return trimmed;
+    }
+    const directRepeat = trimmed.match(/^([\s\S]{6,}?)\s+\1$/);
+    if (directRepeat?.[1]) {
+      return directRepeat[1].trim();
+    }
+    const compact = compactStreamingText(trimmed);
+    if (compact.length >= 12 && compact.length % 2 === 0) {
+      const halfLength = compact.length / 2;
+      const half = compact.slice(0, halfLength);
+      if (`${half}${half}` === compact) {
+        return sliceByCompactLength(trimmed, halfLength);
+      }
+    }
+    const sentenceMatches = trimmed.match(/[^。！？!?]+[。！？!?]/g);
+    if (sentenceMatches && sentenceMatches.length >= 4 && sentenceMatches.length % 2 === 0) {
+      const half = sentenceMatches.length / 2;
+      const leftCompact = compactStreamingText(sentenceMatches.slice(0, half).join(""));
+      const rightCompact = compactStreamingText(sentenceMatches.slice(half).join(""));
+      if (leftCompact.length >= 6 && leftCompact === rightCompact) {
+        return sentenceMatches.slice(0, half).join("").trim();
+      }
+    }
+    return trimmed;
+  };
+
+  const dedupeParagraph = (paragraph: string) => {
+    const collapsed = collapseRepeatedParagraph(paragraph);
+    const sentenceMatches = collapsed.match(/[^。！？!?]+[。！？!?]/g);
+    if (!sentenceMatches || sentenceMatches.length < 2) {
+      return collapsed;
+    }
+    const deduped: string[] = [];
+    for (const sentence of sentenceMatches) {
+      const trimmed = sentence.trim();
+      const previous = deduped[deduped.length - 1];
+      if (
+        previous &&
+        compactStreamingText(previous) === compactStreamingText(trimmed) &&
+        compactStreamingText(trimmed).length >= 6
+      ) {
+        continue;
+      }
+      deduped.push(trimmed);
+    }
+    const remainder = collapsed.slice(sentenceMatches.join("").length);
+    return `${deduped.join("")}${remainder}`.trim();
+  };
+
+  if (!hasParagraphBreak(value)) {
+    return dedupeParagraph(value);
+  }
+  return value
+    .split(PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => dedupeParagraph(entry.trim()))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function normalizeReasoningReadableText(value: string) {
+  const compacted = normalizeReasoningFragmentedParagraphs(value);
+  return dedupeRepeatedReasoningSentences(dedupeReasoningParagraphs(compacted));
+}
+
+function trailingSummaryFragment(value: string) {
+  const fragments = value
+    .split(PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return fragments.length > 0 ? fragments[fragments.length - 1] : "";
+}
+
+function compactStreamingText(value: string) {
+  return value.replace(/\s+/g, "");
+}
+
+function compactComparableStreamingText(value: string) {
+  return compactStreamingText(value)
+    .replace(/[！!]/g, "!")
+    .replace(/[？?]/g, "?")
+    .replace(/[，,]/g, ",")
+    .replace(/[。．.]/g, ".");
+}
+
+function sharedPrefixLength(left: string, right: string) {
+  const max = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < max && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+function tailAnchor(value: string) {
+  if (!value) {
+    return "";
+  }
+  const anchorLength = Math.min(24, Math.max(8, Math.floor(value.length * 0.3)));
+  return value.slice(-anchorLength);
+}
+
+function sliceByCompactStreamingLength(value: string, compactLength: number) {
+  if (compactLength <= 0) {
+    return value;
+  }
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!/\s/.test(value[index])) {
+      count += 1;
+    }
+    if (count >= compactLength) {
+      return value.slice(index + 1);
+    }
+  }
+  return "";
+}
+
+function takeByCompactStreamingLength(value: string, compactLength: number) {
+  if (compactLength <= 0) {
+    return "";
+  }
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!/\s/.test(value[index])) {
+      count += 1;
+    }
+    if (count >= compactLength) {
+      let end = index + 1;
+      while (end < value.length && /\s/.test(value[end])) {
+        end += 1;
+      }
+      return value.slice(0, end);
+    }
+  }
+  return value;
+}
+
+function mergeShiftedSnapshot(existing: string, delta: string) {
+  const comparableExisting = compactComparableStreamingText(existing);
+  const comparableDelta = compactComparableStreamingText(delta);
+  if (comparableExisting.length < 24 || comparableDelta.length < 24) {
+    return null;
+  }
+  if (comparableDelta.length < Math.floor(comparableExisting.length * 0.45)) {
+    return null;
+  }
+  const anchorLength = Math.min(
+    28,
+    Math.max(10, Math.floor(comparableDelta.length * 0.2)),
+  );
+  const deltaAnchor = comparableDelta.slice(0, anchorLength);
+  if (!deltaAnchor) {
+    return null;
+  }
+  const shiftIndex = comparableExisting.indexOf(deltaAnchor);
+  if (shiftIndex <= 0) {
+    return null;
+  }
+  const existingTail = comparableExisting.slice(shiftIndex);
+  const comparableOverlap = sharedPrefixLength(existingTail, comparableDelta);
+  const minComparableLength = Math.min(existingTail.length, comparableDelta.length);
+  if (
+    minComparableLength < 16 ||
+    comparableOverlap < Math.floor(minComparableLength * 0.72)
+  ) {
+    return null;
+  }
+  const existingPrefix = takeByCompactStreamingLength(existing, shiftIndex);
+  if (!existingPrefix.trim()) {
+    return null;
+  }
+  return `${existingPrefix}${delta}`;
+}
+
+function scoreParagraphFragmentation(value: string) {
+  const segments = value
+    .split(PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (segments.length <= 1) {
+    return 0;
+  }
+  const shortSegments = segments.filter((entry) => entry.length <= 8).length;
+  return shortSegments * 3 + segments.length;
+}
+
+function chooseReadableText(existing: string, incoming: string) {
+  const existingScore = scoreParagraphFragmentation(existing);
+  const incomingScore = scoreParagraphFragmentation(incoming);
+  if (incomingScore < existingScore) {
+    return incoming;
+  }
+  if (existingScore < incomingScore) {
+    return existing;
+  }
+  return incoming.length >= existing.length ? incoming : existing;
+}
+
+function looksLikeMarkdownBlockStart(value: string) {
+  const trimmed = value.trimStart();
+  return (
+    /^[-*+]\s/.test(trimmed) ||
+    /^\d+\.\s/.test(trimmed) ||
+    /^>\s?/.test(trimmed) ||
+    /^#{1,6}\s/.test(trimmed) ||
+    /^```/.test(trimmed) ||
+    /^\|/.test(trimmed)
+  );
+}
+
+function sanitizeTinyLeadingBreakDelta(existing: string, delta: string) {
+  if (!existing || !delta.startsWith("\n\n")) {
+    return delta;
+  }
+  const withoutLeadingBreaks = delta.replace(/^\n{2,}/, "");
+  if (!withoutLeadingBreaks) {
+    return delta;
+  }
+  const trimmed = withoutLeadingBreaks.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > 20 ||
+    looksLikeMarkdownBlockStart(withoutLeadingBreaks)
+  ) {
+    return delta;
+  }
+  const previousChar = existing.trimEnd().slice(-1);
+  if (!previousChar || /[\n。！？!?;；:：]/.test(previousChar)) {
+    return delta;
+  }
+  return withoutLeadingBreaks;
+}
+
+function stripLeadingEchoFromSnapshot(existing: string, candidate: string) {
+  if (!existing || !candidate || !candidate.startsWith(existing)) {
+    return candidate;
+  }
+  const compactExisting = compactStreamingText(existing);
+  if (compactExisting.length < 12) {
+    return candidate;
+  }
+  let current = candidate;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!current.startsWith(existing)) {
+      break;
+    }
+    const suffix = current.slice(existing.length);
+    const trimmedSuffix = suffix.trimStart();
+    if (!trimmedSuffix) {
+      return existing;
+    }
+    const compactSuffix = compactStreamingText(trimmedSuffix);
+    if (!compactSuffix.startsWith(compactExisting)) {
+      break;
+    }
+    const tail = sliceByCompactStreamingLength(trimmedSuffix, compactExisting.length);
+    if (!tail.trim()) {
+      return existing;
+    }
+    current = `${existing}${tail}`;
+  }
+  return current;
+}
+
+function mergeAgentMessageText(existing: string, delta: string) {
+  const normalizedDelta = stripLeadingEchoFromSnapshot(
+    existing,
+    sanitizeTinyLeadingBreakDelta(existing, delta),
+  );
+  if (!normalizedDelta) {
+    return existing;
+  }
+  if (!existing) {
+    return normalizedDelta;
+  }
+  const compactExisting = compactComparableStreamingText(existing);
+  const compactDelta = compactComparableStreamingText(normalizedDelta);
+  if (compactExisting && compactDelta) {
+    if (compactDelta === compactExisting) {
+      return chooseReadableText(existing, normalizedDelta);
+    }
+    if (compactDelta.startsWith(compactExisting) && normalizedDelta.length >= existing.length) {
+      return normalizedDelta;
+    }
+    if (compactExisting.startsWith(compactDelta) && existing.length >= normalizedDelta.length) {
+      return existing;
+    }
+    if (compactDelta.includes(compactExisting) && normalizedDelta.length >= existing.length * 0.8) {
+      const firstIndex = compactDelta.indexOf(compactExisting);
+      const secondIndex = compactDelta.indexOf(
+        compactExisting,
+        firstIndex + Math.max(1, Math.floor(compactExisting.length / 2)),
+      );
+      if (firstIndex > 0 || secondIndex >= 0) {
+        return chooseReadableText(existing, normalizedDelta);
+      }
+      return normalizedDelta;
+    }
+    const minComparableLength = Math.min(compactDelta.length, compactExisting.length);
+    if (minComparableLength >= 24) {
+      const sharedComparablePrefix = sharedPrefixLength(compactExisting, compactDelta);
+      if (sharedComparablePrefix >= Math.floor(minComparableLength * 0.72)) {
+        return chooseReadableText(existing, normalizedDelta);
+      }
+      const existingTailAnchor = tailAnchor(compactExisting);
+      if (
+        sharedComparablePrefix >= 12 &&
+        existingTailAnchor.length >= 8 &&
+        compactDelta.includes(existingTailAnchor)
+      ) {
+        return chooseReadableText(existing, normalizedDelta);
+      }
+    }
+    const shiftedSnapshot = mergeShiftedSnapshot(existing, normalizedDelta);
+    if (shiftedSnapshot) {
+      return chooseReadableText(existing, shiftedSnapshot);
+    }
+  }
+  return mergeStreamingText(existing, normalizedDelta);
+}
+
+function mergeReasoningText(existing: string, delta: string) {
+  return normalizeReasoningReadableText(mergeAgentMessageText(existing, delta));
+}
+
+function mergeCompletedAgentText(existing: string, completed: string) {
+  const normalizedCompleted = normalizeCompletedAssistantText(completed);
+  if (!normalizedCompleted) {
+    return existing;
+  }
+  if (!existing) {
+    return normalizedCompleted;
+  }
+  const compactExisting = compactStreamingText(existing);
+  const compactCompleted = compactStreamingText(normalizedCompleted);
+  if (!compactExisting || !compactCompleted) {
+    return normalizedCompleted;
+  }
+
+  if (compactCompleted === compactExisting) {
+    return chooseReadableText(existing, normalizedCompleted);
+  }
+
+  const comparableExisting = compactComparableStreamingText(existing);
+  const comparableCompleted = compactComparableStreamingText(normalizedCompleted);
+  if (comparableExisting && comparableCompleted) {
+    const comparableLengthDelta = Math.abs(
+      comparableCompleted.length - comparableExisting.length,
+    );
+    const sharedComparablePrefix = sharedPrefixLength(
+      comparableExisting,
+      comparableCompleted,
+    );
+    if (
+      Math.min(comparableExisting.length, comparableCompleted.length) >= 24 &&
+      comparableLengthDelta <= 6 &&
+      sharedComparablePrefix >= 6
+    ) {
+      const existingTailAnchor = tailAnchor(comparableExisting);
+      const completedTailAnchor = tailAnchor(comparableCompleted);
+      if (
+        existingTailAnchor.length >= 8 &&
+        completedTailAnchor.length >= 8 &&
+        comparableCompleted.includes(existingTailAnchor) &&
+        comparableExisting.includes(completedTailAnchor)
+      ) {
+        return chooseReadableText(existing, normalizedCompleted);
+      }
+    }
+  }
+
+  const repeatedFromStart =
+    compactCompleted.startsWith(compactExisting) &&
+    compactCompleted.endsWith(compactExisting) &&
+    compactCompleted.length > compactExisting.length &&
+    compactCompleted.indexOf(compactExisting, 1) >= compactExisting.length;
+  if (
+    repeatedFromStart &&
+    scoreParagraphFragmentation(normalizedCompleted) > scoreParagraphFragmentation(existing)
+  ) {
+    return existing;
+  }
+
+  return normalizeCompletedAssistantText(mergeAgentMessageText(existing, normalizedCompleted));
+}
+
+function normalizeCompletedAssistantText(value: string) {
+  const normalizedMessage = normalizeItem({
+    id: "__completed-assistant-normalization__",
+    kind: "message",
+    role: "assistant",
+    text: value,
+  });
+  const normalizedByItem =
+    normalizedMessage.kind === "message" ? normalizedMessage.text : value;
+  if (normalizedByItem && normalizedByItem !== value) {
+    return normalizedByItem;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  // 非 markdown 普通文本里，偶发会收到 "A + 空白 + A" 的重复 completed payload。
+  // 这里优先压缩为单份，避免最终气泡出现整段重复拼接。
+  if (!/```/.test(trimmed) && !looksLikeMarkdownBlockStart(trimmed)) {
+    const directRepeat = trimmed.match(/^([\s\S]{12,}?)\s+\1$/);
+    if (directRepeat?.[1]) {
+      return directRepeat[1].trim();
+    }
+  }
+
+  return value;
+}
+
+function findAssistantMessageIndexById(
+  list: ConversationItem[],
+  candidateId: string,
+) {
+  if (!candidateId) {
+    return -1;
+  }
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    if (
+      item.kind === "message" &&
+      item.role === "assistant" &&
+      item.id === candidateId
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function findAssistantMessageIndexByPrefix(
+  list: ConversationItem[],
+  idPrefix: string,
+) {
+  if (!idPrefix) {
+    return -1;
+  }
+  const segmentPrefix = `${idPrefix}-seg-`;
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    if (
+      item.kind === "message" &&
+      item.role === "assistant" &&
+      item.id.startsWith(segmentPrefix)
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function addSummaryBoundary(existing: string) {
   if (!existing) {
+    return existing;
+  }
+  const trailingFragment = trailingSummaryFragment(existing);
+  if (!trailingFragment) {
+    return existing;
+  }
+  if (
+    trailingFragment.length < REASONING_BOUNDARY_MIN_TRAILING_CHARS &&
+    !REASONING_BOUNDARY_PUNCTUATION_REGEX.test(trailingFragment)
+  ) {
     return existing;
   }
   if (existing.endsWith("\n\n")) {
@@ -489,13 +1204,22 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           }
         });
 
+        const hasPendingThreadActivity = (threadId: string) =>
+          Boolean(state.threadStatusById[threadId]?.isProcessing) ||
+          (state.activeTurnIdByThread[threadId] ?? null) !== null ||
+          (state.itemsByThread[threadId]?.length ?? 0) > 0 ||
+          Boolean(state.lastAgentMessageByThread[threadId]);
+
         // Prefer deterministic reconciliation when multiple pending threads exist:
         // 1) single processing pending thread
         // 2) single pending thread with an active turn id
-        // 3) fallback to single pending thread
+        // 3) single pending thread with observed activity (messages/deltas)
         let pendingIndex: number | null = null;
         if (pendingIndexes.length === 1) {
-          pendingIndex = pendingIndexes[0];
+          const singlePendingId = list[pendingIndexes[0]]?.id ?? "";
+          if (singlePendingId && hasPendingThreadActivity(singlePendingId)) {
+            pendingIndex = pendingIndexes[0];
+          }
         } else if (pendingIndexes.length > 1) {
           const processingIndexes = pendingIndexes.filter((index) => {
             const pendingId = list[index]?.id;
@@ -516,6 +1240,16 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
             });
             if (turnBoundIndexes.length === 1) {
               pendingIndex = turnBoundIndexes[0];
+            }
+          }
+
+          if (pendingIndex === null) {
+            const activityIndexes = pendingIndexes.filter((index) => {
+              const pendingId = list[index]?.id;
+              return pendingId ? hasPendingThreadActivity(pendingId) : false;
+            });
+            if (activityIndexes.length === 1) {
+              pendingIndex = activityIndexes[0];
             }
           }
         }
@@ -956,7 +1690,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         const existing = list[index];
         list[index] = {
           ...existing,
-          text: mergeStreamingText(existing.text, action.delta),
+          text: mergeAgentMessageText(existing.text, action.delta),
         };
       } else {
         list.push({
@@ -988,16 +1722,27 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       const segment = state.agentSegmentByThread[action.threadId] ?? 0;
       const segmentedItemId = segment > 0 ? `${action.itemId}-seg-${segment}` : action.itemId;
       const list = [...(state.itemsByThread[action.threadId] ?? [])];
-      const index = list.findIndex((msg) => msg.id === segmentedItemId);
-      if (index >= 0 && list[index].kind === "message") {
-        const existing = list[index];
+      let index = findAssistantMessageIndexById(list, segmentedItemId);
+      if (index < 0) {
+        index = findAssistantMessageIndexById(list, action.itemId);
+      }
+      if (index < 0) {
+        index = findAssistantMessageIndexByPrefix(list, action.itemId);
+      }
+      const targetItemId = index >= 0 ? list[index].id : segmentedItemId;
+      const existingItem = index >= 0 ? list[index] : null;
+      if (
+        existingItem &&
+        existingItem.kind === "message" &&
+        existingItem.role === "assistant"
+      ) {
         list[index] = {
-          ...existing,
-          text: action.text || existing.text,
+          ...existingItem,
+          text: mergeCompletedAgentText(existingItem.text, action.text),
         };
       } else {
         list.push({
-          id: action.itemId,
+          id: targetItemId,
           kind: "message",
           role: "assistant",
           text: action.text,
@@ -1008,7 +1753,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         workspaceId: action.workspaceId,
         threadId: action.threadId,
         items: updatedItems,
-        itemId: action.itemId,
+        itemId: targetItemId,
         hasCustomName: action.hasCustomName,
         threadsByWorkspace: state.threadsByWorkspace,
       });
@@ -1045,7 +1790,30 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           return state;
         }
       }
-      const nextItem = ensureUniqueReviewId(list, item);
+      let nextItem = ensureUniqueReviewId(list, item);
+      if (nextItem.kind === "reasoning") {
+        const existingReasoning = list.find(
+          (entry): entry is Extract<ConversationItem, { kind: "reasoning" }> =>
+            entry.id === nextItem.id && entry.kind === "reasoning",
+        );
+        if (existingReasoning) {
+          const existingSummary = normalizeReasoningReadableText(existingReasoning.summary);
+          const incomingSummary = normalizeReasoningReadableText(nextItem.summary);
+          const existingContent = normalizeReasoningReadableText(existingReasoning.content);
+          const incomingContent = normalizeReasoningReadableText(nextItem.content);
+          nextItem = {
+            ...nextItem,
+            summary: chooseReadableText(existingSummary, incomingSummary),
+            content: chooseReadableText(existingContent, incomingContent),
+          };
+        } else {
+          nextItem = {
+            ...nextItem,
+            summary: normalizeReasoningReadableText(nextItem.summary),
+            content: normalizeReasoningReadableText(nextItem.content),
+          };
+        }
+      }
       const updatedItems = prepareThreadItems(upsertItem(list, nextItem));
       let nextThreadsByWorkspace = state.threadsByWorkspace;
       if (isUserMessage) {
@@ -1256,6 +2024,21 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         };
         delete newHiddenThreadIdsByWorkspace[workspaceId][oldThreadId];
       }
+      const newUserInputRequests = state.userInputRequests.map((request) => {
+        if (
+          request.workspace_id !== workspaceId ||
+          request.params.thread_id !== oldThreadId
+        ) {
+          return request;
+        }
+        return {
+          ...request,
+          params: {
+            ...request.params,
+            thread_id: newThreadId,
+          },
+        };
+      });
 
       return {
         ...state,
@@ -1270,6 +2053,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         agentSegmentByThread: newAgentSegmentByThread,
         threadParentById: newThreadParentById,
         hiddenThreadIdsByWorkspace: newHiddenThreadIdsByWorkspace,
+        userInputRequests: newUserInputRequests,
       };
     }
     case "appendReasoningSummary": {
@@ -1286,7 +2070,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
             };
       const updated: ConversationItem = {
         ...base,
-        summary: mergeStreamingText(
+        summary: mergeReasoningText(
           "summary" in base ? base.summary : "",
           action.delta,
         ),
@@ -1365,7 +2149,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
             };
       const updated: ConversationItem = {
         ...base,
-        content: mergeStreamingText(
+        content: mergeReasoningText(
           "content" in base ? base.content : "",
           action.delta,
         ),
@@ -1444,6 +2228,15 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           (item) =>
             item.request_id !== action.requestId ||
             item.workspace_id !== action.workspaceId,
+        ),
+      };
+    case "clearUserInputRequestsForThread":
+      return {
+        ...state,
+        userInputRequests: state.userInputRequests.filter(
+          (item) =>
+            item.workspace_id !== action.workspaceId ||
+            item.params.thread_id !== action.threadId,
         ),
       };
     case "setThreads": {

@@ -15,18 +15,41 @@ export function useCollaborationModeSelection({
   resolvedModel,
 }: UseCollaborationModeSelectionOptions) {
   const collaborationModePayload = useMemo(() => {
-    if (!selectedCollaborationModeId || !selectedCollaborationMode) {
+    if (!selectedCollaborationModeId) {
       return null;
     }
 
-    const modeValue = selectedCollaborationMode.mode || selectedCollaborationMode.id;
-    if (!modeValue) {
+    const modeValue = (
+      selectedCollaborationMode?.mode ||
+      selectedCollaborationMode?.id ||
+      selectedCollaborationModeId
+    )
+      .trim()
+      .toLowerCase();
+    const normalizedMode = modeValue === "default" ? "code" : modeValue;
+    if (normalizedMode !== "plan" && normalizedMode !== "code") {
       return null;
     }
 
-    const settings: Record<string, unknown> = {
-      developer_instructions: selectedCollaborationMode.developerInstructions ?? null,
-    };
+    const basePayload =
+      selectedCollaborationMode?.value &&
+      typeof selectedCollaborationMode.value === "object" &&
+      !Array.isArray(selectedCollaborationMode.value)
+        ? { ...(selectedCollaborationMode.value as Record<string, unknown>) }
+        : {};
+
+    const existingSettings = basePayload.settings;
+    const settings: Record<string, unknown> =
+      existingSettings &&
+      typeof existingSettings === "object" &&
+      !Array.isArray(existingSettings)
+        ? { ...(existingSettings as Record<string, unknown>) }
+        : {};
+
+    if (!Object.prototype.hasOwnProperty.call(settings, "developer_instructions")) {
+      settings.developer_instructions =
+        selectedCollaborationMode?.developerInstructions ?? null;
+    }
 
     if (resolvedModel) {
       settings.model = resolvedModel;
@@ -37,7 +60,8 @@ export function useCollaborationModeSelection({
     }
 
     return {
-      mode: modeValue,
+      ...basePayload,
+      mode: normalizedMode,
       settings,
     };
   }, [

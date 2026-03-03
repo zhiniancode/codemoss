@@ -1,10 +1,18 @@
 import { useEffect, useRef } from "react";
+import type { MutableRefObject } from "react";
 import type {
   AppServerEvent,
   ApprovalRequest,
+  CollaborationModeBlockedRequest,
+  CollaborationModeResolvedRequest,
   RequestUserInputRequest,
 } from "../../../types";
 import { subscribeAppServerEvents } from "../../../services/events";
+import type { NormalizedThreadEvent } from "../../threads/contracts/conversationCurtainContracts";
+import {
+  getRealtimeAdapterByEngine,
+  inferRealtimeAdapterEngine,
+} from "../../threads/adapters/realtimeAdapterRegistry";
 
 type AgentDelta = {
   workspaceId: string;
@@ -36,6 +44,8 @@ type AppServerEventHandlers = {
   ) => void;
   onApprovalRequest?: (request: ApprovalRequest) => void;
   onRequestUserInput?: (request: RequestUserInputRequest) => void;
+  onModeBlocked?: (event: CollaborationModeBlockedRequest) => void;
+  onModeResolved?: (event: CollaborationModeResolvedRequest) => void;
   onAgentMessageDelta?: (event: AgentDelta) => void;
   onAgentMessageCompleted?: (event: AgentCompleted) => void;
   onAppServerEvent?: (event: AppServerEvent) => void;
@@ -87,9 +97,244 @@ type AppServerEventHandlers = {
   getActiveCodexThreadId?: (workspaceId: string) => string | null;
 };
 
-export function useAppServerEvents(handlers: AppServerEventHandlers) {
+type UseAppServerEventsOptions = {
+  useNormalizedRealtimeAdapters?: boolean;
+};
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : value ? String(value) : "";
+}
+
+function extractThreadIdFromParams(params: Record<string, unknown>): string {
+  const turn = (params.turn as Record<string, unknown> | undefined) ?? {};
+  const threadObj = (params.thread as Record<string, unknown> | undefined) ?? {};
+  return asString(
+    params.threadId ??
+      params.thread_id ??
+      turn.threadId ??
+      turn.thread_id ??
+      threadObj.id ??
+      "",
+  ).trim();
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
+function extractTokenUsageFromNormalizedEvent(
+  event: NormalizedThreadEvent,
+): Record<string, unknown> | null {
+  const usageFromItem =
+    event.rawItem && typeof event.rawItem.usage === "object" && event.rawItem.usage
+      ? (event.rawItem.usage as Record<string, unknown>)
+      : null;
+  const usage = event.rawUsage ?? usageFromItem;
+  if (!usage) {
+    return null;
+  }
+
+  const inputTokens = toNumber(usage.input_tokens ?? usage.inputTokens);
+  const outputTokens = toNumber(usage.output_tokens ?? usage.outputTokens);
+  const cachedInputTokens = toNumber(
+    usage.cached_input_tokens ??
+      usage.cache_read_input_tokens ??
+      usage.cachedInputTokens ??
+      usage.cacheReadInputTokens,
+  );
+  const modelContextWindow = toNumber(
+    usage.model_context_window ?? usage.modelContextWindow,
+  );
+  if (inputTokens <= 0 && outputTokens <= 0 && cachedInputTokens <= 0) {
+    return null;
+  }
+  const safeModelContextWindow = modelContextWindow > 0 ? modelContextWindow : 200000;
+  return {
+    total: {
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+      totalTokens: inputTokens + outputTokens,
+    },
+    last: {
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+      totalTokens: inputTokens + outputTokens,
+    },
+    modelContextWindow: safeModelContextWindow,
+  };
+}
+
+function routeNormalizedRealtimeEvent({
+  handlers,
+  workspaceId,
+  event,
+  threadAgentDeltaSeenRef,
+  threadAgentCompletedSeenRef,
+}: {
+  handlers: AppServerEventHandlers;
+  workspaceId: string;
+  event: NormalizedThreadEvent;
+  threadAgentDeltaSeenRef: MutableRefObject<Record<string, true>>;
+  threadAgentCompletedSeenRef: MutableRefObject<Record<string, true>>;
+}): boolean {
+  const threadId = event.threadId;
+  const itemId = event.item.id;
+  switch (event.operation) {
+    case "itemStarted":
+      if (event.rawItem) {
+        handlers.onItemStarted?.(workspaceId, threadId, event.rawItem);
+        return true;
+      }
+      return false;
+    case "itemUpdated":
+      if (event.rawItem) {
+        handlers.onItemUpdated?.(workspaceId, threadId, event.rawItem);
+        return true;
+      }
+      return false;
+    case "itemCompleted":
+      if (event.rawItem) {
+        handlers.onItemCompleted?.(workspaceId, threadId, event.rawItem);
+        const tokenUsage = extractTokenUsageFromNormalizedEvent(event);
+        if (tokenUsage) {
+          handlers.onThreadTokenUsageUpdated?.(workspaceId, threadId, tokenUsage);
+        }
+        return true;
+      }
+      return false;
+    case "appendAgentMessageDelta": {
+      const delta = event.delta ?? (event.item.kind === "message" ? event.item.text : "");
+      if (!delta) {
+        return false;
+      }
+      threadAgentDeltaSeenRef.current[threadId] = true;
+      handlers.onAgentMessageDelta?.({
+        workspaceId,
+        threadId,
+        itemId,
+        delta,
+      });
+      return true;
+    }
+    case "completeAgentMessage": {
+      const text = event.item.kind === "message" ? event.item.text : "";
+      if (event.rawItem) {
+        handlers.onItemCompleted?.(workspaceId, threadId, event.rawItem);
+      }
+      const tokenUsage = extractTokenUsageFromNormalizedEvent(event);
+      if (tokenUsage) {
+        handlers.onThreadTokenUsageUpdated?.(workspaceId, threadId, tokenUsage);
+      }
+      if (threadAgentCompletedSeenRef.current[threadId]) {
+        return true;
+      }
+      handlers.onAgentMessageCompleted?.({
+        workspaceId,
+        threadId,
+        itemId,
+        text,
+      });
+      threadAgentCompletedSeenRef.current[threadId] = true;
+      return true;
+    }
+    case "appendReasoningSummaryDelta": {
+      const delta = event.delta ?? "";
+      if (!delta) {
+        return false;
+      }
+      handlers.onReasoningSummaryDelta?.(workspaceId, threadId, itemId, delta);
+      return true;
+    }
+    case "appendReasoningSummaryBoundary":
+      handlers.onReasoningSummaryBoundary?.(workspaceId, threadId, itemId);
+      return true;
+    case "appendReasoningContentDelta": {
+      const delta = event.delta ?? "";
+      if (!delta) {
+        return false;
+      }
+      handlers.onReasoningTextDelta?.(workspaceId, threadId, itemId, delta);
+      return true;
+    }
+    case "appendToolOutputDelta": {
+      const delta = event.delta ?? "";
+      if (!delta || event.item.kind !== "tool") {
+        return false;
+      }
+      if (event.item.toolType === "fileChange") {
+        handlers.onFileChangeOutputDelta?.(workspaceId, threadId, itemId, delta);
+      } else {
+        handlers.onCommandOutputDelta?.(workspaceId, threadId, itemId, delta);
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+function tryRouteNormalizedRealtimeEvent({
+  handlers,
+  workspaceId,
+  message,
+  threadAgentDeltaSeenRef,
+  threadAgentCompletedSeenRef,
+}: {
+  handlers: AppServerEventHandlers;
+  workspaceId: string;
+  message: Record<string, unknown>;
+  threadAgentDeltaSeenRef: MutableRefObject<Record<string, true>>;
+  threadAgentCompletedSeenRef: MutableRefObject<Record<string, true>>;
+}): boolean {
+  const params = (message.params as Record<string, unknown> | undefined) ?? {};
+  const turn = (params.turn as Record<string, unknown> | undefined) ?? {};
+  const threadId = asString(
+    params.threadId ??
+      params.thread_id ??
+      turn.threadId ??
+      turn.thread_id ??
+      "",
+  );
+  if (!threadId) {
+    return false;
+  }
+  const engine = inferRealtimeAdapterEngine(threadId);
+  const adapter = getRealtimeAdapterByEngine(engine);
+  const normalized = adapter.mapEvent({
+    workspaceId,
+    message,
+  });
+  if (!normalized) {
+    return false;
+  }
+  return routeNormalizedRealtimeEvent({
+    handlers,
+    workspaceId,
+    event: normalized,
+    threadAgentDeltaSeenRef,
+    threadAgentCompletedSeenRef,
+  });
+}
+
+export function useAppServerEvents(
+  handlers: AppServerEventHandlers,
+  options: UseAppServerEventsOptions = {},
+) {
   const threadAgentDeltaSeenRef = useRef<Record<string, true>>({});
+  const threadAgentCompletedSeenRef = useRef<Record<string, true>>({});
   useEffect(() => {
+    const useNormalizedRealtimeAdapters = options.useNormalizedRealtimeAdapters === true;
     const unlisten = subscribeAppServerEvents((payload) => {
       handlers.onAppServerEvent?.(payload);
 
@@ -115,8 +360,82 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         return;
       }
 
+      if (method === "collaboration/modeBlocked") {
+        const params = (message.params as Record<string, unknown>) ?? {};
+        const requestIdValue = params.requestId ?? params.request_id;
+        const requestId =
+          typeof requestIdValue === "number" || typeof requestIdValue === "string"
+            ? requestIdValue
+            : null;
+        const reasonCodeValue = params.reasonCode ?? params.reason_code;
+        const parsedReasonCode =
+          reasonCodeValue === undefined || reasonCodeValue === null
+            ? undefined
+            : String(reasonCodeValue);
+        handlers.onModeBlocked?.({
+          workspace_id,
+          params: {
+            thread_id: String(params.threadId ?? params.thread_id ?? ""),
+            blocked_method: String(
+              params.blockedMethod ?? params.blocked_method ?? "",
+            ),
+            effective_mode: String(
+              params.effectiveMode ?? params.effective_mode ?? "",
+            ),
+            ...(parsedReasonCode ? { reason_code: parsedReasonCode } : {}),
+            reason: String(params.reason ?? ""),
+            suggestion:
+              params.suggestion === undefined || params.suggestion === null
+                ? undefined
+                : String(params.suggestion),
+            request_id: requestId,
+          },
+        });
+        return;
+      }
+
+      if (method === "collaboration/modeResolved") {
+        const params = (message.params as Record<string, unknown>) ?? {};
+        const selectedUiModeRaw = String(
+          params.selectedUiMode ?? params.selected_ui_mode ?? "",
+        ).trim().toLowerCase();
+        const effectiveRuntimeModeRaw = String(
+          params.effectiveRuntimeMode ?? params.effective_runtime_mode ?? "",
+        ).trim().toLowerCase();
+        const effectiveUiModeRaw = String(
+          params.effectiveUiMode ?? params.effective_ui_mode ?? "",
+        ).trim().toLowerCase();
+        const fallbackReasonRaw =
+          params.fallbackReason ?? params.fallback_reason;
+        const selectedUiMode =
+          selectedUiModeRaw === "plan" ? "plan" : "default";
+        const effectiveRuntimeMode =
+          effectiveRuntimeModeRaw === "plan" ? "plan" : "code";
+        const effectiveUiMode =
+          effectiveUiModeRaw === "plan" ? "plan" : "default";
+        handlers.onModeResolved?.({
+          workspace_id,
+          params: {
+            thread_id: String(params.threadId ?? params.thread_id ?? ""),
+            selected_ui_mode: selectedUiMode,
+            effective_runtime_mode: effectiveRuntimeMode,
+            effective_ui_mode: effectiveUiMode,
+            fallback_reason:
+              fallbackReasonRaw === undefined || fallbackReasonRaw === null
+                ? null
+                : String(fallbackReasonRaw),
+          },
+        });
+        return;
+      }
+
       if (method === "item/tool/requestUserInput" && hasRequestId) {
         const params = (message.params as Record<string, unknown>) ?? {};
+        const fallbackThreadId = handlers.getActiveCodexThreadId?.(workspace_id) ?? "";
+        const resolvedThreadId =
+          extractThreadIdFromParams(params) || fallbackThreadId;
+        const completed = Boolean(params.completed);
+        const turn = (params.turn as Record<string, unknown> | undefined) ?? {};
         const questionsRaw = Array.isArray(params.questions) ? params.questions : [];
         const questions = questionsRaw
           .map((entry) => {
@@ -147,12 +466,26 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
           workspace_id,
           request_id: requestId,
           params: {
-            thread_id: String(params.threadId ?? params.thread_id ?? ""),
-            turn_id: String(params.turnId ?? params.turn_id ?? ""),
-            item_id: String(params.itemId ?? params.item_id ?? ""),
+            thread_id: resolvedThreadId,
+            turn_id: String(params.turnId ?? params.turn_id ?? turn.id ?? ""),
+            item_id: String(params.itemId ?? params.item_id ?? turn.itemId ?? turn.item_id ?? ""),
             questions,
+            ...(completed ? { completed: true } : {}),
           },
         });
+        return;
+      }
+
+      if (
+        useNormalizedRealtimeAdapters &&
+        tryRouteNormalizedRealtimeEvent({
+          handlers,
+          workspaceId: workspace_id,
+          message,
+          threadAgentDeltaSeenRef,
+          threadAgentCompletedSeenRef,
+        })
+      ) {
         return;
       }
 
@@ -181,6 +514,8 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         );
         const turnId = String(turn?.id ?? params.turnId ?? params.turn_id ?? "");
         if (threadId) {
+          delete threadAgentDeltaSeenRef.current[threadId];
+          delete threadAgentCompletedSeenRef.current[threadId];
           handlers.onTurnStarted?.(workspace_id, threadId, turnId);
         }
         return;
@@ -273,6 +608,7 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         const turnId = String(turn?.id ?? params.turnId ?? params.turn_id ?? "");
         if (threadId) {
           const seenDelta = Boolean(threadAgentDeltaSeenRef.current[threadId]);
+          const seenCompleted = Boolean(threadAgentCompletedSeenRef.current[threadId]);
           const result = (params.result as Record<string, unknown> | undefined) ?? undefined;
           const textFromResult = [
             typeof params.text === "string" ? params.text : "",
@@ -283,15 +619,17 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
           ]
             .map((item) => item.trim())
             .find((item) => item.length > 0);
-          if (!seenDelta && textFromResult) {
+          if (!seenDelta && !seenCompleted && textFromResult) {
             handlers.onAgentMessageCompleted?.({
               workspaceId: workspace_id,
               threadId,
               itemId: turnId || `assistant-final-${Date.now()}`,
               text: textFromResult,
             });
+            threadAgentCompletedSeenRef.current[threadId] = true;
           }
           delete threadAgentDeltaSeenRef.current[threadId];
+          delete threadAgentCompletedSeenRef.current[threadId];
           handlers.onTurnCompleted?.(workspace_id, threadId, turnId);
 
           // Try to extract usage data from turn/completed (Codex may include it here)
@@ -394,14 +732,12 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
 
       // Handle Codex token_count events (Codex sends usage data this way)
       // Format: {"method":"token_count","params":{"info":{"total_token_usage":{...}}}}
-      // 奶奶请看：这里是处理 Codex "报告信"的地方
       if (method === "token_count") {
         const params = message.params as Record<string, unknown>;
         const info = params.info as Record<string, unknown> | undefined;
         let threadId = String(params.threadId ?? params.thread_id ?? "");
 
-        // 如果事件中没有 threadId，尝试从当前活动的 Codex thread 获取
-        // 这就像收件室帮忙查找"当前正在使用的房间号"
+        // If no threadId in event, try to resolve from the active Codex thread
         if (!threadId && handlers.getActiveCodexThreadId) {
           const activeThreadId = handlers.getActiveCodexThreadId(workspace_id);
           if (activeThreadId) {
@@ -409,7 +745,7 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
           }
         }
 
-        // 如果还是没有 threadId，就跳过这个事件（不再使用 "codex-default"）
+        // Skip this event if threadId is still unavailable
         if (!threadId) {
           return;
         }
@@ -523,13 +859,14 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
         if (threadId && item?.type === "agentMessage") {
           const itemId = String(item.id ?? "");
           const text = String(item.text ?? "");
-          if (itemId) {
+          if (itemId && !threadAgentCompletedSeenRef.current[threadId]) {
             handlers.onAgentMessageCompleted?.({
               workspaceId: workspace_id,
               threadId,
               itemId,
               text,
             });
+            threadAgentCompletedSeenRef.current[threadId] = true;
           }
         }
         return;
@@ -637,5 +974,5 @@ export function useAppServerEvents(handlers: AppServerEventHandlers) {
     return () => {
       unlisten();
     };
-  }, [handlers]);
+  }, [handlers, options.useNormalizedRealtimeAdapters]);
 }

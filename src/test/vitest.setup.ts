@@ -37,13 +37,18 @@ vi.mock("react-i18next", () => ({
         "sidebar.newCloneAgent": "New clone agent",
         "sidebar.noProjectsMatch": "No projects match your search.",
         "sidebar.addWorkspaceToStart": "Add a workspace to start.",
+        "sidebar.quickNewThread": "New Thread",
+        "sidebar.quickAutomation": "Automation",
+        "sidebar.quickSearch": "Search",
+        "sidebar.quickSkills": "Skills",
+        "sidebar.threadsSection": "Threads",
         "sidebar.dropProjectHere": "Drop Project Here",
         "sidebar.addingProject": "Adding Project...",
         "sidebar.apiKey": "API key",
         "sidebar.signInToCodex": "Sign in to Codex",
         "sidebar.switchAccount": "Switch account",
         "sidebar.signIn": "Sign in",
-        "app.title": "CodeMoss",
+        "app.title": "MossX",
         "app.subtitle": "Orchestrate agents across your local projects.",
         "home.latestAgents": "Latest agents",
         "home.agentReplied": "Agent replied.",
@@ -96,6 +101,7 @@ vi.mock("react-i18next", () => ({
         // Common actions
         "settings.close": "Close",
         "settings.closeSettings": "Close settings",
+        "settings.backToApp": "Back to app",
         "settings.save": "Save",
         "settings.saving": "Saving...",
         "settings.reset": "Reset",
@@ -162,6 +168,12 @@ vi.mock("react-i18next", () => ({
         // Composer section
         "settings.composerTitle": "Composer",
         "settings.composerDescription": "Control helpers and formatting behavior inside the message editor.",
+        "settings.sendShortcutSubtitle": "Send shortcut",
+        "settings.sendShortcutSubDescription": "Choose how to send messages and insert new lines in the composer.",
+        "settings.sendShortcutEnterTitle": "Enter sends",
+        "settings.sendShortcutEnterDesc": "Press Enter to send, Shift+Enter for a new line.",
+        "settings.sendShortcutCmdEnterTitle": "⌘/Ctrl+Enter sends",
+        "settings.sendShortcutCmdEnterDesc": "Press ⌘/Ctrl+Enter to send, Enter for a new line.",
         "settings.presetsSubtitle": "Presets",
         "settings.presetsSubDescription": "Choose a starting point and fine-tune the toggles below.",
         "settings.preset": "Preset",
@@ -249,7 +261,7 @@ vi.mock("react-i18next", () => ({
         "settings.panelsSubtitle": "Panels",
         "settings.panelsSubDescription": "Toggle sidebars and panels.",
         "settings.toggleProjectsSidebar": "Toggle projects sidebar",
-        "settings.toggleGitSidebar": "Toggle git sidebar",
+        "settings.toggleGitSidebar": "Toggle right sidebar",
         "settings.toggleGlobalSearch": "Toggle global search",
         "settings.toggleDebugPanel": "Toggle debug panel",
         "settings.toggleTerminalPanel": "Toggle terminal panel",
@@ -283,7 +295,7 @@ vi.mock("react-i18next", () => ({
         "settings.preloadGitDiffsDesc": "Make viewing git diff faster.",
         // Codex section
         "settings.codexTitle": "Codex",
-        "settings.codexDescription": "Configure the Codex CLI used by CodeMoss and validate the install.",
+        "settings.codexDescription": "Configure the Codex CLI used by MossX and validate the install.",
         "settings.defaultCodexPath": "Default Codex path",
         "settings.codexPlaceholder": "codex",
         "settings.usePath": "Use PATH",
@@ -318,7 +330,7 @@ vi.mock("react-i18next", () => ({
         "settings.remoteBackendToken": "Token (optional)",
         "settings.remoteBackendHostAriaLabel": "Remote backend host",
         "settings.remoteBackendTokenAriaLabel": "Remote backend token",
-        "settings.remoteBackendDesc": "Start the daemon separately and point CodeMoss to it (host:port + token).",
+        "settings.remoteBackendDesc": "Start the daemon separately and point MossX to it (host:port + token).",
         "settings.globalAgentsMd": "Global AGENTS.md",
         "settings.globalAgentsMdPlaceholder": "Add global instructions for Codex agents…",
         "settings.storedAt": "Stored at",
@@ -355,7 +367,7 @@ vi.mock("react-i18next", () => ({
         "approval.showSecret": "Show",
         "approval.hideSecret": "Hide",
         "approval.submitFailed": "Submit failed. Please retry.",
-        "tools.userInputRequest": "User Input Request",
+        "tools.userInputRequest": "Ask User Question",
         "tools.planQuickView": "Plan",
         "tools.openFullPlanPanel": "Open full Plan panel",
         "statusPanel.tabPlan": "Plan",
@@ -480,15 +492,6 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://localhost/${path}`,
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
-
-vi.mock("@lobehub/icons", () => {
-  const Icon = () => null;
-  return {
-    Claude: Icon,
-    Gemini: Icon,
-    OpenAI: Icon,
-  };
-});
 
 // Mock client storage to use in-memory cache without Tauri backend
 vi.mock("../services/clientStorage", () => {

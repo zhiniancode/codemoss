@@ -70,6 +70,180 @@ pub(crate) struct GitLogResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitHistoryCommit {
+    pub(crate) sha: String,
+    #[serde(rename = "shortSha")]
+    pub(crate) short_sha: String,
+    pub(crate) summary: String,
+    pub(crate) message: String,
+    pub(crate) author: String,
+    #[serde(rename = "authorEmail")]
+    pub(crate) author_email: String,
+    pub(crate) timestamp: i64,
+    pub(crate) parents: Vec<String>,
+    #[serde(default)]
+    pub(crate) refs: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitHistoryResponse {
+    #[serde(rename = "snapshotId")]
+    pub(crate) snapshot_id: String,
+    pub(crate) total: usize,
+    pub(crate) offset: usize,
+    pub(crate) limit: usize,
+    #[serde(rename = "hasMore")]
+    pub(crate) has_more: bool,
+    pub(crate) commits: Vec<GitHistoryCommit>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitPushPreviewResponse {
+    #[serde(rename = "sourceBranch")]
+    pub(crate) source_branch: String,
+    #[serde(rename = "targetRemote")]
+    pub(crate) target_remote: String,
+    #[serde(rename = "targetBranch")]
+    pub(crate) target_branch: String,
+    #[serde(rename = "targetRef")]
+    pub(crate) target_ref: String,
+    #[serde(rename = "targetFound")]
+    pub(crate) target_found: bool,
+    #[serde(rename = "hasMore")]
+    pub(crate) has_more: bool,
+    pub(crate) commits: Vec<GitHistoryCommit>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitBranchCompareCommitSets {
+    #[serde(rename = "targetOnlyCommits")]
+    pub(crate) target_only_commits: Vec<GitHistoryCommit>,
+    #[serde(rename = "currentOnlyCommits")]
+    pub(crate) current_only_commits: Vec<GitHistoryCommit>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitPrWorkflowDefaults {
+    #[serde(rename = "upstreamRepo")]
+    pub(crate) upstream_repo: String,
+    #[serde(rename = "baseBranch")]
+    pub(crate) base_branch: String,
+    #[serde(rename = "headOwner")]
+    pub(crate) head_owner: String,
+    #[serde(rename = "headBranch")]
+    pub(crate) head_branch: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    #[serde(rename = "commentBody")]
+    pub(crate) comment_body: String,
+    #[serde(rename = "canCreate")]
+    pub(crate) can_create: bool,
+    #[serde(rename = "disabledReason")]
+    pub(crate) disabled_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitPrWorkflowStage {
+    pub(crate) key: String,
+    pub(crate) status: String,
+    pub(crate) detail: String,
+    pub(crate) command: Option<String>,
+    pub(crate) stdout: Option<String>,
+    pub(crate) stderr: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitPrExistingPullRequest {
+    pub(crate) number: u64,
+    pub(crate) title: String,
+    pub(crate) url: String,
+    pub(crate) state: String,
+    #[serde(rename = "headRefName")]
+    pub(crate) head_ref_name: String,
+    #[serde(rename = "baseRefName")]
+    pub(crate) base_ref_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitPrWorkflowResult {
+    pub(crate) ok: bool,
+    pub(crate) status: String,
+    pub(crate) message: String,
+    #[serde(rename = "errorCategory")]
+    pub(crate) error_category: Option<String>,
+    #[serde(rename = "nextActionHint")]
+    pub(crate) next_action_hint: Option<String>,
+    #[serde(rename = "prUrl")]
+    pub(crate) pr_url: Option<String>,
+    #[serde(rename = "prNumber")]
+    pub(crate) pr_number: Option<u64>,
+    #[serde(rename = "existingPr")]
+    pub(crate) existing_pr: Option<GitPrExistingPullRequest>,
+    #[serde(rename = "retryCommand")]
+    pub(crate) retry_command: Option<String>,
+    pub(crate) stages: Vec<GitPrWorkflowStage>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitCommitFileChange {
+    pub(crate) path: String,
+    #[serde(rename = "oldPath")]
+    pub(crate) old_path: Option<String>,
+    pub(crate) status: String,
+    pub(crate) additions: i64,
+    pub(crate) deletions: i64,
+    #[serde(default, rename = "isBinary")]
+    pub(crate) is_binary: bool,
+    #[serde(default, rename = "isImage")]
+    pub(crate) is_image: bool,
+    pub(crate) diff: String,
+    #[serde(rename = "lineCount")]
+    pub(crate) line_count: usize,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitCommitDetails {
+    pub(crate) sha: String,
+    pub(crate) summary: String,
+    pub(crate) message: String,
+    pub(crate) author: String,
+    #[serde(rename = "authorEmail")]
+    pub(crate) author_email: String,
+    pub(crate) committer: String,
+    #[serde(rename = "committerEmail")]
+    pub(crate) committer_email: String,
+    #[serde(rename = "authorTime")]
+    pub(crate) author_time: i64,
+    #[serde(rename = "commitTime")]
+    pub(crate) commit_time: i64,
+    pub(crate) parents: Vec<String>,
+    pub(crate) files: Vec<GitCommitFileChange>,
+    #[serde(rename = "totalAdditions")]
+    pub(crate) total_additions: i64,
+    #[serde(rename = "totalDeletions")]
+    pub(crate) total_deletions: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct GitBranchListItem {
+    pub(crate) name: String,
+    #[serde(rename = "isCurrent")]
+    pub(crate) is_current: bool,
+    #[serde(rename = "isRemote")]
+    pub(crate) is_remote: bool,
+    pub(crate) remote: Option<String>,
+    #[serde(rename = "lastCommit")]
+    pub(crate) last_commit: i64,
+    #[serde(default, rename = "headSha")]
+    pub(crate) head_sha: Option<String>,
+    pub(crate) ahead: usize,
+    pub(crate) behind: usize,
+    #[serde(default)]
+    pub(crate) upstream: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct GitHubIssue {
     pub(crate) number: u64,
     pub(crate) title: String,
@@ -240,6 +414,16 @@ impl WorkspaceKind {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct WorktreeInfo {
     pub(crate) branch: String,
+    #[serde(default, rename = "baseRef")]
+    pub(crate) base_ref: Option<String>,
+    #[serde(default, rename = "baseCommit")]
+    pub(crate) base_commit: Option<String>,
+    #[serde(default)]
+    pub(crate) tracking: Option<String>,
+    #[serde(default, rename = "publishError")]
+    pub(crate) publish_error: Option<String>,
+    #[serde(default, rename = "publishRetryCommand")]
+    pub(crate) publish_retry_command: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -414,6 +598,8 @@ pub(crate) struct AppSettings {
     pub(crate) ui_scale: f64,
     #[serde(default = "default_theme", rename = "theme")]
     pub(crate) theme: String,
+    #[serde(default = "default_user_msg_color", rename = "userMsgColor")]
+    pub(crate) user_msg_color: String,
     #[serde(
         default = "default_usage_show_remaining",
         rename = "usageShowRemaining"
@@ -453,6 +639,11 @@ pub(crate) struct AppSettings {
     )]
     pub(crate) experimental_collaboration_modes_enabled: bool,
     #[serde(
+        default = "default_codex_mode_enforcement_enabled",
+        rename = "codexModeEnforcementEnabled"
+    )]
+    pub(crate) codex_mode_enforcement_enabled: bool,
+    #[serde(
         default = "default_experimental_steer_enabled",
         rename = "experimentalSteerEnabled"
     )]
@@ -462,6 +653,21 @@ pub(crate) struct AppSettings {
         rename = "experimentalUnifiedExecEnabled"
     )]
     pub(crate) experimental_unified_exec_enabled: bool,
+    #[serde(
+        default = "default_chat_canvas_use_normalized_realtime",
+        rename = "chatCanvasUseNormalizedRealtime"
+    )]
+    pub(crate) chat_canvas_use_normalized_realtime: bool,
+    #[serde(
+        default = "default_chat_canvas_use_unified_history_loader",
+        rename = "chatCanvasUseUnifiedHistoryLoader"
+    )]
+    pub(crate) chat_canvas_use_unified_history_loader: bool,
+    #[serde(
+        default = "default_chat_canvas_use_presentation_profile",
+        rename = "chatCanvasUsePresentationProfile"
+    )]
+    pub(crate) chat_canvas_use_presentation_profile: bool,
     #[serde(default = "default_dictation_enabled", rename = "dictationEnabled")]
     pub(crate) dictation_enabled: bool,
     #[serde(default = "default_dictation_model_id", rename = "dictationModelId")]
@@ -475,6 +681,11 @@ pub(crate) struct AppSettings {
         rename = "composerEditorPreset"
     )]
     pub(crate) composer_editor_preset: String,
+    #[serde(
+        default = "default_composer_send_shortcut",
+        rename = "composerSendShortcut"
+    )]
+    pub(crate) composer_send_shortcut: String,
     #[serde(
         default = "default_composer_fence_expand_on_space",
         rename = "composerFenceExpandOnSpace"
@@ -540,7 +751,7 @@ impl Default for BackendMode {
 }
 
 fn default_access_mode() -> String {
-    "current".to_string()
+    "full-access".to_string()
 }
 
 fn default_remote_backend_host() -> String {
@@ -555,6 +766,10 @@ fn default_theme() -> String {
     "system".to_string()
 }
 
+fn default_user_msg_color() -> String {
+    String::new()
+}
+
 fn default_usage_show_remaining() -> bool {
     false
 }
@@ -564,11 +779,12 @@ fn default_show_message_anchors() -> bool {
 }
 
 fn default_ui_font_family() -> String {
-    "\"SF Pro Text\", \"SF Pro Display\", -apple-system, \"Helvetica Neue\", sans-serif".to_string()
+    "Monaco, \"SF Pro Text\", \"SF Pro Display\", -apple-system, \"Helvetica Neue\", sans-serif"
+        .to_string()
 }
 
 fn default_code_font_family() -> String {
-    "\"SF Mono\", \"SFMono-Regular\", Menlo, Monaco, monospace".to_string()
+    "Monaco, \"SF Mono\", \"SFMono-Regular\", Menlo, monospace".to_string()
 }
 
 fn default_code_font_size() -> u8 {
@@ -672,11 +888,27 @@ fn default_experimental_collaboration_modes_enabled() -> bool {
     false
 }
 
+fn default_codex_mode_enforcement_enabled() -> bool {
+    true
+}
+
 fn default_experimental_steer_enabled() -> bool {
     false
 }
 
 fn default_experimental_unified_exec_enabled() -> bool {
+    false
+}
+
+fn default_chat_canvas_use_normalized_realtime() -> bool {
+    false
+}
+
+fn default_chat_canvas_use_unified_history_loader() -> bool {
+    false
+}
+
+fn default_chat_canvas_use_presentation_profile() -> bool {
     false
 }
 
@@ -694,6 +926,10 @@ fn default_dictation_hold_key() -> String {
 
 fn default_composer_editor_preset() -> String {
     "default".to_string()
+}
+
+fn default_composer_send_shortcut() -> String {
+    "enter".to_string()
 }
 
 fn default_composer_fence_expand_on_space() -> bool {
@@ -799,7 +1035,7 @@ impl Default for AppSettings {
             remote_backend_host: default_remote_backend_host(),
             remote_backend_token: None,
             default_engine: None,
-            default_access_mode: "current".to_string(),
+            default_access_mode: "full-access".to_string(),
             composer_model_shortcut: default_composer_model_shortcut(),
             composer_access_shortcut: default_composer_access_shortcut(),
             composer_reasoning_shortcut: default_composer_reasoning_shortcut(),
@@ -822,6 +1058,7 @@ impl Default for AppSettings {
             last_composer_reasoning_effort: None,
             ui_scale: 1.0,
             theme: default_theme(),
+            user_msg_color: default_user_msg_color(),
             usage_show_remaining: default_usage_show_remaining(),
             show_message_anchors: default_show_message_anchors(),
             ui_font_family: default_ui_font_family(),
@@ -832,13 +1069,18 @@ impl Default for AppSettings {
             preload_git_diffs: default_preload_git_diffs(),
             experimental_collab_enabled: false,
             experimental_collaboration_modes_enabled: false,
+            codex_mode_enforcement_enabled: true,
             experimental_steer_enabled: false,
             experimental_unified_exec_enabled: false,
+            chat_canvas_use_normalized_realtime: false,
+            chat_canvas_use_unified_history_loader: false,
+            chat_canvas_use_presentation_profile: false,
             dictation_enabled: false,
             dictation_model_id: default_dictation_model_id(),
             dictation_preferred_language: None,
             dictation_hold_key: default_dictation_hold_key(),
             composer_editor_preset: default_composer_editor_preset(),
+            composer_send_shortcut: default_composer_send_shortcut(),
             composer_fence_expand_on_space: default_composer_fence_expand_on_space(),
             composer_fence_expand_on_enter: default_composer_fence_expand_on_enter(),
             composer_fence_language_tags: default_composer_fence_language_tags(),
@@ -952,7 +1194,7 @@ mod tests {
         assert!(matches!(settings.backend_mode, BackendMode::Local));
         assert_eq!(settings.remote_backend_host, "127.0.0.1:4732");
         assert!(settings.remote_backend_token.is_none());
-        assert_eq!(settings.default_access_mode, "current");
+        assert_eq!(settings.default_access_mode, "full-access");
         assert_eq!(
             settings.composer_model_shortcut.as_deref(),
             Some("cmd+shift+m")
@@ -1014,20 +1256,26 @@ mod tests {
         assert!(settings.last_composer_reasoning_effort.is_none());
         assert!((settings.ui_scale - 1.0).abs() < f64::EPSILON);
         assert_eq!(settings.theme, "system");
+        assert!(settings.user_msg_color.is_empty());
         assert!(!settings.usage_show_remaining);
         assert!(settings.show_message_anchors);
-        assert!(settings.ui_font_family.contains("SF Pro Text"));
-        assert!(settings.code_font_family.contains("SF Mono"));
+        assert!(settings.ui_font_family.starts_with("Monaco"));
+        assert!(settings.code_font_family.starts_with("Monaco"));
         assert_eq!(settings.code_font_size, 11);
         assert!(settings.notification_sounds_enabled);
         assert!(settings.system_notification_enabled);
         assert!(settings.preload_git_diffs);
         assert!(!settings.experimental_steer_enabled);
+        assert!(settings.codex_mode_enforcement_enabled);
+        assert!(!settings.chat_canvas_use_normalized_realtime);
+        assert!(!settings.chat_canvas_use_unified_history_loader);
+        assert!(!settings.chat_canvas_use_presentation_profile);
         assert!(!settings.dictation_enabled);
         assert_eq!(settings.dictation_model_id, "base");
         assert!(settings.dictation_preferred_language.is_none());
         assert_eq!(settings.dictation_hold_key, "alt");
         assert_eq!(settings.composer_editor_preset, "default");
+        assert_eq!(settings.composer_send_shortcut, "enter");
         assert!(!settings.composer_fence_expand_on_space);
         assert!(!settings.composer_fence_expand_on_enter);
         assert!(!settings.composer_fence_language_tags);

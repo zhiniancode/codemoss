@@ -59,7 +59,7 @@ export function useCollaborationModes({
       });
       const rawData = response.result?.data ?? response.data ?? [];
       const data: CollaborationModeOption[] = rawData
-        .map((item: any) => {
+        .map((item: Record<string, unknown>) => {
           if (!item || typeof item !== "object") {
             return null;
           }
@@ -67,23 +67,26 @@ export function useCollaborationModes({
           if (!mode) {
             return null;
           }
-          const normalizedMode = mode.trim().toLowerCase();
+          const normalizedModeRaw = mode.trim().toLowerCase();
+          const normalizedMode =
+            normalizedModeRaw === "default" ? "code" : normalizedModeRaw;
           if (normalizedMode && normalizedMode !== "plan" && normalizedMode !== "code") {
             return null;
           }
 
-          const settings =
-            item.settings && typeof item.settings === "object"
-              ? item.settings
-              : {
-                  model: item.model ?? null,
-                  reasoning_effort:
-                    item.reasoning_effort ?? item.reasoningEffort ?? null,
-                  developer_instructions:
-                    item.developer_instructions ??
-                    item.developerInstructions ??
-                    null,
-                };
+          const rawSettings =
+            item.settings && typeof item.settings === "object" && !Array.isArray(item.settings)
+              ? (item.settings as Record<string, unknown>)
+              : null;
+          const settings = rawSettings ?? {
+            model: item.model ?? null,
+            reasoning_effort:
+              item.reasoning_effort ?? item.reasoningEffort ?? null,
+            developer_instructions:
+              item.developer_instructions ??
+              item.developerInstructions ??
+              null,
+          };
 
           const model = String(settings.model ?? "");
           const reasoningEffort = settings.reasoning_effort ?? null;
@@ -112,7 +115,7 @@ export function useCollaborationModes({
       setModes(data);
       lastFetchedWorkspaceId.current = workspaceId;
       const preferredModeId =
-        data.find((mode) => mode.mode === "plan" || mode.id === "plan")?.id ??
+        data.find((mode) => mode.mode === "code" || mode.id === "code")?.id ??
         data[0]?.id ??
         null;
       setSelectedModeId((currentSelection) => {

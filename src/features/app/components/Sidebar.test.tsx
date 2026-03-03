@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
+import { afterEach } from "vitest";
 
 // Mock react-i18next
 vi.mock("react-i18next", () => ({
@@ -9,15 +10,28 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {
-        "sidebar.workspaces": "Workspaces",
-        "sidebar.cliSection": "CLI Workspaces",
         "sidebar.addWorkspace": "Add workspace",
-        "sidebar.openHome": "Open home",
         "sidebar.toggleSearch": "Toggle search",
         "sidebar.searchProjects": "Search projects",
-        "sidebar.openaiSection": "Custom API",
-        "sidebar.openaiNewChat": "New Custom API chat",
-        "sidebar.openaiAddFolder": "Add Custom API folder",
+        "sidebar.quickNewThread": "New Thread",
+        "sidebar.quickAutomation": "Automation",
+        "sidebar.quickSearch": "Search",
+        "sidebar.quickSkills": "Skills",
+        "sidebar.projects": "Projects",
+        "sidebar.mcpSkillsMarket": "MCP & Skills Market",
+        "sidebar.longTermMemory": "Long-term Memory",
+        "sidebar.pluginMarket": "Plugin Market",
+        "sidebar.specHub": "Spec Hub",
+        "sidebar.openHome": "Open home",
+        "panels.memory": "Project Memory",
+        "common.terminal": "Terminal",
+        "common.toggleTerminalPanel": "Toggle terminal panel",
+        "git.logMode": "Git",
+        "sidebar.comingSoon": "Coming soon",
+        "sidebar.comingSoonMessage": "This feature is coming soon",
+        "sidebar.threadsSection": "Threads",
+        "settings.title": "Settings",
+        "tabbar.primaryNavigation": "Primary navigation",
       };
       return translations[key] ?? key;
     },
@@ -29,6 +43,10 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { Sidebar } from "./Sidebar";
+
+afterEach(() => {
+  cleanup();
+});
 
 const baseProps = {
   workspaces: [],
@@ -85,9 +103,11 @@ const baseProps = {
   appMode: "chat" as const,
   onAppModeChange: vi.fn(),
   onOpenMemory: vi.fn(),
-  onOpenCustomAPIHome: vi.fn(),
-  onNewCustomAPIChat: vi.fn(),
-  onAddOpenAIWorkspace: vi.fn(),
+  onOpenProjectMemory: vi.fn(),
+  onOpenGlobalSearch: vi.fn(),
+  globalSearchShortcut: "cmd+o",
+  onOpenSpecHub: vi.fn(),
+  onOpenWorkspaceHome: vi.fn(),
 };
 
 describe("Sidebar", () => {
@@ -96,5 +116,125 @@ describe("Sidebar", () => {
 
     expect(screen.queryByRole("button", { name: "Toggle search" })).toBeNull();
     expect(screen.queryByLabelText("Search projects")).toBeNull();
+  });
+
+  it("hides quick skills entry", () => {
+    render(<Sidebar {...baseProps} />);
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
+  });
+
+  it("renders quick nav and workspace list containers", () => {
+    const { container } = render(<Sidebar {...baseProps} />);
+
+    expect(container.querySelector(".sidebar-primary-nav")).toBeTruthy();
+    expect(container.querySelector(".sidebar-quick-icon-strip")).toBeNull();
+    expect(container.querySelector(".sidebar-content-column")).toBeTruthy();
+    expect(container.querySelector(".workspace-list")).toBeTruthy();
+    expect(container.querySelector(".sidebar-section-title-icon-image")).toBeNull();
+  });
+
+  it("shows search entry and triggers callback", () => {
+    const onOpenGlobalSearch = vi.fn();
+    render(
+      <Sidebar
+        {...baseProps}
+        onOpenGlobalSearch={onOpenGlobalSearch}
+      />,
+    );
+
+    const searchButton = screen.getByRole("button", { name: "Search" });
+    fireEvent.click(searchButton);
+
+    expect(onOpenGlobalSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Windows-friendly shortcut label for quick search", () => {
+    const originalPlatform = window.navigator.platform;
+    Object.defineProperty(window.navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
+    try {
+      render(<Sidebar {...baseProps} />);
+      expect(screen.getByText("Ctrl+F")).toBeTruthy();
+    } finally {
+      Object.defineProperty(window.navigator, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+    }
+  });
+
+  it("hides chat/automation/open-home entries in settings dropdown", () => {
+    const onToggleTerminal = vi.fn();
+    const { container } = render(
+      <Sidebar
+        {...baseProps}
+        showTerminalButton
+        isTerminalOpen={false}
+        onToggleTerminal={onToggleTerminal}
+      />,
+    );
+
+    const settingsToggle = container.querySelector(".sidebar-primary-nav-item-bottom");
+    expect(settingsToggle).toBeTruthy();
+    fireEvent.click(settingsToggle as Element);
+
+    const dropdown = container.querySelector(".sidebar-settings-dropdown");
+    expect(dropdown).toBeTruthy();
+    const menu = within(dropdown as HTMLElement);
+
+    expect(menu.queryByRole("menuitem", { name: "New Thread" })).toBeNull();
+    expect(menu.queryByRole("menuitem", { name: "Automation" })).toBeNull();
+    const skillsEntry = menu.getByRole("menuitem", { name: "Skills" });
+    expect((skillsEntry as HTMLButtonElement).disabled).toBe(true);
+    expect(menu.getByRole("menuitem", { name: "Long-term Memory" })).toBeTruthy();
+    expect(menu.getByRole("menuitem", { name: "Spec Hub" })).toBeTruthy();
+    expect(menu.getByRole("menuitem", { name: "Project Memory" })).toBeTruthy();
+    expect(menu.queryByRole("menuitem", { name: "Terminal" })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: "Git" })).toBeTruthy();
+    expect(menu.queryByRole("menuitem", { name: "Open home" })).toBeNull();
+  });
+
+  it("shows pinned threads even when pinned version is zero", () => {
+    const workspace = {
+      id: "ws-1",
+      name: "codemoss",
+      path: "/tmp/codemoss",
+      connected: true,
+      kind: "main" as const,
+      settings: {
+        sidebarCollapsed: false,
+        worktreeSetupScript: null,
+      },
+    };
+    const thread = {
+      id: "thread-1",
+      name: "Pinned Restored",
+      updatedAt: 123,
+    };
+
+    render(
+      <Sidebar
+        {...baseProps}
+        workspaces={[workspace]}
+        groupedWorkspaces={[
+          {
+            id: null,
+            name: "Ungrouped",
+            workspaces: [workspace],
+          },
+        ]}
+        threadsByWorkspace={{ "ws-1": [thread] }}
+        getPinTimestamp={(workspaceId, threadId) =>
+          workspaceId === "ws-1" && threadId === "thread-1" ? 111 : null
+        }
+        isThreadPinned={(workspaceId, threadId) =>
+          workspaceId === "ws-1" && threadId === "thread-1"
+        }
+      />,
+    );
+
+    expect(screen.getByText("Pinned Restored")).toBeTruthy();
   });
 });

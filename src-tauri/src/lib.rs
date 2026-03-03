@@ -18,8 +18,10 @@ fn get_pending_open_paths() -> Vec<String> {
 }
 
 mod backend;
+mod agents;
 mod claude_commands;
 mod client_storage;
+mod code_intel;
 mod codex;
 mod dictation;
 mod engine;
@@ -30,6 +32,7 @@ mod git_utils;
 mod input_history;
 mod local_usage;
 mod menu;
+mod project_memory;
 mod prompts;
 mod remote_backend;
 mod rules;
@@ -77,8 +80,7 @@ pub fn run() {
             {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
-                app.handle()
-                    .plugin(tauri_plugin_notification::init())?;
+                app.handle().plugin(tauri_plugin_notification::init())?;
             }
 
             // Create the main window programmatically so we can register on_navigation
@@ -86,14 +88,14 @@ pub fn run() {
             // in the system browser instead of navigating the webview.
             let mut win_builder =
                 WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                    .title("CodeMoss")
-                    .inner_size(1200.0, 700.0)
-                    .min_inner_size(360.0, 600.0)
+                    .title("MossX")
+                    .inner_size(1300.0, 800.0)
+                    .min_inner_size(800.0, 600.0)
                     .devtools(true);
 
             #[cfg(target_os = "windows")]
             {
-                win_builder = win_builder.drag_and_drop(true);
+                win_builder = win_builder.drag_and_drop(true).decorations(false);
             }
 
             #[cfg(target_os = "macos")]
@@ -155,9 +157,21 @@ pub fn run() {
             settings::get_app_settings,
             settings::update_app_settings,
             settings::get_codex_config_path,
+            // Agents
+            agents::agent_list,
+            agents::agent_add,
+            agents::agent_update,
+            agents::agent_delete,
+            agents::agent_get_selected,
+            agents::agent_set_selected,
+            agents::agent_export,
+            agents::agent_import_preview,
+            agents::agent_import_apply,
             // Files
             files::file_read,
             files::file_write,
+            code_intel::code_intel_definition,
+            code_intel::code_intel_references,
             // Menu
             menu::menu_set_accelerators,
             menu::menu_update_labels,
@@ -175,6 +189,7 @@ pub fn run() {
             engine::opencode_commands_list,
             engine::opencode_agents_list,
             engine::opencode_session_list,
+            engine::opencode_delete_session,
             engine::opencode_stats,
             engine::opencode_export_session,
             engine::opencode_import_session,
@@ -188,7 +203,10 @@ pub fn run() {
             engine::opencode_lsp_diagnostics,
             engine::opencode_lsp_symbols,
             engine::opencode_lsp_document_symbols,
+            engine::opencode_lsp_definition,
+            engine::opencode_lsp_references,
             engine::engine_send_message,
+            engine::engine_send_message_sync,
             engine::engine_interrupt,
             engine::list_claude_sessions,
             engine::load_claude_session,
@@ -213,6 +231,7 @@ pub fn run() {
             codex::resume_thread,
             codex::fork_thread,
             codex::list_threads,
+            codex::list_global_mcp_servers,
             codex::list_mcp_server_status,
             codex::archive_thread,
             codex::collaboration_mode_list,
@@ -226,7 +245,6 @@ pub fn run() {
             workspaces::list_workspaces,
             workspaces::is_workspace_path_dir,
             workspaces::add_workspace,
-            workspaces::add_openai_workspace,
             workspaces::add_clone,
             workspaces::add_worktree,
             workspaces::worktree_setup_status,
@@ -239,13 +257,16 @@ pub fn run() {
             workspaces::update_workspace_settings,
             workspaces::update_workspace_codex_bin,
             workspaces::connect_workspace,
-            workspaces::ensure_openai_chat_workspace,
-            workspaces::retarget_openai_workspace,
             workspaces::list_workspace_files,
+            workspaces::list_external_spec_tree,
             workspaces::read_workspace_file,
+            workspaces::read_external_spec_file,
             workspaces::write_workspace_file,
+            workspaces::write_external_spec_file,
             workspaces::trash_workspace_item,
             workspaces::copy_workspace_item,
+            workspaces::run_workspace_command,
+            workspaces::run_spec_command,
             workspaces::open_workspace_in,
             workspaces::get_open_app_icon,
             // Git
@@ -254,8 +275,14 @@ pub fn run() {
             git::get_git_diffs,
             git::get_git_file_full_diff,
             git::get_git_log,
+            git::get_git_commit_history,
+            git::get_git_commit_details,
+            git::get_git_push_preview,
+            git::resolve_git_commit_ref,
             git::get_git_commit_diff,
             git::get_git_remote,
+            git::get_git_pr_workflow_defaults,
+            git::create_git_pr_workflow,
             git::stage_git_file,
             git::stage_git_all,
             git::unstage_git_file,
@@ -265,6 +292,13 @@ pub fn run() {
             git::push_git,
             git::pull_git,
             git::sync_git,
+            git::git_pull,
+            git::git_push,
+            git::git_sync,
+            git::git_fetch,
+            git::cherry_pick_commit,
+            git::revert_commit,
+            git::reset_git_commit,
             git::get_github_issues,
             git::get_github_pull_requests,
             git::get_github_pull_request_diff,
@@ -272,6 +306,17 @@ pub fn run() {
             git::list_git_branches,
             git::checkout_git_branch,
             git::create_git_branch,
+            git::create_git_branch_from_branch,
+            git::create_git_branch_from_commit,
+            git::delete_git_branch,
+            git::rename_git_branch,
+            git::merge_git_branch,
+            git::rebase_git_branch,
+            git::get_git_branch_compare_commits,
+            git::get_git_branch_diff_between_branches,
+            git::get_git_branch_file_diff_between_branches,
+            git::get_git_worktree_diff_against_branch,
+            git::get_git_worktree_file_diff_against_branch,
             // Prompts
             claude_commands::claude_commands_list,
             prompts::prompts_list,
@@ -281,6 +326,15 @@ pub fn run() {
             prompts::prompts_move,
             prompts::prompts_workspace_dir,
             prompts::prompts_global_dir,
+            // Project memory
+            project_memory::project_memory_get_settings,
+            project_memory::project_memory_update_settings,
+            project_memory::project_memory_list,
+            project_memory::project_memory_get,
+            project_memory::project_memory_create,
+            project_memory::project_memory_update,
+            project_memory::project_memory_delete,
+            project_memory::project_memory_capture_auto,
             // Terminal
             terminal::terminal_open,
             terminal::terminal_write,
@@ -313,6 +367,8 @@ pub fn run() {
             vendors::vendor_update_claude_provider,
             vendors::vendor_delete_claude_provider,
             vendors::vendor_switch_claude_provider,
+            vendors::vendor_get_claude_always_thinking_enabled,
+            vendors::vendor_set_claude_always_thinking_enabled,
             vendors::vendor_get_codex_providers,
             vendors::vendor_add_codex_provider,
             vendors::vendor_update_codex_provider,
@@ -372,6 +428,12 @@ pub fn run() {
 
         #[cfg(not(target_os = "macos"))]
         if let RunEvent::Ready = event {
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app_handle.get_webview_window("main") {
+                // Re-apply frameless mode after startup to avoid any state-restore override.
+                let _ = window.set_decorations(false);
+            }
+
             // Handle command line arguments (Windows/Linux)
             let args: Vec<String> = std::env::args().skip(1).collect();
             let paths: Vec<String> = args

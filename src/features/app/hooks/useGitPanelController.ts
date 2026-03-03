@@ -19,6 +19,16 @@ function readGitDiffListView(workspaceId: string | null | undefined): "flat" | "
   return viewByWorkspace?.[workspaceId] === "tree" ? "tree" : "flat";
 }
 
+export type EditorNavigationLocation = {
+  line: number;
+  column: number;
+};
+
+export type EditorNavigationTarget = EditorNavigationLocation & {
+  path: string;
+  requestId: number;
+};
+
 export function useGitPanelController({
   activeWorkspace,
   gitDiffPreloadEnabled,
@@ -35,22 +45,19 @@ export function useGitPanelController({
   gitDiffPreloadEnabled: boolean;
   isCompact: boolean;
   isTablet: boolean;
-  activeTab: "projects" | "codex" | "git" | "log";
-  tabletTab: "codex" | "git" | "log";
-  setActiveTab: (tab: "projects" | "codex" | "git" | "log") => void;
+  activeTab: "projects" | "codex" | "spec" | "git" | "log";
+  tabletTab: "codex" | "spec" | "git" | "log";
+  setActiveTab: (tab: "projects" | "codex" | "spec" | "git" | "log") => void;
   prDiffs: GitHubPullRequestDiff[];
   prDiffsLoading: boolean;
   prDiffsError: string | null;
 }) {
-  const workspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
-  const isOpenAIWorkspace =
-    typeof workspaceEngineType === "string" &&
-    workspaceEngineType.toLowerCase() === "openai";
-  const activeWorkspaceForGit = isOpenAIWorkspace ? null : activeWorkspace;
-
   const [centerMode, setCenterMode] = useState<"chat" | "diff" | "editor" | "memory">("chat");
   const [openFileTabs, setOpenFileTabs] = useState<string[]>([]);
   const [activeEditorFilePath, setActiveEditorFilePath] = useState<string | null>(null);
+  const [editorNavigationTarget, setEditorNavigationTarget] =
+    useState<EditorNavigationTarget | null>(null);
+  const navigationRequestIdRef = useRef(0);
   const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
   const [diffScrollRequestId, setDiffScrollRequestId] = useState(0);
   const pendingDiffScrollRef = useRef(false);
@@ -63,22 +70,9 @@ export function useGitPanelController({
   const [gitDiffListView, setGitDiffListViewState] = useState<"flat" | "tree">(
     () => readGitDiffListView(activeWorkspace?.id),
   );
-  const [filePanelModeState, setFilePanelModeState] = useState<
-    "git" | "files" | "prompts"
-  >("git");
-  const filePanelMode = isOpenAIWorkspace ? "files" : filePanelModeState;
-  const setFilePanelMode = useCallback(
-    (mode: "git" | "files" | "prompts") => {
-      if (isOpenAIWorkspace) {
-        // In OpenAI workspaces we treat the right panel as a file-context browser,
-        // not a git/diff surface.
-        setFilePanelModeState("files");
-        return;
-      }
-      setFilePanelModeState(mode);
-    },
-    [isOpenAIWorkspace],
-  );
+  const [filePanelMode, setFilePanelMode] = useState<
+    "git" | "files" | "prompts" | "memory"
+  >("files");
   const [selectedPullRequest, setSelectedPullRequest] =
     useState<GitHubPullRequest | null>(null);
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
@@ -89,7 +83,7 @@ export function useGitPanelController({
   );
 
   const { status: gitStatus, refresh: refreshGitStatus } = useGitStatus(
-    activeWorkspaceForGit,
+    activeWorkspace,
   );
   const gitStatusRefreshTimeoutRef = useRef<number | null>(null);
   const activeWorkspaceIdRef = useRef<string | null>(activeWorkspace?.id ?? null);
@@ -106,16 +100,6 @@ export function useGitPanelController({
   useEffect(() => {
     activeWorkspaceRef.current = activeWorkspace;
   }, [activeWorkspace]);
-
-  useEffect(() => {
-    if (!activeWorkspace?.id || !isOpenAIWorkspace) {
-      return;
-    }
-    // OpenAI Compatible workspaces are "files as context" first; hide diff UX by default.
-    setFilePanelModeState("files");
-    setCenterMode("chat");
-    setSelectedDiffPath(null);
-  }, [activeWorkspace?.id, isOpenAIWorkspace]);
 
   useEffect(() => {
     return () => {
@@ -149,36 +133,36 @@ export function useGitPanelController({
     (isCompact ? compactTab === "git" : gitPanelMode === "diff");
   const shouldPreloadDiffs = Boolean(
     gitDiffPreloadEnabled &&
-      activeWorkspaceForGit &&
-      !preloadedWorkspaceIdsRef.current.has(activeWorkspaceForGit.id),
+      activeWorkspace &&
+      !preloadedWorkspaceIdsRef.current.has(activeWorkspace.id),
   );
   const shouldLoadLocalDiffs =
-    Boolean(activeWorkspaceForGit) &&
+    Boolean(activeWorkspace) &&
     (shouldPreloadDiffs ||
       diffUiVisible ||
       Boolean(selectedDiffPath));
   const shouldLoadDiffs =
-    Boolean(activeWorkspaceForGit) &&
+    Boolean(activeWorkspace) &&
     (diffSource === "local" ? shouldLoadLocalDiffs : diffUiVisible);
-  const shouldLoadGitLog = gitPanelMode === "log" && Boolean(activeWorkspaceForGit);
+  const shouldLoadGitLog = gitPanelMode === "log" && Boolean(activeWorkspace);
 
   const {
     diffs: gitDiffs,
     isLoading: isDiffLoading,
     error: diffError,
     refresh: refreshGitDiffs,
-  } = useGitDiffs(activeWorkspaceForGit, gitStatus.files, shouldLoadLocalDiffs);
+  } = useGitDiffs(activeWorkspace, gitStatus.files, shouldLoadLocalDiffs);
 
   useEffect(() => {
-    if (!activeWorkspaceForGit || !shouldPreloadDiffs) {
+    if (!activeWorkspace || !shouldPreloadDiffs) {
       return;
     }
     if (!isDiffLoading && !diffError && gitDiffs.length === 0) {
       return;
     }
-    preloadedWorkspaceIdsRef.current.add(activeWorkspaceForGit.id);
+    preloadedWorkspaceIdsRef.current.add(activeWorkspace.id);
   }, [
-    activeWorkspaceForGit,
+    activeWorkspace,
     diffError,
     gitDiffs.length,
     isDiffLoading,
@@ -196,14 +180,14 @@ export function useGitPanelController({
     isLoading: gitLogLoading,
     error: gitLogError,
     refresh: refreshGitLog,
-  } = useGitLog(activeWorkspaceForGit, shouldLoadGitLog);
+  } = useGitLog(activeWorkspace, shouldLoadGitLog);
 
   const {
     diffs: gitCommitDiffs,
     isLoading: gitCommitDiffsLoading,
     error: gitCommitDiffsError,
   } = useGitCommitDiffs(
-    activeWorkspaceForGit,
+    activeWorkspace,
     selectedCommitSha,
     shouldLoadDiffs && diffSource === "commit",
   );
@@ -301,9 +285,18 @@ export function useGitPanelController({
   );
 
   const handleOpenFile = useCallback(
-    (path: string) => {
+    (path: string, location?: EditorNavigationLocation) => {
       setOpenFileTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
       setActiveEditorFilePath(path);
+      if (location) {
+        navigationRequestIdRef.current += 1;
+        setEditorNavigationTarget({
+          path,
+          line: location.line,
+          column: location.column,
+          requestId: navigationRequestIdRef.current,
+        });
+      }
       setCenterMode("editor");
       if (isCompact) {
         setActiveTab("codex");
@@ -320,6 +313,7 @@ export function useGitPanelController({
       return prev;
     });
     setActiveEditorFilePath(path);
+    setEditorNavigationTarget(null);
     setCenterMode("editor");
   }, []);
 
@@ -343,6 +337,9 @@ export function useGitPanelController({
           }
           return fallback;
         });
+        setEditorNavigationTarget((current) =>
+          current && current.path === path ? null : current,
+        );
         return nextTabs;
       });
     },
@@ -352,6 +349,7 @@ export function useGitPanelController({
   const handleCloseAllFileTabs = useCallback(() => {
     setOpenFileTabs([]);
     setActiveEditorFilePath(null);
+    setEditorNavigationTarget(null);
     setCenterMode("chat");
   }, []);
 
@@ -359,6 +357,7 @@ export function useGitPanelController({
     setCenterMode("chat");
     setOpenFileTabs([]);
     setActiveEditorFilePath(null);
+    setEditorNavigationTarget(null);
   }, []);
 
   useEffect(() => {
@@ -389,6 +388,7 @@ export function useGitPanelController({
     setCenterMode,
     openFileTabs,
     activeEditorFilePath,
+    editorNavigationTarget,
     selectedDiffPath,
     setSelectedDiffPath,
     diffScrollRequestId,

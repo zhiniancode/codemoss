@@ -267,30 +267,6 @@ pub(crate) async fn add_workspace(
     }
 }
 
-#[tauri::command]
-pub(crate) async fn add_openai_workspace(
-    path: String,
-    codex_bin: Option<String>,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<WorkspaceInfo, String> {
-    if remote_backend::is_remote_mode(&*state).await {
-        let path = remote_backend::normalize_path_for_remote(path);
-        let codex_bin = codex_bin.map(remote_backend::normalize_path_for_remote);
-        let response = remote_backend::call_remote(
-            &*state,
-            app,
-            "add_openai_workspace",
-            json!({ "path": path, "codex_bin": codex_bin }),
-        )
-        .await?;
-        return serde_json::from_value(response).map_err(|err| err.to_string());
-    }
-
-    // Force OpenAI-compatible engine for this workspace.
-    add_workspace_for_openai(path, codex_bin, &state).await
-}
-
 /// Add workspace for OpenAI-compatible engine (no persistent session needed)
 async fn add_workspace_for_openai(
     path: String,
@@ -334,130 +310,7 @@ async fn add_workspace_for_openai(
         id: entry.id,
         name: entry.name,
         path: entry.path,
-        connected: true, // OpenAI compatible engine is sessionless
-        codex_bin: entry.codex_bin,
-        kind: entry.kind,
-        parent_id: entry.parent_id,
-        worktree: entry.worktree,
-        settings: entry.settings,
-    })
-}
-
-#[tauri::command]
-pub(crate) async fn ensure_openai_chat_workspace(
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<WorkspaceInfo, String> {
-    if remote_backend::is_remote_mode(&*state).await {
-        // Best-effort remote support: if the remote backend doesn't implement
-        // this command yet, it will return an error to the caller.
-        let response =
-            remote_backend::call_remote(&*state, app, "ensure_openai_chat_workspace", json!({}))
-                .await?;
-        return serde_json::from_value(response).map_err(|err| err.to_string());
-    }
-
-    // Use app data dir as a stable, writable "scratch" workspace that doesn't
-    // require the user to import a repo first.
-    //
-    // Windows: store under `%APPDATA%\\codemoss\\openai-chat-workspace` instead of the
-    // bundle-id-scoped app data dir to keep the path stable across app id changes.
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .or_else(|| state.storage_path.parent().map(|p| p.to_path_buf()));
-    let data_dir = match app_data_dir {
-        Some(dir) => {
-            #[cfg(target_os = "windows")]
-            {
-                dir.parent()
-                    .map(|p| p.join("codemoss"))
-                    .unwrap_or(dir)
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                dir
-            }
-        }
-        None => std::env::current_dir().unwrap_or_else(|_| ".".into()),
-    };
-
-    let scratch_dir = data_dir.join("openai-chat-workspace");
-    // Best-effort migration: if the old bundle-id scoped scratch dir exists, move it.
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(old_data_dir) = app.path().app_data_dir() {
-            let old_scratch_dir = old_data_dir.join("openai-chat-workspace");
-            if old_scratch_dir.is_dir() && !scratch_dir.is_dir() {
-                let _ = std::fs::create_dir_all(&data_dir);
-                let _ = std::fs::rename(&old_scratch_dir, &scratch_dir);
-            }
-        }
-    }
-    std::fs::create_dir_all(&scratch_dir)
-        .map_err(|err| format!("Failed to create OpenAI chat workspace folder: {err}"))?;
-    if !scratch_dir.is_dir() {
-        return Err("OpenAI chat workspace path is not a folder.".to_string());
-    }
-    let scratch_path = scratch_dir.to_string_lossy().to_string();
-
-    // Find an existing entry, or create a new one.
-    let mut maybe_entry: Option<WorkspaceEntry> = None;
-    {
-        let workspaces = state.workspaces.lock().await;
-        maybe_entry = workspaces
-            .values()
-            .find(|entry| entry.path == scratch_path)
-            .cloned();
-    }
-
-    let mut entry = if let Some(existing) = maybe_entry {
-        existing
-    } else {
-        let mut settings = WorkspaceSettings::default();
-        settings.engine_type = Some("openai".to_string());
-
-        WorkspaceEntry {
-            id: Uuid::new_v4().to_string(),
-            name: "Custom API Chat".to_string(),
-            path: scratch_path.clone(),
-            codex_bin: None,
-            kind: WorkspaceKind::Main,
-            parent_id: None,
-            worktree: None,
-            settings,
-        }
-    };
-
-    // Ensure engine_type is correct for the scratch workspace.
-    let should_force_openai = entry
-        .settings
-        .engine_type
-        .as_deref()
-        .map(|t| !t.eq_ignore_ascii_case("openai"))
-        .unwrap_or(true);
-    if should_force_openai {
-        entry.settings.engine_type = Some("openai".to_string());
-    }
-
-    // Keep the scratch workspace name stable even if older builds used a different label.
-    if entry.name.trim().is_empty() || entry.name == "OpenAI Chat" {
-        entry.name = "Custom API Chat".to_string();
-    }
-
-    {
-        let mut workspaces = state.workspaces.lock().await;
-        workspaces.insert(entry.id.clone(), entry.clone());
-        let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(&state.storage_path, &list)?;
-    }
-
-    Ok(WorkspaceInfo {
-        id: entry.id,
-        name: entry.name,
-        path: entry.path,
-        connected: true, // OpenAI compatible engine is sessionless
+        connected: false,
         codex_bin: entry.codex_bin,
         kind: entry.kind,
         parent_id: entry.parent_id,
@@ -575,77 +428,6 @@ async fn add_workspace_for_opencode(
         let list: Vec<_> = workspaces.values().cloned().collect();
         write_workspaces(&state.storage_path, &list)?;
     }
-
-    Ok(WorkspaceInfo {
-        id: entry.id,
-        name: entry.name,
-        path: entry.path,
-        codex_bin: entry.codex_bin,
-        connected: true,
-        kind: entry.kind,
-        parent_id: entry.parent_id,
-        worktree: entry.worktree,
-        settings: entry.settings,
-    })
-}
-
-#[tauri::command]
-pub(crate) async fn retarget_openai_workspace(
-    workspace_id: String,
-    path: String,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<WorkspaceInfo, String> {
-    if remote_backend::is_remote_mode(&*state).await {
-        let path = remote_backend::normalize_path_for_remote(path);
-        let response = remote_backend::call_remote(
-            &*state,
-            app,
-            "retarget_openai_workspace",
-            json!({ "workspaceId": workspace_id, "path": path }),
-        )
-        .await?;
-        return serde_json::from_value(response).map_err(|err| err.to_string());
-    }
-
-    use std::path::PathBuf;
-
-    if !PathBuf::from(&path).is_dir() {
-        return Err("Workspace path must be a folder.".to_string());
-    }
-
-    let name = PathBuf::from(&path)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Workspace")
-        .to_string();
-
-    let entry = {
-        let mut workspaces = state.workspaces.lock().await;
-        let mut entry = workspaces
-            .get(&workspace_id)
-            .cloned()
-            .ok_or("workspace not found")?;
-
-        let is_openai = entry
-            .settings
-            .engine_type
-            .as_deref()
-            .map(|t| t.eq_ignore_ascii_case("openai"))
-            .unwrap_or(false);
-        if !is_openai {
-            return Err("Workspace is not a Custom API workspace.".to_string());
-        }
-
-        entry.path = path.clone();
-        entry.name = name.clone();
-        entry.settings.engine_type = Some("openai".to_string());
-
-        workspaces.insert(entry.id.clone(), entry.clone());
-        let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(&state.storage_path, &list)?;
-        entry
-    };
 
     Ok(WorkspaceInfo {
         id: entry.id,
@@ -1281,32 +1063,30 @@ pub(crate) async fn connect_workspace(
             .ok_or_else(|| "workspace not found".to_string())?
     };
 
-    // Sessionless engines don't need a persistent workspace session.
-    // Default to Claude when engine_type is missing (legacy behavior).
-    let engine_type = entry
+    // Check engine type - default to Claude if not specified
+    let is_claude_engine = entry
         .settings
         .engine_type
         .as_deref()
-        .unwrap_or("claude")
-        .to_ascii_lowercase();
-    let is_sessionless_engine =
-        matches!(engine_type.as_str(), "claude" | "openai" | "opencode" | "gemini");
+        .map(|e| e.eq_ignore_ascii_case("claude"))
+        .unwrap_or(true);
 
-    if is_sessionless_engine {
-        return Ok(());
+    if is_claude_engine {
+        // For Claude: No persistent session needed, already "connected"
+        Ok(())
+    } else {
+        // For Codex: Use existing session spawn logic
+        workspaces_core::connect_workspace_core(
+            id,
+            &state.workspaces,
+            &state.sessions,
+            &state.app_settings,
+            |entry, default_bin, codex_args, codex_home| {
+                spawn_with_app(&app, entry, default_bin, codex_args, codex_home)
+            },
+        )
+        .await
     }
-
-    // Codex CLI engine: Use existing session spawn logic.
-    workspaces_core::connect_workspace_core(
-        id,
-        &state.workspaces,
-        &state.sessions,
-        &state.app_settings,
-        |entry, default_bin, codex_args, codex_home| {
-            spawn_with_app(&app, entry, default_bin, codex_args, codex_home)
-        },
-    )
-    .await
 }
 
 #[tauri::command]
@@ -1339,75 +1119,6 @@ pub(crate) async fn open_workspace_in(
     args: Vec<String>,
     command: Option<String>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    fn resolve_windows_app_command(app: &str) -> (std::ffi::OsString, Vec<String>) {
-        use std::ffi::OsString;
-        use std::path::PathBuf;
-
-        fn env_path(name: &str) -> Option<PathBuf> {
-            std::env::var_os(name).map(PathBuf::from)
-        }
-
-        fn first_existing(paths: Vec<PathBuf>) -> Option<PathBuf> {
-            paths.into_iter().find(|p| p.is_file())
-        }
-
-        fn with_program_dirs(rel: &str) -> Vec<PathBuf> {
-            let mut out = Vec::new();
-            if let Some(local) = env_path("LOCALAPPDATA") {
-                out.push(local.join("Programs").join(rel));
-            }
-            if let Some(pf) = env_path("ProgramFiles") {
-                out.push(pf.join(rel));
-            }
-            if let Some(pf86) = env_path("ProgramFiles(x86)") {
-                out.push(pf86.join(rel));
-            }
-            out
-        }
-
-        let trimmed = app.trim();
-        if trimmed.is_empty() {
-            return (OsString::from(""), Vec::new());
-        }
-
-        // If the app looks like a direct executable path, run it as-is.
-        let lower = trimmed.to_lowercase();
-        if trimmed.contains('\\') || trimmed.contains('/') || lower.ends_with(".exe") {
-            return (OsString::from(trimmed), Vec::new());
-        }
-
-        let key = lower.as_str();
-        match key {
-            // VS Code
-            "visual studio code" | "vscode" | "code" => {
-                let candidates = with_program_dirs(r"Microsoft VS Code\Code.exe");
-                if let Some(found) = first_existing(candidates) {
-                    return (found.into_os_string(), Vec::new());
-                }
-                (OsString::from("code"), Vec::new())
-            }
-            // Cursor
-            "cursor" => {
-                let candidates = with_program_dirs(r"Cursor\Cursor.exe");
-                if let Some(found) = first_existing(candidates) {
-                    return (found.into_os_string(), Vec::new());
-                }
-                (OsString::from("cursor"), Vec::new())
-            }
-            // Zed
-            "zed" => {
-                let candidates = with_program_dirs(r"Zed\Zed.exe");
-                if let Some(found) = first_existing(candidates) {
-                    return (found.into_os_string(), Vec::new());
-                }
-                (OsString::from("zed"), Vec::new())
-            }
-            // Fallback: assume it's an executable on PATH.
-            _ => (OsString::from(trimmed), Vec::new()),
-        }
-    }
-
     let target_label = command
         .as_ref()
         .map(|value| format!("command `{value}`"))
@@ -1420,41 +1131,13 @@ pub(crate) async fn open_workspace_in(
         cmd.status()
             .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
     } else if let Some(app) = app {
-        #[cfg(target_os = "macos")]
-        {
-            let mut cmd = crate::utils::std_command("open");
-            cmd.arg("-a").arg(app).arg(path);
-            if !args.is_empty() {
-                cmd.arg("--args").args(args);
-            }
-            cmd.status()
-                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
+        let mut cmd = crate::utils::std_command("open");
+        cmd.arg("-a").arg(app).arg(path);
+        if !args.is_empty() {
+            cmd.arg("--args").args(args);
         }
-
-        #[cfg(target_os = "windows")]
-        {
-            let (resolved_command, pre_args) = resolve_windows_app_command(&app);
-            if resolved_command.is_empty() {
-                return Err("Missing app or command".to_string());
-            }
-            let mut cmd = crate::utils::std_command(resolved_command);
-            cmd.args(pre_args).args(args).arg(path);
-            cmd.status()
-                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
-        }
-
-        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-        {
-            // Best effort on Linux/other platforms: treat the app label as an executable.
-            let trimmed = app.trim();
-            if trimmed.is_empty() {
-                return Err("Missing app or command".to_string());
-            }
-            let mut cmd = crate::utils::std_command(trimmed);
-            cmd.args(args).arg(path);
-            cmd.status()
-                .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
-        }
+        cmd.status()
+            .map_err(|error| format!("Failed to open app ({target_label}): {error}"))?
     } else {
         return Err("Missing app or command".to_string());
     };

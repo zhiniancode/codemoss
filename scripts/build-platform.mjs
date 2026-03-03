@@ -31,9 +31,9 @@ const TAURI_DIR = join(ROOT_DIR, "src-tauri");
 
 // Configuration
 const CONFIG = {
-  // macOS signing identity. Keep empty by default so forks don't accidentally
-  // ship with someone else's certificate name.
-  codesignIdentity: process.env.CODESIGN_IDENTITY || "",
+  codesignIdentity:
+    process.env.CODESIGN_IDENTITY ||
+    "Developer ID Application: kunpeng zhu (RLHBM56QRH)",
   notaryProfile: process.env.NOTARY_PROFILE || "CodeMoss-Notarize",
   entitlements: join(TAURI_DIR, "Entitlements.plist"),
   openssl: {
@@ -184,7 +184,7 @@ async function buildMacOS(arch, options = {}) {
   // Tauri embeds frontend resources in the binary, so we need to force recompilation
   console.log("\nCleaning Rust build cache to embed latest frontend...");
   exec(`rm -rf ${TAURI_DIR}/target/${target}/release/.fingerprint`, { ignoreError: true });
-  exec(`rm -f ${TAURI_DIR}/target/${target}/release/code-moss`, { ignoreError: true });
+  exec(`rm -f ${TAURI_DIR}/target/${target}/release/moss-x`, { ignoreError: true });
   exec(`rm -rf ${TAURI_DIR}/target/${target}/release/bundle`, { ignoreError: true });
 
   // Build the app
@@ -195,9 +195,9 @@ async function buildMacOS(arch, options = {}) {
   if (arch === "universal") {
     console.log("\nMerging daemon binary for universal build...");
     exec(`lipo -create \\
-      ${TAURI_DIR}/target/aarch64-apple-darwin/release/code_moss_daemon \\
-      ${TAURI_DIR}/target/x86_64-apple-darwin/release/code_moss_daemon \\
-      -output ${TAURI_DIR}/target/universal-apple-darwin/release/code_moss_daemon`);
+      ${TAURI_DIR}/target/aarch64-apple-darwin/release/moss_x_daemon \\
+      ${TAURI_DIR}/target/x86_64-apple-darwin/release/moss_x_daemon \\
+      -output ${TAURI_DIR}/target/universal-apple-darwin/release/moss_x_daemon`);
 
     // Rebuild bundle
     exec(`${buildEnv}npm run tauri -- build --target ${target} --bundles app`);
@@ -206,14 +206,6 @@ async function buildMacOS(arch, options = {}) {
   // Sign and bundle OpenSSL
   if (!skipSign) {
     console.log("\nBundling OpenSSL and signing...");
-    if (!CONFIG.codesignIdentity) {
-      console.error("\nError: CODESIGN_IDENTITY is not set.\n");
-      console.log("Set it to your certificate name, e.g.:");
-      console.log('  export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"');
-      console.log("\nOr build without signing:");
-      console.log("  node scripts/build-platform.mjs mac-arm64 --skip-sign");
-      process.exit(1);
-    }
 
     if (arch === "universal") {
       // Create universal OpenSSL dylibs
@@ -236,7 +228,7 @@ async function buildMacOS(arch, options = {}) {
       exec(`install_name_tool -change ${CONFIG.openssl.arm64}/lib/libcrypto.3.dylib @rpath/libcrypto.3.dylib "${frameworksPath}/libssl.3.dylib"`, { ignoreError: true });
 
       // Fix binary paths
-      for (const bin of ["code-moss", "code_moss_daemon"]) {
+      for (const bin of ["moss-x", "moss_x_daemon"]) {
         const binPath = join(bundlePath, "Contents/MacOS", bin);
         exec(`install_name_tool -add_rpath "@executable_path/../Frameworks" "${binPath}"`, { ignoreError: true });
         exec(`install_name_tool -change ${CONFIG.openssl.arm64}/lib/libssl.3.dylib @rpath/libssl.3.dylib "${binPath}"`, { ignoreError: true });
@@ -248,8 +240,8 @@ async function buildMacOS(arch, options = {}) {
       const entitlements = CONFIG.entitlements;
       exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${frameworksPath}/libcrypto.3.dylib"`);
       exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${frameworksPath}/libssl.3.dylib"`);
-      exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${bundlePath}/Contents/MacOS/code-moss"`);
-      exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${bundlePath}/Contents/MacOS/code_moss_daemon"`);
+      exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${bundlePath}/Contents/MacOS/moss-x"`);
+      exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${bundlePath}/Contents/MacOS/moss_x_daemon"`);
       exec(`codesign --force --options runtime --sign "${identity}" --entitlements "${entitlements}" --timestamp "${bundlePath}"`);
     } else {
       // Use existing script for single-arch builds

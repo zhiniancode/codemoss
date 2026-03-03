@@ -1,29 +1,44 @@
 import type {
   AccountSnapshot,
   AppMode,
+  EngineType,
   RateLimitSnapshot,
   ThreadSummary,
   WorkspaceInfo,
 } from "../../../types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
-import { SidebarMarketLinks } from "./SidebarMarketLinks";
 import { ThreadList } from "./ThreadList";
 import { ThreadLoading } from "./ThreadLoading";
 import { WorktreeSection } from "./WorktreeSection";
 import { PinnedThreadList } from "./PinnedThreadList";
 import { WorkspaceCard } from "./WorkspaceCard";
 import { WorkspaceGroup } from "./WorkspaceGroup";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCollapsedGroups } from "../hooks/useCollapsedGroups";
 import { useSidebarMenus } from "../hooks/useSidebarMenus";
 import { useSidebarScrollFade } from "../hooks/useSidebarScrollFade";
 import { useThreadRows } from "../hooks/useThreadRows";
+import { formatShortcutForPlatform, isMacPlatform } from "../../../utils/shortcuts";
 import { formatRelativeTimeShort } from "../../../utils/time";
+import { EngineIcon } from "../../engine/components/EngineIcon";
+import { pushErrorToast } from "../../../services/toasts";
+import Brain from "lucide-react/dist/esm/icons/brain";
+import BrainCircuit from "lucide-react/dist/esm/icons/brain-circuit";
+import BriefcaseBusiness from "lucide-react/dist/esm/icons/briefcase-business";
+import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronsDownUp from "lucide-react/dist/esm/icons/chevrons-down-up";
-import ChevronsUpDown from "lucide-react/dist/esm/icons/chevrons-up-down";
-import Folders from "lucide-react/dist/esm/icons/folders";
+import Copy from "lucide-react/dist/esm/icons/copy";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
+import LayoutGrid from "lucide-react/dist/esm/icons/layout-grid";
+import MessageSquareMore from "lucide-react/dist/esm/icons/message-square-more";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
+import Search from "lucide-react/dist/esm/icons/search";
+import Settings from "lucide-react/dist/esm/icons/settings";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 
 const UNGROUPED_COLLAPSE_ID = "__ungrouped__";
 
@@ -31,6 +46,11 @@ type WorkspaceGroupSection = {
   id: string | null;
   name: string;
   workspaces: WorkspaceInfo[];
+};
+
+type WorkspaceThreadRows = {
+  unpinnedRows: Array<{ thread: ThreadSummary; depth: number }>;
+  totalRoots: number;
 };
 
 type SidebarProps = {
@@ -65,7 +85,7 @@ type SidebarProps = {
   onSelectHome: () => void;
   onSelectWorkspace: (id: string) => void;
   onConnectWorkspace: (workspace: WorkspaceInfo) => void;
-  onAddAgent: (workspace: WorkspaceInfo) => void;
+  onAddAgent: (workspace: WorkspaceInfo, engine?: EngineType) => void;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => void;
   onAddCloneAgent: (workspace: WorkspaceInfo) => void;
   onToggleWorkspaceCollapse: (workspaceId: string, collapsed: boolean) => void;
@@ -94,16 +114,18 @@ type SidebarProps = {
   appMode: AppMode;
   onAppModeChange: (mode: AppMode) => void;
   onOpenMemory: () => void;
-  onOpenCustomAPIHome: () => void;
-  onNewCustomAPIChat: () => void;
-  onAddOpenAIWorkspace: () => void;
+  onOpenProjectMemory: () => void;
+  onOpenSpecHub: () => void;
+  onOpenWorkspaceHome: () => void;
+  onOpenGlobalSearch: () => void;
+  globalSearchShortcut: string | null;
   topbarNode?: ReactNode;
 };
 
 export function Sidebar({
   workspaces,
   groupedWorkspaces,
-  hasWorkspaceGroups,
+  hasWorkspaceGroups: _hasWorkspaceGroups,
   deletingWorktreeIds,
   threadsByWorkspace,
   threadParentById,
@@ -119,9 +141,9 @@ export function Sidebar({
   accountSwitching: _accountSwitching,
   onOpenSettings,
   onOpenDebug: _onOpenDebug,
-  showTerminalButton,
-  isTerminalOpen,
-  onToggleTerminal,
+  showTerminalButton: _showTerminalButton,
+  isTerminalOpen: _isTerminalOpen,
+  onToggleTerminal: _onToggleTerminal,
   onAddWorkspace,
   onSelectHome: _onSelectHome,
   onSelectWorkspace,
@@ -155,14 +177,29 @@ export function Sidebar({
   appMode,
   onAppModeChange,
   onOpenMemory,
-  onOpenCustomAPIHome,
-  onNewCustomAPIChat,
-  onAddOpenAIWorkspace,
+  onOpenProjectMemory,
+  onOpenSpecHub,
+  onOpenWorkspaceHome: _onOpenWorkspaceHome,
+  onOpenGlobalSearch,
+  globalSearchShortcut,
   topbarNode,
 }: SidebarProps) {
   const { t } = useTranslation();
-
-
+  const quickSearchLabel = t("sidebar.quickSearch");
+  const quickSearchShortcutLabel = useMemo(
+    () => {
+      const normalizedShortcut = (globalSearchShortcut ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "");
+      const isMac = isMacPlatform();
+      if (!normalizedShortcut || normalizedShortcut === "cmd+o" || normalizedShortcut === "ctrl+o") {
+        return formatShortcutForPlatform(isMac ? "cmd+f" : "ctrl+f", isMac);
+      }
+      return formatShortcutForPlatform(globalSearchShortcut, isMac);
+    },
+    [globalSearchShortcut],
+  );
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState(
     new Set<string>(),
@@ -173,12 +210,22 @@ export function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [isSearchOpen] = useState(false);
-  const [isRailCollapsed, setIsRailCollapsed] = useState(true);
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const { collapsedGroups, toggleGroupCollapse, replaceCollapsedGroups } =
     useCollapsedGroups();
   const { getThreadRows } = useThreadRows(threadParentById);
-  const { showThreadMenu, showWorkspaceMenu, showWorktreeMenu } =
+  const {
+    showThreadMenu,
+    showWorkspaceMenu,
+    showWorktreeMenu,
+    workspaceMenuState,
+    closeWorkspaceMenu,
+    onWorkspaceMenuAction,
+  } =
     useSidebarMenus({
+      onAddAgent,
       onDeleteThread,
       onSyncThread,
       onPinThread: pinThread,
@@ -194,6 +241,45 @@ export function Sidebar({
       onAddCloneAgent,
     });
   const normalizedQuery = debouncedQuery.trim().toLowerCase();
+
+  useEffect(() => {
+    if (!workspaceMenuState) {
+      return;
+    }
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeWorkspaceMenu();
+      }
+    };
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleWindowKeyDown);
+    };
+  }, [workspaceMenuState, closeWorkspaceMenu]);
+
+  const renderWorkspaceMenuIcon = useCallback((iconKind: string) => {
+    switch (iconKind) {
+      case "engine-claude":
+        return <EngineIcon engine="claude" size={14} />;
+      case "engine-codex":
+        return <EngineIcon engine="codex" size={14} style={{ color: "#10a37f" }} />;
+      case "engine-opencode":
+        return <EngineIcon engine="opencode" size={14} style={{ color: "#3b82f6" }} />;
+      case "engine-gemini":
+        return <EngineIcon engine="gemini" size={14} />;
+      case "reload":
+        return <RefreshCw size={13} />;
+      case "remove":
+        return <Trash2 size={13} />;
+      case "new-worktree":
+        return <GitBranch size={13} />;
+      case "new-clone":
+        return <Copy size={13} />;
+      default:
+        return null;
+    }
+  }, []);
 
   const isWorkspaceMatch = useCallback(
     (workspace: WorkspaceInfo) => {
@@ -237,11 +323,6 @@ export function Sidebar({
     [normalizedQuery],
   );
 
-  const isOpenAIWorkspace = useCallback((workspace: WorkspaceInfo) => {
-    const type = workspace.settings.engineType ?? null;
-    return typeof type === "string" && type.toLowerCase() === "openai";
-  }, []);
-
   const pinnedThreadRows = useMemo(() => {
     type ThreadRow = { thread: ThreadSummary; depth: number };
     const groups: Array<{
@@ -251,10 +332,6 @@ export function Sidebar({
     }> = [];
 
     workspaces.forEach((workspace) => {
-      if (isOpenAIWorkspace(workspace)) {
-        // Keep OpenAI Compatible threads separate from the Projects/CLI area.
-        return;
-      }
       if (!isWorkspaceMatch(workspace)) {
         return;
       }
@@ -312,7 +389,6 @@ export function Sidebar({
     threadsByWorkspace,
     getThreadRows,
     getPinTimestamp,
-    isOpenAIWorkspace,
     isWorkspaceMatch,
     pinnedThreadsVersion,
   ]);
@@ -324,28 +400,59 @@ export function Sidebar({
   const { sidebarBodyRef, scrollFade, updateScrollFade } =
     useSidebarScrollFade(scrollFadeDeps);
 
-  const filteredOpenAIWorkspaces = useMemo(() => {
-    const roots = workspaces.filter(
-      (entry) =>
-        (entry.kind ?? "main") !== "worktree" &&
-        !entry.parentId &&
-        isOpenAIWorkspace(entry),
-    );
-    return roots.filter(isWorkspaceMatch);
-  }, [isOpenAIWorkspace, isWorkspaceMatch, workspaces]);
-
-  const filteredGroupedWorkspaces = useMemo(() => {
-    return groupedWorkspaces
-      .map((group) => ({
-        ...group,
-        workspaces: group.workspaces.filter(
-          (workspace) => !isOpenAIWorkspace(workspace) && isWorkspaceMatch(workspace),
-        ),
-      }))
-      .filter((group) => group.workspaces.length > 0);
-  }, [groupedWorkspaces, isOpenAIWorkspace, isWorkspaceMatch]);
+  const filteredGroupedWorkspaces = useMemo(
+    () =>
+      groupedWorkspaces
+        .map((group) => ({
+          ...group,
+          workspaces: group.workspaces.filter(isWorkspaceMatch),
+        }))
+        .filter((group) => group.workspaces.length > 0),
+    [groupedWorkspaces, isWorkspaceMatch],
+  );
 
   const isSearchActive = Boolean(normalizedQuery);
+
+  const hasNamedGroupsInView = useMemo(
+    () => filteredGroupedWorkspaces.some((g) => g.id !== null),
+    [filteredGroupedWorkspaces],
+  );
+
+  const threadRowsByWorkspace = useMemo(() => {
+    const rowsByWorkspace = new Map<string, WorkspaceThreadRows>();
+    const hasNamedGroups = filteredGroupedWorkspaces.some((g) => g.id !== null);
+    filteredGroupedWorkspaces.forEach((group) => {
+      const showGroupHeader = Boolean(group.id) || hasNamedGroups;
+      const toggleId = group.id ?? (showGroupHeader ? UNGROUPED_COLLAPSE_ID : null);
+      const isGroupCollapsed = Boolean(toggleId && collapsedGroups.has(toggleId));
+      if (isGroupCollapsed) {
+        return;
+      }
+      group.workspaces.forEach((workspace) => {
+        if (workspace.settings.sidebarCollapsed) {
+          rowsByWorkspace.set(workspace.id, { unpinnedRows: [], totalRoots: 0 });
+          return;
+        }
+        const threads = threadsByWorkspace[workspace.id] ?? [];
+        const isExpanded = expandedWorkspaces.has(workspace.id);
+        const { unpinnedRows, totalRoots } = getThreadRows(
+          threads,
+          isExpanded,
+          workspace.id,
+          getPinTimestamp,
+        );
+        rowsByWorkspace.set(workspace.id, { unpinnedRows, totalRoots });
+      });
+    });
+    return rowsByWorkspace;
+  }, [
+    collapsedGroups,
+    expandedWorkspaces,
+    filteredGroupedWorkspaces,
+    getPinTimestamp,
+    getThreadRows,
+    threadsByWorkspace,
+  ]);
 
   const worktreesByParent = useMemo(() => {
     const worktrees = new Map<string, WorkspaceInfo[]>();
@@ -396,16 +503,17 @@ export function Sidebar({
   );
 
   const allGroupToggleIds = useMemo(() => {
+    const hasNamedGroups = groupedWorkspaces.some((g) => g.id !== null);
     const ids = new Set<string>();
     groupedWorkspaces.forEach((group) => {
-      const showGroupHeader = Boolean(group.id) || hasWorkspaceGroups;
+      const showGroupHeader = Boolean(group.id) || hasNamedGroups;
       if (!showGroupHeader) {
         return;
       }
       ids.add(group.id ?? UNGROUPED_COLLAPSE_ID);
     });
     return Array.from(ids);
-  }, [groupedWorkspaces, hasWorkspaceGroups]);
+  }, [groupedWorkspaces]);
 
   const isAllCollapsed = useMemo(() => {
     const allWorkspaceCollapsed = workspaces.every(
@@ -462,22 +570,53 @@ export function Sidebar({
   );
 
   useEffect(() => {
+    if (!isSettingsMenuOpen) {
+      return;
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        settingsMenuRef.current &&
+        !settingsMenuRef.current.contains(target) &&
+        settingsButtonRef.current &&
+        !settingsButtonRef.current.contains(target)
+      ) {
+        setIsSettingsMenuOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSettingsMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isSettingsMenuOpen]);
+
+  useEffect(() => {
     if (!isSearchOpen && searchQuery) {
       setSearchQuery("");
     }
   }, [isSearchOpen, searchQuery]);
 
   useEffect(() => {
-    let canceled = false;
-    const handle = setTimeout(() => {
-      if (canceled) return;
+    const handle = window.setTimeout(() => {
       setDebouncedQuery(searchQuery);
     }, 150);
-    return () => {
-      canceled = true;
-      clearTimeout(handle);
-    };
+    return () => window.clearTimeout(handle);
   }, [searchQuery]);
+
+  const handleOpenSkillsComingSoon = useCallback(() => {
+    pushErrorToast({
+      title: t("sidebar.comingSoon"),
+      message: t("sidebar.comingSoonMessage"),
+      durationMs: 3000,
+    });
+  }, [t]);
 
   return (
     <aside
@@ -541,32 +680,70 @@ export function Sidebar({
         </div>
       </div>
       <div className="sidebar-body">
-        <div className={`sidebar-body-layout ${isRailCollapsed ? "rail-collapsed" : "rail-expanded"}`}>
-          <aside className="sidebar-tree-rail-column" aria-label={t("sidebar.pluginMarket")}>
-            <SidebarMarketLinks
-              onOpenMemory={onOpenMemory}
-              onOpenCustomAPIHome={onOpenCustomAPIHome}
-              appMode={appMode}
-              onAppModeChange={onAppModeChange}
-              onOpenSettings={onOpenSettings}
-              showTerminalButton={showTerminalButton}
-              isTerminalOpen={isTerminalOpen}
-              onToggleTerminal={onToggleTerminal}
-              isCollapsed={isRailCollapsed}
-              onToggleCollapsed={() => setIsRailCollapsed((prev) => !prev)}
-            />
-          </aside>
-          <div
+        <div className="sidebar-body-layout">
+          <nav className="sidebar-primary-nav" aria-label={t("tabbar.primaryNavigation")}>
+            <button
+              type="button"
+              className={`sidebar-primary-nav-item sidebar-primary-nav-mode-item ${appMode === "chat" ? "is-active" : ""}`}
+              onClick={() => onAppModeChange("chat")}
+              title={t("sidebar.quickNewThread")}
+              aria-label={t("sidebar.quickNewThread")}
+              data-tauri-drag-region="false"
+            >
+              <MessageSquareMore className="sidebar-primary-nav-icon" aria-hidden />
+              <span className="sidebar-primary-nav-text">{t("sidebar.quickNewThread")}</span>
+            </button>
+            <button
+              type="button"
+              className={`sidebar-primary-nav-item sidebar-primary-nav-mode-item ${appMode === "kanban" ? "is-active" : ""}`}
+              onClick={() => onAppModeChange("kanban")}
+              title={t("sidebar.quickAutomation")}
+              aria-label={t("sidebar.quickAutomation")}
+              data-tauri-drag-region="false"
+            >
+              <LayoutGrid className="sidebar-primary-nav-icon" aria-hidden />
+              <span className="sidebar-primary-nav-text">{t("sidebar.quickAutomation")}</span>
+            </button>
+            <button
+              type="button"
+              className="sidebar-primary-nav-item sidebar-primary-nav-subitem"
+              onClick={onOpenGlobalSearch}
+              title={`${quickSearchLabel} (${quickSearchShortcutLabel})`}
+              aria-label={quickSearchLabel}
+              data-tauri-drag-region="false"
+            >
+              <Search className="sidebar-primary-nav-icon" aria-hidden />
+              <span className="sidebar-primary-nav-text">{quickSearchLabel}</span>
+              <span className="sidebar-primary-nav-shortcut" aria-hidden>
+                {quickSearchShortcutLabel}
+              </span>
+            </button>
+          </nav>
+          <ScrollArea
             className={`sidebar-content-column${scrollFade.top ? " fade-top" : ""}${
               scrollFade.bottom ? " fade-bottom" : ""
             }`}
-            onScroll={updateScrollFade}
-            ref={sidebarBodyRef}
+            onViewportScroll={updateScrollFade}
+            viewportRef={sidebarBodyRef}
           >
+            {pinnedThreadRows.length > 0 && (
+              <div className="pinned-section sidebar-pinned-section">
+                <PinnedThreadList
+                  rows={pinnedThreadRows}
+                  activeWorkspaceId={activeWorkspaceId}
+                  activeThreadId={activeThreadId}
+                  threadStatusById={threadStatusById}
+                  getThreadTime={getThreadTime}
+                  isThreadPinned={isThreadPinned}
+                  isThreadAutoNaming={isThreadAutoNaming}
+                  onSelectThread={onSelectThread}
+                  onShowThreadMenu={showThreadMenu}
+                />
+              </div>
+            )}
             <div className="sidebar-section-header">
               <div className="sidebar-section-title">
-                <Folders className="sidebar-section-title-icon" aria-hidden />
-                {t("sidebar.workspaces")}
+                {t("sidebar.projects")}
               </div>
               <button
                 className="sidebar-title-add sidebar-title-toggle-all"
@@ -584,155 +761,32 @@ export function Sidebar({
                     : t("sidebar.collapseAllSections")
                 }
               >
-                {isAllCollapsed ? (
-                  <ChevronsUpDown size={14} aria-hidden />
-                ) : (
-                  <ChevronsDownUp size={14} aria-hidden />
-                )}
+                <ChevronsDownUp size={14} aria-hidden />
+              </button>
+              <button
+                className="sidebar-title-add"
+                onClick={onAddWorkspace}
+                data-tauri-drag-region="false"
+                aria-label={t("sidebar.addWorkspace")}
+                type="button"
+                title={t("sidebar.addWorkspace")}
+              >
+                <span
+                  className="codicon codicon-new-folder"
+                  aria-hidden
+                  style={{ fontSize: "16px" }}
+                />
               </button>
             </div>
             <div className="workspace-list">
-          <div className="openai-section">
-              <div className="workspace-group-header">
-                <div className="workspace-group-label">{t("sidebar.openaiSection")}</div>
-                <div className="workspace-group-actions">
-                  <button
-                    className="sidebar-title-add"
-                    onClick={onNewCustomAPIChat}
-                    data-tauri-drag-region="false"
-                    aria-label={t("sidebar.openaiNewChat")}
-                    title={t("sidebar.openaiNewChat")}
-                    type="button"
-                  >
-                    <span
-                      className="codicon codicon-comment-discussion"
-                      aria-hidden
-                      style={{ fontSize: "15px" }}
-                    />
-                  </button>
-                  <button
-                    className="sidebar-title-add"
-                    onClick={onAddOpenAIWorkspace}
-                    data-tauri-drag-region="false"
-                    aria-label={t("sidebar.openaiAddFolder")}
-                    title={t("sidebar.openaiAddFolder")}
-                    type="button"
-                  >
-                    <span
-                      className="codicon codicon-new-folder"
-                      aria-hidden
-                      style={{ fontSize: "16px" }}
-                    />
-                  </button>
-                </div>
-              </div>
-              {filteredOpenAIWorkspaces.length === 0 && (
-                <div className="empty">{t("sidebar.openaiEmpty")}</div>
-              )}
-              {filteredOpenAIWorkspaces.map((entry) => {
-                const threads = threadsByWorkspace[entry.id] ?? [];
-                const isCollapsed = entry.settings.sidebarCollapsed;
-                const isExpanded = expandedWorkspaces.has(entry.id);
-                const { unpinnedRows, totalRoots: totalThreadRoots } = getThreadRows(
-                  threads,
-                  isExpanded,
-                  entry.id,
-                  getPinTimestamp,
-                );
-                const nextCursor = threadListCursorByWorkspace[entry.id] ?? null;
-                const showThreadList =
-                  !isCollapsed && (threads.length > 0 || Boolean(nextCursor));
-                const isLoadingThreads = threadListLoadingByWorkspace[entry.id] ?? false;
-                const showThreadLoader =
-                  !isCollapsed && isLoadingThreads && threads.length === 0;
-                const isPaging = threadListPagingByWorkspace[entry.id] ?? false;
-                const hasPrimaryActiveThread =
-                  entry.id === activeWorkspaceId && Boolean(activeThreadId);
-
-                return (
-                  <WorkspaceCard
-                    key={entry.id}
-                    workspace={entry}
-                    workspaceName={renderHighlightedName(entry.name)}
-                    isActive={entry.id === activeWorkspaceId}
-                    hasPrimaryActiveThread={hasPrimaryActiveThread}
-                    isCollapsed={isCollapsed}
-                    onSelectWorkspace={onSelectWorkspace}
-                    onShowWorkspaceMenu={showWorkspaceMenu}
-                    onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
-                    onAddAgent={onAddAgent}
-                  >
-                    {showThreadList && (
-                      <ThreadList
-                        workspaceId={entry.id}
-                        pinnedRows={[]}
-                        unpinnedRows={unpinnedRows}
-                        totalThreadRoots={totalThreadRoots}
-                        isExpanded={isExpanded}
-                        nextCursor={nextCursor}
-                        isPaging={isPaging}
-                        activeWorkspaceId={activeWorkspaceId}
-                        activeThreadId={activeThreadId}
-                        threadStatusById={threadStatusById}
-                        getThreadTime={getThreadTime}
-                        isThreadPinned={isThreadPinned}
-                        isThreadAutoNaming={isThreadAutoNaming}
-                        onToggleExpanded={handleToggleExpanded}
-                        onLoadOlderThreads={onLoadOlderThreads}
-                        onSelectThread={onSelectThread}
-                        onShowThreadMenu={showThreadMenu}
-                      />
-                    )}
-                    {showThreadLoader && <ThreadLoading />}
-                  </WorkspaceCard>
-                );
-              })}
-            </div>
-
-            <div className="workspace-group-header">
-              <div className="workspace-group-label">{t("sidebar.cliSection")}</div>
-              <div className="workspace-group-actions">
-                <button
-                  className="sidebar-title-add"
-                  onClick={onAddWorkspace}
-                  data-tauri-drag-region="false"
-                  aria-label={t("sidebar.addWorkspace")}
-                  title={t("sidebar.addWorkspace")}
-                  type="button"
-                >
-                  <span
-                    className="codicon codicon-new-folder"
-                    aria-hidden
-                    style={{ fontSize: "16px" }}
-                  />
-                </button>
-              </div>
-            </div>
-          {pinnedThreadRows.length > 0 && (
-            <div className="pinned-section">
-              <div className="workspace-group-header">
-                <div className="workspace-group-label">{t("sidebar.pinned")}</div>
-              </div>
-              <PinnedThreadList
-                rows={pinnedThreadRows}
-                activeWorkspaceId={activeWorkspaceId}
-                activeThreadId={activeThreadId}
-                threadStatusById={threadStatusById}
-                getThreadTime={getThreadTime}
-                isThreadPinned={isThreadPinned}
-                isThreadAutoNaming={isThreadAutoNaming}
-                onSelectThread={onSelectThread}
-                onShowThreadMenu={showThreadMenu}
-              />
-            </div>
-          )}
           {filteredGroupedWorkspaces.map((group) => {
             const groupId = group.id;
-            const showGroupHeader = Boolean(groupId) || hasWorkspaceGroups;
+            const showGroupHeader = Boolean(groupId) || hasNamedGroupsInView;
             const toggleId = groupId ?? (showGroupHeader ? UNGROUPED_COLLAPSE_ID : null);
             const isGroupCollapsed = Boolean(
               toggleId && collapsedGroups.has(toggleId),
             );
+            const visibleWorkspaces = isGroupCollapsed ? [] : group.workspaces;
 
             return (
               <WorkspaceGroup
@@ -743,19 +797,13 @@ export function Sidebar({
                 isCollapsed={isGroupCollapsed}
                 onToggleCollapse={toggleGroupCollapse}
               >
-                {group.workspaces.map((entry) => {
+                {visibleWorkspaces.map((entry) => {
                   const threads = threadsByWorkspace[entry.id] ?? [];
                   const isCollapsed = entry.settings.sidebarCollapsed;
                   const isExpanded = expandedWorkspaces.has(entry.id);
-                  const {
-                    unpinnedRows,
-                    totalRoots: totalThreadRoots,
-                  } = getThreadRows(
-                    threads,
-                    isExpanded,
-                    entry.id,
-                    getPinTimestamp,
-                  );
+                  const threadRows = threadRowsByWorkspace.get(entry.id);
+                  const unpinnedRows = threadRows?.unpinnedRows ?? [];
+                  const totalThreadRoots = threadRows?.totalRoots ?? 0;
                   const nextCursor =
                     threadListCursorByWorkspace[entry.id] ?? null;
                   const showThreadList =
@@ -781,7 +829,6 @@ export function Sidebar({
                       onSelectWorkspace={onSelectWorkspace}
                       onShowWorkspaceMenu={showWorkspaceMenu}
                       onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
-                      onAddAgent={onAddAgent}
                     >
                       {!isCollapsed && worktrees.length > 0 && (
                         <WorktreeSection
@@ -843,7 +890,7 @@ export function Sidebar({
               </WorkspaceGroup>
             );
           })}
-          {!filteredGroupedWorkspaces.length && filteredOpenAIWorkspaces.length === 0 && (
+          {!filteredGroupedWorkspaces.length && (
             <div className="empty">
               {isSearchActive
                 ? t("sidebar.noProjectsMatch")
@@ -851,9 +898,182 @@ export function Sidebar({
             </div>
           )}
             </div>
+          </ScrollArea>
+          <div className="sidebar-bottom-nav">
+            <div className="sidebar-settings-dropdown-wrapper">
+              {isSettingsMenuOpen && (
+                <div
+                  className="sidebar-settings-dropdown"
+                  ref={settingsMenuRef}
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-settings-dropdown-item"
+                    disabled
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      handleOpenSkillsComingSoon();
+                    }}
+                  >
+                    <BriefcaseBusiness size={14} aria-hidden />
+                    <span>{t("sidebar.quickSkills")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-settings-dropdown-item"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onOpenMemory();
+                    }}
+                  >
+                    <BrainCircuit size={14} aria-hidden />
+                    <span>{t("sidebar.longTermMemory")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-settings-dropdown-item"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onOpenSpecHub();
+                    }}
+                  >
+                    <LayoutDashboard size={14} aria-hidden />
+                    <span>{t("sidebar.specHub")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-settings-dropdown-item"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onOpenProjectMemory();
+                    }}
+                  >
+                    <Brain size={14} aria-hidden />
+                    <span>{t("panels.memory")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`sidebar-settings-dropdown-item${appMode === "gitHistory" ? " is-active" : ""}`}
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onAppModeChange(appMode === "gitHistory" ? "chat" : "gitHistory");
+                    }}
+                  >
+                    <GitBranch size={14} aria-hidden />
+                    <span>{t("git.logMode")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sidebar-settings-dropdown-item"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onOpenSettings();
+                    }}
+                  >
+                    <Settings size={14} aria-hidden />
+                    <span>{t("settings.title")}</span>
+                  </button>
+                </div>
+              )}
+              <button
+                ref={settingsButtonRef}
+                type="button"
+                className={`sidebar-primary-nav-item sidebar-primary-nav-item-bottom${isSettingsMenuOpen ? " is-active" : ""}`}
+                onClick={() => setIsSettingsMenuOpen((prev) => !prev)}
+                title={t("settings.title")}
+                aria-label={t("settings.title")}
+                aria-expanded={isSettingsMenuOpen}
+                aria-haspopup="menu"
+                data-tauri-drag-region="false"
+              >
+                <Settings className="sidebar-primary-nav-icon" aria-hidden />
+                <span className="sidebar-primary-nav-text">{t("settings.title")}</span>
+                <ChevronUp
+                  size={14}
+                  className={`sidebar-settings-chevron${isSettingsMenuOpen ? " is-open" : ""}`}
+                  aria-hidden
+                />
+              </button>
+            </div>
           </div>
         </div>
       </div>
+      {workspaceMenuState ? (
+        <div
+          className="sidebar-workspace-menu-backdrop"
+          onClick={closeWorkspaceMenu}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            closeWorkspaceMenu();
+          }}
+        >
+          <div
+            className="sidebar-workspace-menu"
+            role="menu"
+            aria-label={t("sidebar.workspaceActionsGroup")}
+            style={{
+              left: workspaceMenuState.x,
+              top: workspaceMenuState.y,
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {workspaceMenuState.groups.map((group, groupIndex) => (
+              <div className="sidebar-workspace-menu-group" key={group.id}>
+                <div className="sidebar-workspace-menu-group-title">
+                  {group.label}
+                </div>
+                {group.actions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    role="menuitem"
+                    className={`sidebar-workspace-menu-item${
+                      action.tone === "danger" ? " is-danger" : ""
+                    }${action.deprecated ? " is-deprecated" : ""}${
+                      action.unavailable ? " is-unavailable" : ""
+                    }`}
+                    disabled={action.unavailable}
+                    onClick={() => onWorkspaceMenuAction(action)}
+                  >
+                    <span
+                      className={`sidebar-workspace-menu-item-icon sidebar-workspace-menu-item-icon-${action.iconKind}${
+                        action.unavailable ? " is-unavailable" : ""
+                      }`}
+                      aria-hidden
+                    >
+                      {renderWorkspaceMenuIcon(action.iconKind)}
+                    </span>
+                    <span className="sidebar-workspace-menu-item-label">
+                      {action.label}
+                    </span>
+                    {action.deprecated ? (
+                      <span className="sidebar-workspace-menu-item-deprecated">
+                        ({t("sidebar.deprecatedTag")})
+                      </span>
+                    ) : null}
+                    {action.unavailable ? (
+                      <span className="sidebar-workspace-menu-item-unavailable">
+                        ({t("sidebar.unavailableTag")})
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+                {groupIndex < workspaceMenuState.groups.length - 1 ? (
+                  <div className="sidebar-workspace-menu-divider" aria-hidden />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

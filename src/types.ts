@@ -8,8 +8,6 @@ export type WorkspaceSettings = {
   launchScript?: string | null;
   launchScripts?: LaunchScriptEntry[] | null;
   worktreeSetupScript?: string | null;
-  // Persisted by the backend as workspace "engineType" (e.g. "claude", "codex", "openai").
-  engineType?: EngineType | null;
 };
 
 export type LaunchScriptIconId =
@@ -47,6 +45,11 @@ export type WorkspaceKind = "main" | "worktree";
 
 export type WorktreeInfo = {
   branch: string;
+  baseRef?: string | null;
+  baseCommit?: string | null;
+  tracking?: string | null;
+  publishError?: string | null;
+  publishRetryCommand?: string | null;
 };
 
 export type WorkspaceInfo = {
@@ -79,7 +82,7 @@ export type ConversationItem =
       role: "user" | "assistant";
       text: string;
       images?: string[];
-      files?: string[];
+      collaborationMode?: "plan" | "code" | null;
     }
   | { id: string; kind: "reasoning"; summary: string; content: string }
   | { id: string; kind: "diff"; title: string; diff: string; status?: string }
@@ -88,6 +91,9 @@ export type ConversationItem =
       id: string;
       kind: "explore";
       status: "exploring" | "explored";
+      title?: string;
+      collapsible?: boolean;
+      mergeKey?: string;
       entries: { kind: "read" | "search" | "list" | "run"; label: string; detail?: string }[];
     }
   | {
@@ -115,13 +121,14 @@ export type ReviewTarget =
   | { type: "commit"; sha: string; title?: string }
   | { type: "custom"; instructions: string };
 
-export type AccessMode = "read-only" | "current" | "full-access";
+export type AccessMode = "default" | "read-only" | "current" | "full-access";
 export type BackendMode = "local" | "remote";
 export type ThemePreference = "system" | "light" | "dark";
-export type AppMode = "chat" | "kanban";
+export type AppMode = "chat" | "kanban" | "gitHistory";
 
 
 export type ComposerEditorPreset = "default" | "helpful" | "smart";
+export type ComposerSendShortcut = "enter" | "cmdEnter";
 
 export type ComposerEditorSettings = {
   preset: ComposerEditorPreset;
@@ -172,6 +179,7 @@ export type AppSettings = {
   lastComposerReasoningEffort: string | null;
   uiScale: number;
   theme: ThemePreference;
+  userMsgColor: string;
   usageShowRemaining: boolean;
   showMessageAnchors: boolean;
   uiFontFamily: string;
@@ -182,13 +190,18 @@ export type AppSettings = {
   preloadGitDiffs: boolean;
   experimentalCollabEnabled: boolean;
   experimentalCollaborationModesEnabled: boolean;
+  codexModeEnforcementEnabled?: boolean;
   experimentalSteerEnabled: boolean;
   experimentalUnifiedExecEnabled: boolean;
+  chatCanvasUseNormalizedRealtime: boolean;
+  chatCanvasUseUnifiedHistoryLoader: boolean;
+  chatCanvasUsePresentationProfile: boolean;
   dictationEnabled: boolean;
   dictationModelId: string;
   dictationPreferredLanguage: string | null;
   dictationHoldKey: string | null;
   composerEditorPreset: ComposerEditorPreset;
+  composerSendShortcut: ComposerSendShortcut;
   composerFenceExpandOnSpace: boolean;
   composerFenceExpandOnEnter: boolean;
   composerFenceLanguageTags: boolean;
@@ -200,6 +213,11 @@ export type AppSettings = {
   workspaceGroups: WorkspaceGroup[];
   openAppTargets: OpenAppTarget[];
   selectedOpenAppId: string;
+  streamingEnabled?: boolean;
+  autoOpenFileEnabled?: boolean;
+  diffExpandedByDefault?: boolean;
+  commitPrompt?: string;
+  sendShortcut?: "enter" | "cmdEnter";
 };
 
 export type CodexDoctorResult = {
@@ -258,12 +276,41 @@ export type RequestUserInputParams = {
   turn_id: string;
   item_id: string;
   questions: RequestUserInputQuestion[];
+  completed?: boolean;
 };
 
 export type RequestUserInputRequest = {
   workspace_id: string;
   request_id: number | string;
   params: RequestUserInputParams;
+};
+
+export type CollaborationModeBlockedParams = {
+  thread_id: string;
+  blocked_method: string;
+  effective_mode: string;
+  reason_code?: string;
+  reason: string;
+  suggestion?: string;
+  request_id?: number | string | null;
+};
+
+export type CollaborationModeBlockedRequest = {
+  workspace_id: string;
+  params: CollaborationModeBlockedParams;
+};
+
+export type CollaborationModeResolvedParams = {
+  thread_id: string;
+  selected_ui_mode: "plan" | "default";
+  effective_runtime_mode: "plan" | "code";
+  effective_ui_mode: "plan" | "default";
+  fallback_reason?: string | null;
+};
+
+export type CollaborationModeResolvedRequest = {
+  workspace_id: string;
+  params: CollaborationModeResolvedParams;
 };
 
 export type RequestUserInputAnswer = {
@@ -319,6 +366,140 @@ export type GitLogResponse = {
   aheadEntries: GitLogEntry[];
   behindEntries: GitLogEntry[];
   upstream: string | null;
+};
+
+export type GitHistoryCommit = {
+  sha: string;
+  shortSha: string;
+  summary: string;
+  message: string;
+  author: string;
+  authorEmail: string;
+  timestamp: number;
+  parents: string[];
+  refs: string[];
+};
+
+export type GitHistoryResponse = {
+  snapshotId: string;
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  commits: GitHistoryCommit[];
+};
+
+export type GitPushPreviewResponse = {
+  sourceBranch: string;
+  targetRemote: string;
+  targetBranch: string;
+  targetRef: string;
+  targetFound: boolean;
+  hasMore: boolean;
+  commits: GitHistoryCommit[];
+};
+
+export type GitBranchCompareCommitSets = {
+  targetOnlyCommits: GitHistoryCommit[];
+  currentOnlyCommits: GitHistoryCommit[];
+};
+
+export type GitPrWorkflowDefaults = {
+  upstreamRepo: string;
+  baseBranch: string;
+  headOwner: string;
+  headBranch: string;
+  title: string;
+  body: string;
+  commentBody: string;
+  canCreate: boolean;
+  disabledReason?: string | null;
+};
+
+export type GitPrWorkflowStageStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped";
+
+export type GitPrWorkflowStage = {
+  key: string;
+  status: GitPrWorkflowStageStatus | string;
+  detail: string;
+  command?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
+};
+
+export type GitPrExistingPullRequest = {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  headRefName: string;
+  baseRefName: string;
+};
+
+export type GitPrWorkflowResult = {
+  ok: boolean;
+  status: "success" | "failed" | "existing";
+  message: string;
+  errorCategory?: string | null;
+  nextActionHint?: string | null;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  existingPr?: GitPrExistingPullRequest | null;
+  retryCommand?: string | null;
+  stages: GitPrWorkflowStage[];
+};
+
+export type GitCommitFileChange = {
+  path: string;
+  oldPath?: string | null;
+  status: string;
+  additions: number;
+  deletions: number;
+  isBinary?: boolean;
+  isImage?: boolean;
+  diff: string;
+  lineCount: number;
+  truncated: boolean;
+};
+
+export type GitCommitDetails = {
+  sha: string;
+  summary: string;
+  message: string;
+  author: string;
+  authorEmail: string;
+  committer: string;
+  committerEmail: string;
+  authorTime: number;
+  commitTime: number;
+  parents: string[];
+  files: GitCommitFileChange[];
+  totalAdditions: number;
+  totalDeletions: number;
+};
+
+export type GitBranchListItem = {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+  remote?: string | null;
+  upstream?: string | null;
+  lastCommit: number;
+  headSha?: string | null;
+  ahead: number;
+  behind: number;
+};
+
+export type GitBranchListResponse = {
+  branches: BranchInfo[];
+  localBranches?: GitBranchListItem[];
+  remoteBranches?: GitBranchListItem[];
+  currentBranch?: string | null;
 };
 
 export type GitHubIssue = {
@@ -459,7 +640,55 @@ export type QueuedMessage = {
   text: string;
   createdAt: number;
   images?: string[];
-  files?: string[];
+  sendOptions?: MessageSendOptions;
+};
+
+export type MemoryContextInjectionMode = "summary" | "detail";
+
+export type MessageSendOptions = {
+  selectedMemoryIds?: string[];
+  selectedMemoryInjectionMode?: MemoryContextInjectionMode;
+  selectedAgent?: SelectedAgentOption | null;
+  model?: string | null;
+  effort?: string | null;
+  collaborationMode?: Record<string, unknown> | null;
+  accessMode?: AccessMode;
+};
+
+export type SelectedAgentOption = {
+  id: string;
+  name: string;
+  prompt?: string | null;
+};
+
+export type AgentConfig = {
+  id: string;
+  name: string;
+  prompt?: string | null;
+  createdAt?: number | null;
+};
+
+export type AgentImportPreviewItem = {
+  data: AgentConfig;
+  status: "new" | "update";
+  conflict: boolean;
+};
+
+export type AgentImportPreviewResult = {
+  items: AgentImportPreviewItem[];
+  summary: {
+    total: number;
+    newCount: number;
+    updateCount: number;
+  };
+};
+
+export type AgentImportApplyResult = {
+  success: boolean;
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
 };
 
 export type ModelOption = {
@@ -486,6 +715,7 @@ export type SkillOption = {
   name: string;
   path: string;
   description?: string;
+  source?: string;
 };
 
 export type CustomPromptOption = {
@@ -503,6 +733,7 @@ export type CustomCommandOption = {
   description?: string;
   argumentHint?: string;
   content: string;
+  source?: string;
 };
 
 export type OpenCodeAgentOption = {

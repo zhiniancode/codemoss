@@ -4,13 +4,13 @@
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::time::{sleep, timeout, Instant};
@@ -47,13 +47,46 @@ pub struct OpenCodeSession {
 }
 
 impl OpenCodeSession {
+    fn with_external_spec_hint(text: &str, custom_spec_root: Option<&str>) -> String {
+        let Some(spec_root) = custom_spec_root
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return text.to_string();
+        };
+        if !Path::new(spec_root).is_absolute() {
+            return text.to_string();
+        }
+        format!(
+            "[External OpenSpec Root]\n- Path: {spec_root}\n- Treat this as the active spec root when checking or reading project specs.\n[/External OpenSpec Root]\n\n{text}"
+        )
+    }
+
     fn has_proxy_env() -> bool {
-        std::env::var("HTTPS_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
-            || std::env::var("https_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
-            || std::env::var("HTTP_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
-            || std::env::var("http_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
-            || std::env::var("ALL_PROXY").ok().filter(|v| !v.trim().is_empty()).is_some()
-            || std::env::var("all_proxy").ok().filter(|v| !v.trim().is_empty()).is_some()
+        std::env::var("HTTPS_PROXY")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .is_some()
+            || std::env::var("https_proxy")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some()
+            || std::env::var("HTTP_PROXY")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some()
+            || std::env::var("http_proxy")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some()
+            || std::env::var("ALL_PROXY")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some()
+            || std::env::var("all_proxy")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some()
     }
 
     fn requires_openai_connectivity_probe(_model: Option<&str>) -> bool {
@@ -193,10 +226,12 @@ impl OpenCodeSession {
         // OpenCode 1.1.62 has a CLI regression with `-- <message>` in `run` mode:
         // it can crash with `arg.includes is not a function`.
         // Keep message positional and apply a safe leading space for dash-prefixed text.
-        let safe_text = if params.text.starts_with('-') {
-            format!(" {}", params.text)
+        let message_text =
+            Self::with_external_spec_hint(&params.text, params.custom_spec_root.as_deref());
+        let safe_text = if message_text.starts_with('-') {
+            format!(" {}", message_text)
         } else {
-            params.text.clone()
+            message_text
         };
         cmd.arg(safe_text);
 
@@ -219,9 +254,10 @@ impl OpenCodeSession {
         let mut effective_params = params;
         let requested_model_key = Self::normalize_model_key(effective_params.model.as_deref());
         if effective_params.continue_session {
-            if let (Some(session_id), Some(model_key)) =
-                (effective_params.session_id.as_deref(), requested_model_key.as_deref())
-            {
+            if let (Some(session_id), Some(model_key)) = (
+                effective_params.session_id.as_deref(),
+                requested_model_key.as_deref(),
+            ) {
                 let known_model_for_session = {
                     let hints = self.session_model_hints.lock().await;
                     hints.get(session_id).cloned()
@@ -246,7 +282,10 @@ impl OpenCodeSession {
         {
             // Keep preflight advisory only. Blocking here can cause false negatives
             // in constrained or transient network environments.
-            log::warn!("OpenCode connectivity preflight warning: {}", preflight_error);
+            log::warn!(
+                "OpenCode connectivity preflight warning: {}",
+                preflight_error
+            );
         }
 
         let mut cmd = self.build_command(&effective_params);
@@ -326,14 +365,12 @@ impl OpenCodeSession {
                 break;
             }
 
-            let idle_timeout = if !saw_turn_completed
-                && !response_text.is_empty()
-                && active_tool_calls <= 0
-            {
-                OPENCODE_POST_RESPONSE_IDLE_TIMEOUT
-            } else {
-                model_idle_timeout
-            };
+            let idle_timeout =
+                if !saw_turn_completed && !response_text.is_empty() && active_tool_calls <= 0 {
+                    OPENCODE_POST_RESPONSE_IDLE_TIMEOUT
+                } else {
+                    model_idle_timeout
+                };
             let next_line = timeout(OPENCODE_IO_POLL_INTERVAL, lines.next_line()).await;
             let line = match next_line {
                 Ok(Ok(Some(line))) => line,
@@ -636,7 +673,9 @@ fn extract_text_from_nested_payload(event: &Value, depth: usize) -> Option<Strin
     if let Some(text) = extract_text_delta(event).or_else(|| extract_text_from_message(event)) {
         return Some(text);
     }
-    for key in ["event", "payload", "data", "output", "result", "message", "part"] {
+    for key in [
+        "event", "payload", "data", "output", "result", "message", "part",
+    ] {
         if let Some(nested) = event.get(key) {
             if let Some(text) = extract_text_from_nested_payload(nested, depth + 1) {
                 return Some(text);
@@ -740,7 +779,8 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 event.get("name").and_then(|v| v.as_str()),
                 event.get("tool_name").and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("name")).and_then(|v| v.as_str()),
-                part.and_then(|v| v.get("tool_name")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("tool_name"))
+                    .and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("tool")).and_then(|v| v.as_str()),
                 state.and_then(|v| v.get("name")).and_then(|v| v.as_str()),
             ])
@@ -752,7 +792,8 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 part.and_then(|v| v.get("callID")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("callId")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("call_id")).and_then(|v| v.as_str()),
-                part.and_then(|v| v.get("toolCallID")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("toolCallID"))
+                    .and_then(|v| v.as_str()),
                 state.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
             ])
             .unwrap_or("tool-1");
@@ -777,7 +818,8 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                         .map(|s| s.to_string())
                 })
                 .or_else(|| {
-                    state.and_then(|v| v.get("error"))
+                    state
+                        .and_then(|v| v.get("error"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                 });
@@ -823,7 +865,8 @@ pub(crate) fn parse_opencode_event(workspace_id: &str, event: &Value) -> Option<
                 part.and_then(|v| v.get("callID")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("callId")).and_then(|v| v.as_str()),
                 part.and_then(|v| v.get("call_id")).and_then(|v| v.as_str()),
-                part.and_then(|v| v.get("toolCallID")).and_then(|v| v.as_str()),
+                part.and_then(|v| v.get("toolCallID"))
+                    .and_then(|v| v.as_str()),
                 state.and_then(|v| v.get("id")).and_then(|v| v.as_str()),
             ])
             .unwrap_or("tool-1");
@@ -993,9 +1036,11 @@ fn extract_opencode_error_message(event: &Value) -> Option<String> {
         .or_else(|| event.get("message").and_then(|v| v.as_str()))
         .or_else(|| {
             nested_error.and_then(|err| {
-                err.get("message")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| err.get("data").and_then(|data| data.get("message")).and_then(|v| v.as_str()))
+                err.get("message").and_then(|v| v.as_str()).or_else(|| {
+                    err.get("data")
+                        .and_then(|data| data.get("message"))
+                        .and_then(|v| v.as_str())
+                })
             })
         })
         .map(str::trim)
@@ -1077,6 +1122,30 @@ mod tests {
         assert!(args.contains(&"build".to_string()));
         assert!(args.contains(&"--variant".to_string()));
         assert!(args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn build_command_includes_external_spec_hint_when_configured() {
+        let session = OpenCodeSession::new(
+            "ws-1".to_string(),
+            PathBuf::from("/tmp"),
+            Some(EngineConfig::default()),
+        );
+        let mut params = SendMessageParams::default();
+        params.text = "hello".to_string();
+        params.custom_spec_root = Some("/tmp/external-openspec".to_string());
+
+        let command = session.build_command(&params);
+        let args: Vec<String> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(args
+            .iter()
+            .any(|arg| arg.contains("[External OpenSpec Root]")
+                && arg.contains("/tmp/external-openspec")));
     }
 
     #[test]
@@ -1268,7 +1337,10 @@ mod tests {
                 assert_eq!(tool_id, "tool-42");
                 assert_eq!(tool_name, "read_file");
                 assert_eq!(
-                    input.and_then(|v| v.get("path").and_then(|p| p.as_str()).map(ToOwned::to_owned)),
+                    input.and_then(|v| v
+                        .get("path")
+                        .and_then(|p| p.as_str())
+                        .map(ToOwned::to_owned)),
                     Some("README.md".to_string())
                 );
             }

@@ -56,23 +56,6 @@ export async function pickImageFiles(): Promise<string[]> {
   return Array.isArray(selection) ? selection : [selection];
 }
 
-export async function pickFiles(options?: {
-  multiple?: boolean;
-  defaultPath?: string;
-  title?: string;
-}): Promise<string[]> {
-  const selection = await open({
-    multiple: options?.multiple ?? true,
-    directory: false,
-    defaultPath: options?.defaultPath,
-    title: options?.title,
-  });
-  if (!selection) {
-    return [];
-  }
-  return Array.isArray(selection) ? selection : [selection];
-}
-
 export async function listWorkspaces(): Promise<WorkspaceInfo[]> {
   try {
     return await invoke<WorkspaceInfo[]>("list_workspaces");
@@ -154,24 +137,6 @@ export async function addWorkspace(
   codex_bin: string | null,
 ): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("add_workspace", { path, codex_bin });
-}
-
-export async function addOpenAIWorkspace(
-  path: string,
-  codex_bin: string | null,
-): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("add_openai_workspace", { path, codex_bin });
-}
-
-export async function ensureOpenAIChatWorkspace(): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("ensure_openai_chat_workspace");
-}
-
-export async function retargetOpenAIWorkspace(
-  workspaceId: string,
-  path: string,
-): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("retarget_openai_workspace", { workspaceId, path });
 }
 
 export async function isWorkspacePathDir(path: string): Promise<boolean> {

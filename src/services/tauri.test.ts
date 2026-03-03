@@ -7,12 +7,19 @@ import {
   generateThreadTitle,
   getGitHubIssues,
   getGitLog,
+  getGitPushPreview,
   getGitStatus,
   getOpenAppIcon,
   listThreadTitles,
   listMcpServerStatus,
+  listGlobalMcpServers,
   readGlobalAgentsMd,
   readGlobalCodexConfigToml,
+  pushGit,
+  pullGit,
+  runWorkspaceCommand,
+  runSpecCommand,
+  resetGitCommit,
   listWorkspaces,
   openWorkspaceIn,
   readAgentMd,
@@ -28,8 +35,16 @@ import {
   writeAgentMd,
   connectOpenCodeProvider,
   getOpenCodeProviderHealth,
+  getCodeIntelDefinition,
+  getCodeIntelReferences,
+  getOpenCodeLspDefinition,
+  getOpenCodeLspReferences,
   getOpenCodeStatusSnapshot,
+  listExternalSpecTree,
   setOpenCodeMcpToggle,
+  readExternalSpecFile,
+  writeExternalSpecFile,
+  engineSendMessageSync,
 } from "./tauri";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -149,6 +164,15 @@ describe("tauri invoke wrappers", () => {
     });
   });
 
+  it("invokes list_global_mcp_servers", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce([]);
+
+    await listGlobalMcpServers();
+
+    expect(invokeMock).toHaveBeenCalledWith("list_global_mcp_servers");
+  });
+
   it("invokes stage_git_all", async () => {
     const invokeMock = vi.mocked(invoke);
     invokeMock.mockResolvedValueOnce({});
@@ -157,6 +181,96 @@ describe("tauri invoke wrappers", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("stage_git_all", {
       workspaceId: "ws-6",
+    });
+  });
+
+  it("maps reset git commit payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await resetGitCommit("ws-20", "abcdef1234567890", "mixed");
+
+    expect(invokeMock).toHaveBeenCalledWith("reset_git_commit", {
+      workspaceId: "ws-20",
+      commitHash: "abcdef1234567890",
+      mode: "mixed",
+    });
+  });
+
+  it("maps push git payload with options", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await pushGit("ws-30", {
+      remote: "origin",
+      branch: "main",
+      forceWithLease: true,
+      pushTags: true,
+      runHooks: false,
+      pushToGerrit: true,
+      topic: "topic-1",
+      reviewers: "alice,bob",
+      cc: "carol",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("push_git", {
+      workspaceId: "ws-30",
+      remote: "origin",
+      branch: "main",
+      forceWithLease: true,
+      pushTags: true,
+      runHooks: false,
+      pushToGerrit: true,
+      topic: "topic-1",
+      reviewers: "alice,bob",
+      cc: "carol",
+    });
+  });
+
+  it("maps pull git payload with options", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await pullGit("ws-32", {
+      remote: "origin",
+      branch: "main",
+      strategy: "--rebase",
+      noCommit: false,
+      noVerify: true,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("pull_git", {
+      workspaceId: "ws-32",
+      remote: "origin",
+      branch: "main",
+      strategy: "--rebase",
+      noCommit: false,
+      noVerify: true,
+    });
+  });
+
+  it("maps get git push preview payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      sourceBranch: "main",
+      targetRemote: "origin",
+      targetBranch: "main",
+      targetRef: "refs/remotes/origin/main",
+      targetFound: true,
+      hasMore: false,
+      commits: [],
+    });
+
+    await getGitPushPreview("ws-31", {
+      remote: "origin",
+      branch: "main",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("get_git_push_preview", {
+      workspaceId: "ws-31",
+      remote: "origin",
+      branch: "main",
+      limit: 120,
     });
   });
 
@@ -174,6 +288,101 @@ describe("tauri invoke wrappers", () => {
       app: "Xcode",
       command: null,
       args: ["--reuse-window"],
+    });
+  });
+
+  it("maps run workspace command payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      command: ["echo", "hello"],
+      exitCode: 0,
+      success: true,
+      stdout: "hello",
+      stderr: "",
+    });
+
+    await runWorkspaceCommand("ws-40", ["echo", "hello"], 5000);
+
+    expect(invokeMock).toHaveBeenCalledWith("run_workspace_command", {
+      workspaceId: "ws-40",
+      command: ["echo", "hello"],
+      timeoutMs: 5000,
+    });
+  });
+
+  it("maps run spec command payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      command: ["openspec", "--version"],
+      exitCode: 0,
+      success: true,
+      stdout: "0.6.0",
+      stderr: "",
+    });
+
+    await runSpecCommand("ws-41", ["openspec", "--version"], {
+      customSpecRoot: "/tmp/external-spec-root",
+      timeoutMs: 7000,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("run_spec_command", {
+      workspaceId: "ws-41",
+      command: ["openspec", "--version"],
+      customSpecRoot: "/tmp/external-spec-root",
+      timeoutMs: 7000,
+    });
+  });
+
+  it("maps list external spec tree payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      files: [],
+      directories: [],
+      gitignored_files: [],
+      gitignored_directories: [],
+    });
+
+    await listExternalSpecTree("ws-41", "/tmp/external-spec-root");
+
+    expect(invokeMock).toHaveBeenCalledWith("list_external_spec_tree", {
+      workspaceId: "ws-41",
+      specRoot: "/tmp/external-spec-root",
+    });
+  });
+
+  it("maps read external spec file payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      exists: true,
+      content: "# spec",
+      truncated: false,
+    });
+
+    await readExternalSpecFile("ws-41", "/tmp/external-spec-root", "openspec/project.md");
+
+    expect(invokeMock).toHaveBeenCalledWith("read_external_spec_file", {
+      workspaceId: "ws-41",
+      specRoot: "/tmp/external-spec-root",
+      path: "openspec/project.md",
+    });
+  });
+
+  it("maps write external spec file payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await writeExternalSpecFile(
+      "ws-41",
+      "/tmp/external-spec-root",
+      "openspec/project.md",
+      "# Project Context",
+    );
+
+    expect(invokeMock).toHaveBeenCalledWith("write_external_spec_file", {
+      workspaceId: "ws-41",
+      specRoot: "/tmp/external-spec-root",
+      path: "openspec/project.md",
+      content: "# Project Context",
     });
   });
 
@@ -287,6 +496,27 @@ describe("tauri invoke wrappers", () => {
       accessMode: "full-access",
       images: ["image.png"],
       preferredLanguage: null,
+    });
+  });
+
+  it("forwards customSpecRoot in sendUserMessage payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await sendUserMessage("ws-4", "thread-1", "hello", {
+      customSpecRoot: "/tmp/external-openspec",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("send_user_message", {
+      workspaceId: "ws-4",
+      threadId: "thread-1",
+      text: "hello",
+      model: null,
+      effort: null,
+      accessMode: null,
+      images: null,
+      preferredLanguage: null,
+      customSpecRoot: "/tmp/external-openspec",
     });
   });
 
@@ -488,6 +718,189 @@ describe("tauri invoke wrappers", () => {
       serverName: "fs",
       enabled: false,
       globalEnabled: null,
+    });
+  });
+
+  it("maps opencode lsp definition params", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 10,
+      character: 4,
+      result: [],
+    });
+
+    await getOpenCodeLspDefinition("ws-lsp-1", {
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 10,
+      character: 4,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("opencode_lsp_definition", {
+      workspaceId: "ws-lsp-1",
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 10,
+      character: 4,
+    });
+  });
+
+  it("maps code intel definition params", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      filePath: "src/Main.java",
+      line: 10,
+      character: 4,
+      result: [],
+    });
+
+    await getCodeIntelDefinition("ws-ci-1", {
+      filePath: "src/Main.java",
+      line: 10,
+      character: 4,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("code_intel_definition", {
+      workspaceId: "ws-ci-1",
+      filePath: "src/Main.java",
+      line: 10,
+      character: 4,
+    });
+  });
+
+  it("propagates code intel definition errors", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockRejectedValueOnce(new Error("code intel unavailable"));
+
+    await expect(
+      getCodeIntelDefinition("ws-ci-err-1", {
+        filePath: "src/Main.java",
+        line: 1,
+        character: 1,
+      }),
+    ).rejects.toThrow("code intel unavailable");
+  });
+
+  it("maps code intel references params", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      filePath: "src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: false,
+      result: [],
+    });
+
+    await getCodeIntelReferences("ws-ci-2", {
+      filePath: "src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: false,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("code_intel_references", {
+      workspaceId: "ws-ci-2",
+      filePath: "src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: false,
+    });
+  });
+
+  it("propagates code intel references errors", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockRejectedValueOnce(new Error("references unavailable"));
+
+    await expect(
+      getCodeIntelReferences("ws-ci-err-2", {
+        filePath: "src/Main.java",
+        line: 2,
+        character: 3,
+      }),
+    ).rejects.toThrow("references unavailable");
+  });
+
+  it("maps opencode lsp references params", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: true,
+      result: [],
+    });
+
+    await getOpenCodeLspReferences("ws-lsp-2", {
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: true,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("opencode_lsp_references", {
+      workspaceId: "ws-lsp-2",
+      fileUri: "file:///tmp/ws/src/Main.java",
+      line: 11,
+      character: 8,
+      includeDeclaration: true,
+    });
+  });
+
+  it("maps sync engine send payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      engine: "codex",
+      text: "{\"projectType\":\"legacy\"}",
+    });
+
+    await engineSendMessageSync("ws-21", {
+      text: "Generate project context",
+      engine: "codex",
+      accessMode: "read-only",
+      continueSession: false,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("engine_send_message_sync", {
+      workspaceId: "ws-21",
+      text: "Generate project context",
+      engine: "codex",
+      model: null,
+      effort: null,
+      images: null,
+      continueSession: false,
+      accessMode: "read-only",
+      sessionId: null,
+      agent: null,
+      variant: null,
+      customSpecRoot: null,
+    });
+  });
+
+  it("maps sync engine send custom spec root payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      engine: "opencode",
+      text: "ok",
+    });
+
+    await engineSendMessageSync("ws-22", {
+      text: "check spec",
+      engine: "opencode",
+      customSpecRoot: "/tmp/external-openspec",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("engine_send_message_sync", {
+      workspaceId: "ws-22",
+      text: "check spec",
+      engine: "opencode",
+      model: null,
+      effort: null,
+      images: null,
+      continueSession: false,
+      accessMode: null,
+      sessionId: null,
+      agent: null,
+      variant: null,
+      customSpecRoot: "/tmp/external-openspec",
     });
   });
 });

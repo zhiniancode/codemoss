@@ -16,7 +16,7 @@ describe("threadItems", () => {
     const item: ConversationItem = {
       id: "msg-1",
       kind: "message",
-      role: "assistant",
+      role: "user",
       text,
     };
     const normalized = normalizeItem(item);
@@ -26,6 +26,87 @@ describe("threadItems", () => {
       expect(normalized.text.endsWith("...")).toBe(true);
       expect(normalized.text.length).toBeLessThan(text.length);
     }
+  });
+
+  it("normalizes fragmented and repeated assistant message text", () => {
+    const fragmented =
+      "你\n\n好\n\n!\n\n有什\n\n么\n\n可以\n\n帮\n\n你的\n\n吗\n\n？";
+    const clean = "你好！有什么可以帮你的吗？";
+    const item: ConversationItem = {
+      id: "msg-assistant-normalize-1",
+      kind: "message",
+      role: "assistant",
+      text: `${fragmented}\n\n${clean}\n\n${clean}`,
+    };
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("message");
+    if (normalized.kind === "message") {
+      const comparable = (value: string) =>
+        value.replace(/[！!]/g, "!").replace(/[？?]/g, "?");
+      expect(comparable(normalized.text)).toBe(comparable(clean));
+    }
+  });
+
+  it("keeps normal markdown assistant output unchanged", () => {
+    const markdown = [
+      "## 项目定位",
+      "",
+      "| 技术 | 版本/用途 |",
+      "| --- | --- |",
+      "| Node.js | >= 18.0.0 |",
+      "",
+      "```text",
+      "plan -> code -> verify -> doc",
+      "```",
+      "",
+      "- 第一项",
+      "- 第二项",
+    ].join("\n");
+    const item: ConversationItem = {
+      id: "msg-assistant-markdown-1",
+      kind: "message",
+      role: "assistant",
+      text: markdown,
+    };
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("message");
+    if (normalized.kind === "message") {
+      expect(normalized.text).toBe(markdown);
+    }
+  });
+
+  it("normalizes assistant no-content placeholders to empty text", () => {
+    const item: ConversationItem = {
+      id: "msg-assistant-empty-placeholder",
+      kind: "message",
+      role: "assistant",
+      text: "(no content)",
+    };
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("message");
+    if (normalized.kind === "message") {
+      expect(normalized.text).toBe("");
+    }
+  });
+
+  it("filters out assistant placeholder messages after normalization", () => {
+    const items: ConversationItem[] = [
+      {
+        id: "msg-assistant-empty-placeholder",
+        kind: "message",
+        role: "assistant",
+        text: "(no content)",
+      },
+      {
+        id: "reasoning-1",
+        kind: "reasoning",
+        summary: "思考中",
+        content: "先确认需求。",
+      },
+    ];
+    const prepared = prepareThreadItems(items);
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].kind).toBe("reasoning");
   });
 
   it("preserves tool output for fileChange and commandExecution", () => {
@@ -42,6 +123,76 @@ describe("threadItems", () => {
     expect(normalized.kind).toBe("tool");
     if (normalized.kind === "tool") {
       expect(normalized.output).toBe(output);
+    }
+  });
+
+  it("preserves long structured edit detail JSON", () => {
+    const oldString = Array.from({ length: 180 }, (_, index) => `old-${index}`).join("\n");
+    const newString = Array.from({ length: 180 }, (_, index) => `new-${index}`).join("\n");
+    const detail = JSON.stringify({
+      replace_all: false,
+      file_path: "/Users/zhukunpeng/Desktop/codemoss/.github/workflows/release.yml",
+      old_string: oldString,
+      new_string: newString,
+    });
+    const item: ConversationItem = {
+      id: "tool-edit-long-detail",
+      kind: "tool",
+      toolType: "Edit",
+      title: "Tool: Edit",
+      detail,
+      status: "completed",
+    };
+
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("tool");
+    if (normalized.kind === "tool") {
+      expect(normalized.detail).toBe(detail);
+      expect(normalized.detail.length).toBeGreaterThan(2000);
+    }
+  });
+
+  it("preserves long structured read detail JSON", () => {
+    const detail = JSON.stringify({
+      file_path: "/Users/zhukunpeng/Desktop/codemoss/README.md",
+      content: "x".repeat(5000),
+      offset: 0,
+      limit: 200,
+    });
+    const item: ConversationItem = {
+      id: "tool-read-long-detail",
+      kind: "tool",
+      toolType: "Read",
+      title: "Tool: Read",
+      detail,
+      status: "completed",
+    };
+
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("tool");
+    if (normalized.kind === "tool") {
+      expect(normalized.detail).toBe(detail);
+      expect(normalized.detail.length).toBeGreaterThan(2000);
+    }
+  });
+
+  it("still truncates long plain-text tool detail", () => {
+    const detail = "plain-text-".repeat(500);
+    const item: ConversationItem = {
+      id: "tool-plain-long-detail",
+      kind: "tool",
+      toolType: "customTool",
+      title: "Tool: customTool",
+      detail,
+      status: "completed",
+    };
+
+    const normalized = normalizeItem(item);
+    expect(normalized.kind).toBe("tool");
+    if (normalized.kind === "tool") {
+      expect(normalized.detail).not.toBe(detail);
+      expect(normalized.detail.endsWith("...")).toBe(true);
+      expect(normalized.detail.length).toBeLessThan(detail.length);
     }
   });
 
@@ -176,6 +327,108 @@ describe("threadItems", () => {
     }
   });
 
+  it("coalesces duplicate message snapshots by id when preparing thread items", () => {
+    const items: ConversationItem[] = [
+      {
+        id: "assistant-dup-1",
+        kind: "message",
+        role: "assistant",
+        text: "你\n\n好\n\n!",
+      },
+      {
+        id: "assistant-dup-1",
+        kind: "message",
+        role: "assistant",
+        text: "你好！",
+      },
+    ];
+    const prepared = prepareThreadItems(items);
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].kind).toBe("message");
+    if (prepared[0].kind === "message") {
+      expect(prepared[0].id).toBe("assistant-dup-1");
+      expect(prepared[0].text).toBe("你好！");
+    }
+  });
+
+  it("keeps reasoning item when it shares id with assistant message", () => {
+    const items: ConversationItem[] = [
+      {
+        id: "shared-1",
+        kind: "reasoning",
+        summary: "思考中",
+        content: "先检查上下文",
+      },
+      {
+        id: "shared-1",
+        kind: "message",
+        role: "assistant",
+        text: "我先检查一下上下文。",
+      },
+    ];
+    const prepared = prepareThreadItems(items);
+    const reasoning = prepared.find((entry) => entry.kind === "reasoning");
+    const message = prepared.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    expect(reasoning).toBeDefined();
+    expect(message).toBeDefined();
+  });
+
+  it("maps plan and planImplementation items into timeline tool entries", () => {
+    const proposed = buildConversationItem({
+      id: "plan-1",
+      type: "plan",
+      actionId: "implement-plan:turn-1",
+      steps: [
+        { step: "Inspect codebase", status: "in_progress" },
+        { step: "Draft patch", status: "pending" },
+      ],
+    });
+    expect(proposed).toEqual({
+      id: "plan-1",
+      kind: "tool",
+      toolType: "proposed-plan",
+      title: "Proposed Plan",
+      detail: "implement-plan:turn-1",
+      status: "",
+      output: "- [in_progress] Inspect codebase\n- [pending] Draft patch",
+    });
+
+    const implementation = buildConversationItem({
+      id: "plan-impl-1",
+      type: "planImplementation",
+      text: "Apply patch and verify",
+    });
+    expect(implementation).toEqual({
+      id: "plan-impl-1",
+      kind: "tool",
+      toolType: "plan-implementation",
+      title: "Plan Implementation",
+      detail: "",
+      status: "",
+      output: "Apply patch and verify",
+    });
+  });
+
+  it("extracts implement-plan action id from nested action payload", () => {
+    const proposed = buildConversationItem({
+      id: "plan-2",
+      type: "plan",
+      action: { id: "implement-plan:turn-2" },
+      steps: [{ step: "Run tests", status: "pending" }],
+    });
+    expect(proposed).toEqual({
+      id: "plan-2",
+      kind: "tool",
+      toolType: "proposed-plan",
+      title: "Proposed Plan",
+      detail: "implement-plan:turn-2",
+      status: "",
+      output: "- [pending] Run tests",
+    });
+  });
+
   it("preserves distinct read paths that share the same basename", () => {
     const items: ConversationItem[] = [
       {
@@ -306,6 +559,75 @@ describe("threadItems", () => {
       expect(prepared[0].entries).toHaveLength(1);
       expect(prepared[0].entries[0].kind).toBe("search");
       expect(prepared[0].entries[0].label).toBe("myQuery in src");
+    }
+  });
+
+  it("strips injected project-memory block from user message text", () => {
+    const converted = buildConversationItem({
+      id: "user-1",
+      type: "userMessage",
+      content: [
+        {
+          type: "text",
+          text: `<project-memory source="project-memory" count="1" truncated="false">
+[对话记录] 测试记忆
+</project-memory>
+
+你猜我会不会 go 语言`,
+        },
+      ],
+    });
+
+    expect(converted).toBeTruthy();
+    expect(converted?.kind).toBe("message");
+    if (converted?.kind === "message") {
+      expect(converted.role).toBe("user");
+      expect(converted.text).toBe("你猜我会不会 go 语言");
+    }
+  });
+
+  it("strips injected project-memory block when rebuilding thread history", () => {
+    const converted = buildConversationItemFromThreadItem({
+      id: "user-2",
+      type: "userMessage",
+      content: [
+        {
+          type: "text",
+          text: `<project-memory source="project-memory" count="2" truncated="false">
+[项目上下文] xxx
+[对话记录] yyy
+</project-memory>
+go lang`,
+        },
+      ],
+    });
+
+    expect(converted).toBeTruthy();
+    expect(converted?.kind).toBe("message");
+    if (converted?.kind === "message") {
+      expect(converted.text).toBe("go lang");
+    }
+  });
+
+  it("strips legacy injected memory lines even if project-memory xml tags are missing", () => {
+    const converted = buildConversationItem({
+      id: "user-legacy-memory-1",
+      type: "userMessage",
+      content: [
+        {
+          type: "text",
+          text: `[对话记录] 用户输入：我今天从辽阳开车回沈阳了。中午12点半走的。和我老婆一起。 助手输出摘要：好的！从辽阳回沈阳，路程不远...
+
+我和谁一起回沈阳的`,
+        },
+      ],
+    });
+
+    expect(converted).toBeTruthy();
+    expect(converted?.kind).toBe("message");
+    if (converted?.kind === "message") {
+      expect(converted.role).toBe("user");
+      expect(converted.text).toBe("我和谁一起回沈阳的");
     }
   });
 
@@ -461,6 +783,44 @@ describe("threadItems", () => {
     }
   });
 
+  it("builds commandExecution items with structured detail payload", () => {
+    const item = buildConversationItem({
+      type: "commandExecution",
+      id: "cmd-structured-1",
+      command: ["git", "status", "--short"],
+      description: "Show working tree status",
+      cwd: "/repo",
+      status: "completed",
+      aggregatedOutput: "ok",
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "tool") {
+      expect(item.title).toBe("Command: git status --short");
+      const parsed = JSON.parse(item.detail) as Record<string, string>;
+      expect(parsed.command).toBe("git status --short");
+      expect(parsed.description).toBe("Show working tree status");
+      expect(parsed.cwd).toBe("/repo");
+    }
+  });
+
+  it("falls back to description when commandExecution command is missing", () => {
+    const item = buildConversationItem({
+      type: "commandExecution",
+      id: "cmd-structured-2",
+      description: "Commit staged changes",
+      cwd: "/repo",
+      status: "completed",
+      aggregatedOutput: "done",
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "tool") {
+      expect(item.title).toBe("Command: Commit staged changes");
+      const parsed = JSON.parse(item.detail) as Record<string, string>;
+      expect(parsed.description).toBe("Commit staged changes");
+      expect(parsed.cwd).toBe("/repo");
+    }
+  });
+
   it("falls back to reasoning text when content is missing in streaming items", () => {
     const item = buildConversationItem({
       type: "reasoning",
@@ -511,6 +871,20 @@ describe("threadItems", () => {
     }
   });
 
+  it("joins tokenized reasoning fragments without forced newlines", () => {
+    const item = buildConversationItem({
+      type: "reasoning",
+      id: "reasoning-tokenized-1",
+      summary: [{ text: "回忆记忆模块" }],
+      content: ["好", "的，我来帮你回", "忆一下记", "忆模块的分", "析。"],
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "reasoning") {
+      expect(item.content).toBe("好的，我来帮你回忆一下记忆模块的分析。");
+      expect(item.content).not.toContain("\n");
+    }
+  });
+
   it("merges thread items preferring richer local tool output", () => {
     const remote: ConversationItem = {
       id: "tool-2",
@@ -538,6 +912,29 @@ describe("threadItems", () => {
     }
   });
 
+  it("prefers readable assistant message when remote snapshot is longer but duplicated", () => {
+    const clean = "你好！我是你的 AI 联合架构师。有什么可以帮你的吗？";
+    const remote: ConversationItem = {
+      id: "assistant-merge-readable-1",
+      kind: "message",
+      role: "assistant",
+      text: `${clean}\n\n${clean}\n\n${clean}`,
+    };
+    const local: ConversationItem = {
+      id: "assistant-merge-readable-1",
+      kind: "message",
+      role: "assistant",
+      text: clean,
+    };
+
+    const merged = mergeThreadItems([remote], [local]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].kind).toBe("message");
+    if (merged[0].kind === "message") {
+      expect(merged[0].text).toBe(clean);
+    }
+  });
+
   it("builds user message text from mixed inputs", () => {
     const item = buildConversationItemFromThreadItem({
       type: "userMessage",
@@ -553,6 +950,41 @@ describe("threadItems", () => {
       expect(item.role).toBe("user");
       expect(item.text).toBe("Please $Review");
       expect(item.images).toEqual(["https://example.com/image.png"]);
+    }
+  });
+
+  it("strips plan fallback directive prefix from user message content", () => {
+    const item = buildConversationItemFromThreadItem({
+      type: "userMessage",
+      id: "msg-plan-fallback-1",
+      content: [
+        {
+          type: "text",
+          text:
+            "Execution policy (plan mode): planning-only. If blocker appears, call requestUserInput.\n\nUser request: 只改前端，不改后端。",
+        },
+      ],
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "message") {
+      expect(item.role).toBe("user");
+      expect(item.text).toBe("只改前端，不改后端。");
+      expect(item.collaborationMode).toBe("plan");
+    }
+  });
+
+  it("extracts collaboration mode metadata from user message payload", () => {
+    const item = buildConversationItemFromThreadItem({
+      type: "userMessage",
+      id: "msg-mode-meta-1",
+      mode: "default",
+      content: [{ type: "text", text: "保持默认模式" }],
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "message") {
+      expect(item.role).toBe("user");
+      expect(item.text).toBe("保持默认模式");
+      expect(item.collaborationMode).toBe("code");
     }
   });
 

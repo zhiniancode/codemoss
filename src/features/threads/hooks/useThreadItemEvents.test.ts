@@ -13,6 +13,15 @@ type ItemPayload = Record<string, unknown>;
 type SetupOverrides = {
   activeThreadId?: string | null;
   getCustomName?: (workspaceId: string, threadId: string) => string | undefined;
+  resolveCollaborationUiMode?: (
+    threadId: string,
+  ) => "plan" | "code" | null;
+  onAgentMessageCompletedExternal?: (payload: {
+    workspaceId: string;
+    threadId: string;
+    itemId: string;
+    text: string;
+  }) => void;
 };
 
 const makeOptions = (overrides: SetupOverrides = {}) => {
@@ -24,21 +33,26 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
   const applyCollabThreadLinks = vi.fn();
   const getCustomName =
     overrides.getCustomName ?? vi.fn(() => undefined);
+  const resolveCollaborationUiMode = overrides.resolveCollaborationUiMode ?? undefined;
   const interruptedThreadsRef = {
     current: new Set<string>(),
   };
+  const onAgentMessageCompletedExternal =
+    overrides.onAgentMessageCompletedExternal ?? undefined;
 
   const { result } = renderHook(() =>
     useThreadItemEvents({
       activeThreadId: overrides.activeThreadId ?? null,
       dispatch,
       getCustomName,
+      resolveCollaborationUiMode,
       markProcessing,
       markReviewing,
       safeMessageActivity,
       recordThreadActivity,
       applyCollabThreadLinks,
       interruptedThreadsRef,
+      onAgentMessageCompletedExternal,
     }),
   );
 
@@ -52,6 +66,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
     applyCollabThreadLinks,
     getCustomName,
     interruptedThreadsRef,
+    onAgentMessageCompletedExternal,
   };
 };
 
@@ -261,5 +276,85 @@ describe("useThreadItemEvents", () => {
 
     expect(dispatch).not.toHaveBeenCalled();
     expect(markProcessing).not.toHaveBeenCalled();
+  });
+
+  it("calls onAgentMessageCompletedExternal with correct payload", () => {
+    const externalCallback = vi.fn();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(5678);
+    const { result } = makeOptions({
+      onAgentMessageCompletedExternal: externalCallback,
+    });
+
+    act(() => {
+      result.current.onAgentMessageCompleted({
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        itemId: "assistant-1",
+        text: "Result text",
+      });
+    });
+
+    expect(externalCallback).toHaveBeenCalledTimes(1);
+    expect(externalCallback).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "assistant-1",
+      text: "Result text",
+    });
+
+    nowSpy.mockRestore();
+  });
+
+  it("does not throw when onAgentMessageCompletedExternal is not provided", () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(9999);
+    const { result } = makeOptions();
+
+    expect(() => {
+      act(() => {
+        result.current.onAgentMessageCompleted({
+          workspaceId: "ws-1",
+          threadId: "thread-1",
+          itemId: "assistant-1",
+          text: "Safe call",
+        });
+      });
+    }).not.toThrow();
+
+    nowSpy.mockRestore();
+  });
+
+  it("enriches codex user messages with thread-level collaboration mode when missing", () => {
+    vi.mocked(buildConversationItem).mockReturnValue({
+      id: "user-1",
+      kind: "message",
+      role: "user",
+      text: "请先计划",
+      collaborationMode: null,
+    });
+    const { result, dispatch } = makeOptions({
+      resolveCollaborationUiMode: () => "plan",
+    });
+    const item: ItemPayload = {
+      type: "userMessage",
+      id: "user-1",
+    };
+
+    act(() => {
+      result.current.onItemStarted("ws-1", "thread-1", item);
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "upsertItem",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      item: {
+        id: "user-1",
+        kind: "message",
+        role: "user",
+        text: "请先计划",
+        collaborationMode: "plan",
+      },
+      hasCustomName: false,
+    });
   });
 });

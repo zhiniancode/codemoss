@@ -1,8 +1,9 @@
-import { lazy, memo, Suspense, useEffect, useRef, useState, isValidElement, type ReactNode, type MouseEvent } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, isValidElement, type ReactNode, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const MermaidBlock = lazy(() => import("./MermaidBlock"));
@@ -13,6 +14,7 @@ import {
   remarkFileLinks,
   toFileLink,
 } from "../../../utils/remarkFileLinks";
+import { highlightLine } from "../../../utils/syntax";
 import { detectCodexLeadMarker, type CodexLeadMarkerConfig } from "../constants/codexLeadMarkers";
 
 type MarkdownProps = {
@@ -129,8 +131,7 @@ function normalizeListIndentation(value: string) {
     const orderedMatch = line.match(/^(\s*)\d+\.\s+/);
     if (orderedMatch) {
       const rawIndent = orderedMatch[1].length;
-      const normalizedIndent =
-        rawIndent > 0 && rawIndent < 4 ? 4 : rawIndent;
+      const normalizedIndent = rawIndent;
       activeOrderedItem = true;
       orderedBaseIndent = normalizedIndent + 4;
       orderedIndentOffset = null;
@@ -144,10 +145,6 @@ function normalizeListIndentation(value: string) {
     if (bulletMatch) {
       const rawIndent = bulletMatch[1].length;
       let targetIndent = rawIndent;
-
-      if (!activeOrderedItem && rawIndent > 0 && rawIndent < 4) {
-        targetIndent = 4;
-      }
 
       if (activeOrderedItem) {
         if (orderedIndentOffset === null && rawIndent < orderedBaseIndent) {
@@ -177,6 +174,396 @@ function normalizeListIndentation(value: string) {
   return normalized.join("\n");
 }
 
+const FRAGMENTED_PARAGRAPH_MIN_RUN = 5;
+const FRAGMENTED_PARAGRAPH_MAX_LENGTH = 14;
+const FRAGMENTED_PARAGRAPH_MIN_TOTAL_CHARS = 12;
+const FRAGMENTED_PARAGRAPH_EDGE_MIN_LENGTH = 6;
+const FRAGMENTED_LINE_MIN_RUN = 6;
+const FRAGMENTED_LINE_MAX_LENGTH = 10;
+const FRAGMENTED_LINE_MIN_TOTAL_CHARS = 12;
+const PARAGRAPH_BREAK_SPLIT_REGEX = /\r?\n[^\S\r\n]*\r?\n+/;
+const CODE_FENCE_LINE_REGEX = /^\s*(```|~~~)/;
+
+function hasParagraphBreak(value: string) {
+  return PARAGRAPH_BREAK_SPLIT_REGEX.test(value);
+}
+
+function startsWithMarkdownBlockSyntax(value: string) {
+  const trimmed = value.trimStart();
+  return (
+    /^[-*+]\s/.test(trimmed) ||
+    /^\d+\.\s/.test(trimmed) ||
+    /^>\s?/.test(trimmed) ||
+    /^#{1,6}\s/.test(trimmed) ||
+    /^```/.test(trimmed) ||
+    /^\|/.test(trimmed)
+  );
+}
+
+function endsWithSentencePunctuation(value: string) {
+  return /[。！？!?;；:：]$/.test(value.trim());
+}
+
+function shouldMergeFragmentedParagraph(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= FRAGMENTED_PARAGRAPH_MAX_LENGTH &&
+    !startsWithMarkdownBlockSyntax(trimmed)
+  );
+}
+
+function extractBlockquoteParagraphText(paragraph: string) {
+  const lines = paragraph.split(/\r?\n/);
+  const fragments: string[] = [];
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    const match = line.match(/^\s*>\s?(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const content = match[1].trim();
+    if (!content || startsWithMarkdownBlockSyntax(content)) {
+      return null;
+    }
+    fragments.push(content);
+  }
+  if (fragments.length === 0) {
+    return null;
+  }
+  return joinFragmentedParagraphs(fragments);
+}
+
+function joinFragmentedParagraphs(segments: string[]) {
+  return segments.reduce((combined, segment) => {
+    if (!segment) {
+      return combined;
+    }
+    if (!combined) {
+      return segment;
+    }
+    const previousChar = combined[combined.length - 1] ?? "";
+    const nextChar = segment[0] ?? "";
+    const shouldInsertSpace =
+      /[A-Za-z0-9]/.test(previousChar) &&
+      /[A-Za-z0-9]/.test(nextChar);
+    return shouldInsertSpace ? `${combined} ${segment}` : `${combined}${segment}`;
+  }, "");
+}
+
+function trimMergeWindowByPunctuation(
+  entries: string[],
+  start: number,
+  end: number,
+) {
+  let mergeStart = start;
+  let mergeEnd = end;
+  while (mergeStart < mergeEnd) {
+    const edge = entries[mergeStart] ?? "";
+    if (
+      edge.length >= FRAGMENTED_PARAGRAPH_EDGE_MIN_LENGTH &&
+      endsWithSentencePunctuation(edge)
+    ) {
+      mergeStart += 1;
+      continue;
+    }
+    break;
+  }
+  while (mergeEnd > mergeStart) {
+    const edge = entries[mergeEnd - 1] ?? "";
+    if (
+      edge.length >= FRAGMENTED_PARAGRAPH_EDGE_MIN_LENGTH &&
+      endsWithSentencePunctuation(edge)
+    ) {
+      mergeEnd -= 1;
+      continue;
+    }
+    break;
+  }
+  return { mergeStart, mergeEnd };
+}
+
+function normalizeFragmentedParagraphBreaks(value: string) {
+  if (!hasParagraphBreak(value)) {
+    return value;
+  }
+  const paragraphs = value.split(PARAGRAPH_BREAK_SPLIT_REGEX);
+  if (paragraphs.length < FRAGMENTED_PARAGRAPH_MIN_RUN) {
+    return value;
+  }
+  const trimmedParagraphs = paragraphs.map((entry) => entry.trim());
+
+  const normalized: string[] = [];
+  let changed = false;
+  let index = 0;
+  while (index < paragraphs.length) {
+    const current = paragraphs[index] ?? "";
+    const currentQuoteText = extractBlockquoteParagraphText(current);
+    if (
+      currentQuoteText &&
+      shouldMergeFragmentedParagraph(currentQuoteText)
+    ) {
+      let cursor = index;
+      const quoteEntries: string[] = [];
+      while (cursor < paragraphs.length) {
+        const candidateQuoteText = extractBlockquoteParagraphText(paragraphs[cursor] ?? "");
+        if (
+          !candidateQuoteText ||
+          !shouldMergeFragmentedParagraph(candidateQuoteText)
+        ) {
+          break;
+        }
+        quoteEntries.push(candidateQuoteText.trim());
+        cursor += 1;
+      }
+
+      const { mergeStart, mergeEnd } = trimMergeWindowByPunctuation(
+        quoteEntries,
+        0,
+        quoteEntries.length,
+      );
+      if (mergeStart > 0) {
+        normalized.push(
+          ...quoteEntries.slice(0, mergeStart).map((entry) => `> ${entry}`),
+        );
+      }
+      const mergeCandidates = quoteEntries.slice(mergeStart, mergeEnd);
+      const mergeTotalChars = mergeCandidates.reduce(
+        (sum, entry) => sum + entry.length,
+        0,
+      );
+      if (
+        mergeCandidates.length >= FRAGMENTED_PARAGRAPH_MIN_RUN &&
+        mergeTotalChars >= FRAGMENTED_PARAGRAPH_MIN_TOTAL_CHARS
+      ) {
+        normalized.push(`> ${joinFragmentedParagraphs(mergeCandidates)}`);
+        changed = true;
+      } else {
+        normalized.push(
+          ...mergeCandidates.map((entry) => `> ${entry}`),
+        );
+      }
+      if (mergeEnd < quoteEntries.length) {
+        normalized.push(
+          ...quoteEntries
+            .slice(mergeEnd)
+            .map((entry) => `> ${entry}`),
+        );
+      }
+      index = cursor;
+      continue;
+    }
+
+    if (!shouldMergeFragmentedParagraph(current)) {
+      normalized.push(current);
+      index += 1;
+      continue;
+    }
+
+    let cursor = index;
+    while (cursor < paragraphs.length) {
+      const candidate = paragraphs[cursor] ?? "";
+      if (!shouldMergeFragmentedParagraph(candidate)) {
+        break;
+      }
+      cursor += 1;
+    }
+
+    const { mergeStart, mergeEnd } = trimMergeWindowByPunctuation(
+      trimmedParagraphs,
+      index,
+      cursor,
+    );
+
+    if (mergeStart > index) {
+      normalized.push(...paragraphs.slice(index, mergeStart));
+    }
+
+    const mergeCandidates = trimmedParagraphs
+      .slice(mergeStart, mergeEnd)
+      .filter(Boolean);
+    const mergeTotalChars = mergeCandidates.reduce(
+      (sum, entry) => sum + entry.length,
+      0,
+    );
+    if (
+      mergeCandidates.length >= FRAGMENTED_PARAGRAPH_MIN_RUN &&
+      mergeTotalChars >= FRAGMENTED_PARAGRAPH_MIN_TOTAL_CHARS
+    ) {
+      normalized.push(joinFragmentedParagraphs(mergeCandidates));
+      changed = true;
+    } else {
+      normalized.push(...paragraphs.slice(mergeStart, mergeEnd));
+    }
+
+    if (mergeEnd < cursor) {
+      normalized.push(...paragraphs.slice(mergeEnd, cursor));
+    }
+    index = cursor;
+  }
+  return changed ? normalized.join("\n\n") : value;
+}
+
+function shouldMergeFragmentedLine(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= FRAGMENTED_LINE_MAX_LENGTH &&
+    !startsWithMarkdownBlockSyntax(trimmed)
+  );
+}
+
+function normalizeFragmentedLineBreaks(value: string) {
+  if (!value.includes("\n")) {
+    return value;
+  }
+  const blocks = value.split(PARAGRAPH_BREAK_SPLIT_REGEX);
+  let changed = false;
+  const normalizedBlocks = blocks.map((block) => {
+    const lines = block.split(/\r?\n/);
+    const normalizedLines: string[] = [];
+    let index = 0;
+    while (index < lines.length) {
+      const current = lines[index] ?? "";
+      if (!shouldMergeFragmentedLine(current)) {
+        normalizedLines.push(current);
+        index += 1;
+        continue;
+      }
+      let cursor = index;
+      const run: string[] = [];
+      let totalChars = 0;
+      while (cursor < lines.length) {
+        const candidate = lines[cursor] ?? "";
+        if (!shouldMergeFragmentedLine(candidate)) {
+          break;
+        }
+        const trimmed = candidate.trim();
+        run.push(trimmed);
+        totalChars += trimmed.length;
+        cursor += 1;
+      }
+      const runCompact = run.join("");
+      const nonSpaceLength = runCompact.replace(/\s+/g, "").length;
+      const cjkCount = (runCompact.match(/[\u4e00-\u9fff]/g) ?? []).length;
+      const isCjkDominant = cjkCount >= Math.max(2, Math.floor(nonSpaceLength * 0.35));
+      if (
+        run.length >= FRAGMENTED_LINE_MIN_RUN &&
+        totalChars >= FRAGMENTED_LINE_MIN_TOTAL_CHARS &&
+        isCjkDominant
+      ) {
+        normalizedLines.push(joinFragmentedParagraphs(run));
+        changed = true;
+      } else {
+        normalizedLines.push(...lines.slice(index, cursor));
+      }
+      index = cursor;
+    }
+    return normalizedLines.join("\n");
+  });
+  return changed ? normalizedBlocks.join("\n\n") : value;
+}
+
+function normalizeOutsideCodeFences(
+  value: string,
+  normalizer: (segment: string) => string,
+) {
+  if (!value.includes("```") && !value.includes("~~~")) {
+    return normalizer(value);
+  }
+  const lines = value.split(/\r?\n/);
+  const segments: string[] = [];
+  let inFence = false;
+  let buffer: string[] = [];
+  let changed = false;
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) {
+      return;
+    }
+    const segment = buffer.join("\n");
+    if (inFence) {
+      segments.push(segment);
+    } else {
+      const normalized = normalizer(segment);
+      if (normalized !== segment) {
+        changed = true;
+      }
+      segments.push(normalized);
+    }
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    if (CODE_FENCE_LINE_REGEX.test(line)) {
+      flushBuffer();
+      segments.push(line);
+      inFence = !inFence;
+      continue;
+    }
+    buffer.push(line);
+  }
+  flushBuffer();
+
+  const normalized = segments.join("\n");
+  return changed ? normalized : value;
+}
+
+function safeDecodeUrl(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function stripFileScheme(value: string) {
+  if (!value.startsWith("file://")) {
+    return value;
+  }
+  const withoutScheme = value.slice("file://".length);
+  if (withoutScheme.startsWith("localhost/")) {
+    return `/${withoutScheme.slice("localhost/".length)}`;
+  }
+  if (withoutScheme.startsWith("/")) {
+    return withoutScheme;
+  }
+  return `/${withoutScheme}`;
+}
+
+function isLikelyAbsoluteFilePath(value: string) {
+  if (!value.startsWith("/")) {
+    return false;
+  }
+  const pathBody = value.slice(1);
+  if (!pathBody) {
+    return false;
+  }
+  return pathBody.includes("/") || pathBody.includes(".");
+}
+
+function resolveLocalFileHref(url: string) {
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.startsWith("#")) {
+    return null;
+  }
+  const normalized = stripFileScheme(safeDecodeUrl(trimmed));
+  if (
+    normalized.startsWith("/") ||
+    normalized.startsWith("./") ||
+    normalized.startsWith("../") ||
+    normalized.startsWith("~/")
+  ) {
+    if (normalized.startsWith("/") && !isLikelyAbsoluteFilePath(normalized)) {
+      return null;
+    }
+    return normalized;
+  }
+  return isLinkableFilePath(normalized) ? normalized : null;
+}
+
 function LinkBlock({ urls }: LinkBlockProps) {
   return (
     <div className="markdown-linkblock">
@@ -204,6 +591,10 @@ function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
   const languageTag = extractLanguageTag(className);
   const languageLabel = languageTag ?? "Code";
   const fencedValue = `\`\`\`${languageTag ?? ""}\n${value}\n\`\`\``;
+  const highlightedHtml = useMemo(
+    () => highlightLine(value, languageTag),
+    [value, languageTag],
+  );
 
   useEffect(() => {
     return () => {
@@ -245,7 +636,10 @@ function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
         </button>
       </div>
       <pre>
-        <code className={className}>{value}</code>
+        <code
+          className={className}
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
       </pre>
     </div>
   );
@@ -309,9 +703,13 @@ function PreBlock({ node, children, copyUseModifier }: PreProps) {
   }
   const isSingleLine = !value.includes("\n");
   if (isSingleLine) {
+    const highlightedHtml = highlightLine(value, languageTag);
     return (
       <pre className="markdown-codeblock-single">
-        <code className={className}>{value}</code>
+        <code
+          className={className}
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
       </pre>
     );
   }
@@ -347,8 +745,8 @@ export const Markdown = memo(function Markdown({
   const [throttledValue, setThrottledValue] = useState(value);
   const lastUpdateRef = useRef(Date.now());
   const throttleTimerRef = useRef<number>(0);
-  const latestValueRef = useRef(value);
   const mountedRef = useRef(true);
+  const latestValueRef = useRef(value);
   latestValueRef.current = value;
 
   useEffect(() => {
@@ -390,130 +788,197 @@ export const Markdown = memo(function Markdown({
   }, []);
 
   const renderValue = throttledValue;
-  const normalizedValue = codeBlock ? renderValue : normalizeListIndentation(renderValue);
-  const content = codeBlock
-    ? `\`\`\`\n${normalizedValue}\n\`\`\``
-    : normalizedValue;
-  const handleFileLinkClick = (event: React.MouseEvent, path: string) => {
+
+  // Memoize heavy text normalization to avoid re-running on every render
+  const content = useMemo(() => {
+    if (codeBlock) {
+      return `\`\`\`\n${renderValue}\n\`\`\``;
+    }
+    const normalizeDisplayText = (text: string) =>
+      normalizeListIndentation(
+        normalizeFragmentedLineBreaks(normalizeFragmentedParagraphBreaks(text)),
+      );
+    return normalizeOutsideCodeFences(renderValue, normalizeDisplayText);
+  }, [renderValue, codeBlock]);
+
+  // Stable callback refs for file link handlers
+  const onOpenFileLinkRef = useRef(onOpenFileLink);
+  onOpenFileLinkRef.current = onOpenFileLink;
+  const onOpenFileLinkMenuRef = useRef(onOpenFileLinkMenu);
+  onOpenFileLinkMenuRef.current = onOpenFileLinkMenu;
+
+  const handleFileLinkClick = useCallback((event: React.MouseEvent, path: string) => {
     event.preventDefault();
     event.stopPropagation();
-    onOpenFileLink?.(path);
-  };
-  const handleFileLinkContextMenu = (
+    onOpenFileLinkRef.current?.(path);
+  }, []);
+  const handleFileLinkContextMenu = useCallback((
     event: React.MouseEvent,
     path: string,
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    onOpenFileLinkMenu?.(event, path);
-  };
-  const components: Components = {
-    a: ({ href, children }) => {
-      const url = href ?? "";
-      if (isFileLinkUrl(url)) {
-        const path = decodeFileLink(url);
+    onOpenFileLinkMenuRef.current?.(event, path);
+  }, []);
+
+  // Memoize ReactMarkdown components to prevent full re-initialization on every render.
+  // This is critical: when components/plugins change reference, ReactMarkdown
+  // discards its entire internal HAST tree and re-parses from scratch.
+  const enableCodexLeadEnhancement = className?.includes("markdown-codex-canvas") ?? false;
+  const components = useMemo<Components>(() => {
+    const result: Components = {
+      a: ({ href, children }) => {
+        const url = href ?? "";
+        if (isFileLinkUrl(url)) {
+          const path = decodeFileLink(url);
+          return (
+            <a
+              href={href}
+              onClick={(event) => handleFileLinkClick(event, path)}
+              onContextMenu={(event) => handleFileLinkContextMenu(event, path)}
+            >
+              {children}
+            </a>
+          );
+        }
+        const localFilePath = resolveLocalFileHref(url);
+        if (localFilePath) {
+          return (
+            <a
+              href={href}
+              onClick={(event) => handleFileLinkClick(event, localFilePath)}
+              onContextMenu={(event) =>
+                handleFileLinkContextMenu(event, localFilePath)
+              }
+            >
+              {children}
+            </a>
+          );
+        }
+        const isExternal =
+          url.startsWith("http://") ||
+          url.startsWith("https://") ||
+          url.startsWith("mailto:");
+
+        if (!isExternal) {
+          return <a href={href}>{children}</a>;
+        }
+
         return (
           <a
             href={href}
-            onClick={(event) => handleFileLinkClick(event, path)}
-            onContextMenu={(event) => handleFileLinkContextMenu(event, path)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openUrl(url);
+            }}
           >
             {children}
           </a>
         );
-      }
-      const isExternal =
-        url.startsWith("http://") ||
-        url.startsWith("https://") ||
-        url.startsWith("mailto:");
-
-      if (!isExternal) {
-        return <a href={href}>{children}</a>;
-      }
-
-      return (
-        <a
-          href={href}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void openUrl(url);
-          }}
-        >
-          {children}
-        </a>
-      );
-    },
-    code: ({ className: codeClassName, children }) => {
-      if (codeClassName) {
-        return <code className={codeClassName}>{children}</code>;
-      }
-      const text = String(children ?? "").trim();
-      if (!text || !isLinkableFilePath(text)) {
-        return <code>{children}</code>;
-      }
-      const href = toFileLink(text);
-      return (
-        <a
-          href={href}
-          onClick={(event) => handleFileLinkClick(event, text)}
-          onContextMenu={(event) => handleFileLinkContextMenu(event, text)}
-        >
-          <code>{children}</code>
-        </a>
-      );
-    },
-  };
-
-  const enableCodexLeadEnhancement = className?.includes("markdown-codex-canvas") ?? false;
-  if (enableCodexLeadEnhancement) {
-    components.p = ({ children }) => {
-      const plainText = flattenNodeText(children);
-      const lead = detectCodexLeadMarker(plainText, codexLeadMarkerConfig);
-      if (!lead) {
-        return <p>{children}</p>;
-      }
-      return (
-        <p className={`markdown-lead-paragraph markdown-lead-${lead.tone}`}>
-          <span className="markdown-lead-icon" aria-hidden>{lead.icon}</span>
-          <span className="markdown-lead-text">{children}</span>
-        </p>
-      );
+      },
+      code: ({ className: codeClassName, children }) => {
+        if (codeClassName) {
+          return <code className={codeClassName}>{children}</code>;
+        }
+        const text = String(children ?? "").trim();
+        if (!text || !isLinkableFilePath(text)) {
+          return <code>{children}</code>;
+        }
+        const href = toFileLink(text);
+        return (
+          <a
+            href={href}
+            onClick={(event) => handleFileLinkClick(event, text)}
+            onContextMenu={(event) => handleFileLinkContextMenu(event, text)}
+          >
+            <code>{children}</code>
+          </a>
+        );
+      },
     };
-  }
 
-  if (codeBlockStyle === "message") {
-    components.pre = ({ node, children }) => (
-      <PreBlock node={node as PreProps["node"]} copyUseModifier={codeBlockCopyUseModifier}>
-        {children}
-      </PreBlock>
-    );
-  }
+    if (enableCodexLeadEnhancement) {
+      result.p = ({ children }) => {
+        const plainText = flattenNodeText(children);
+        const lead = detectCodexLeadMarker(plainText, codexLeadMarkerConfig);
+        if (!lead) {
+          return <p>{children}</p>;
+        }
+        return (
+          <p className={`markdown-lead-paragraph markdown-lead-${lead.tone}`}>
+            <span className="markdown-lead-icon" aria-hidden>{lead.icon}</span>
+            <span className="markdown-lead-text">{children}</span>
+          </p>
+        );
+      };
+    }
+
+    if (codeBlockStyle === "message") {
+      result.pre = ({ node, children }) => (
+        <PreBlock node={node as PreProps["node"]} copyUseModifier={codeBlockCopyUseModifier}>
+          {children}
+        </PreBlock>
+      );
+    }
+
+    return result;
+  }, [
+    handleFileLinkClick,
+    handleFileLinkContextMenu,
+    enableCodexLeadEnhancement,
+    codexLeadMarkerConfig,
+    codeBlockStyle,
+    codeBlockCopyUseModifier,
+  ]);
+
+  // Memoize plugin arrays so ReactMarkdown doesn't re-initialize its processor
+  const remarkPluginsMemo = useMemo(() => [remarkGfm, remarkFileLinks], []);
+  const rehypePluginsMemo = useMemo(
+    () => [
+      rehypeRaw,
+      [rehypeSanitize, {
+        ...defaultSchema,
+        tagNames: [
+          ...(defaultSchema.tagNames ?? []),
+          "details", "summary", "abbr", "mark", "ins", "del",
+          "sub", "sup", "kbd", "var", "samp",
+        ],
+        attributes: {
+          ...defaultSchema.attributes,
+          "*": [...(defaultSchema.attributes?.["*"] ?? []), "className", "class", "style"],
+          "img": [...(defaultSchema.attributes?.["img"] ?? []), "loading"],
+        },
+      }],
+    ] as Parameters<typeof ReactMarkdown>[0]["rehypePlugins"],
+    [],
+  );
+  const urlTransform = useCallback((url: string) => {
+    const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url);
+    if (
+      isFileLinkUrl(url) ||
+      url.startsWith("http://") ||
+      url.startsWith("https://") ||
+      url.startsWith("mailto:") ||
+      url.startsWith("#") ||
+      url.startsWith("/") ||
+      url.startsWith("./") ||
+      url.startsWith("../")
+    ) {
+      return url;
+    }
+    if (!hasScheme) {
+      return url;
+    }
+    return "";
+  }, []);
 
   return (
     <div className={className}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkFileLinks]}
-        rehypePlugins={[rehypeRaw]}
-        urlTransform={(url) => {
-          const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url);
-          if (
-            isFileLinkUrl(url) ||
-            url.startsWith("http://") ||
-            url.startsWith("https://") ||
-            url.startsWith("mailto:") ||
-            url.startsWith("#") ||
-            url.startsWith("/") ||
-            url.startsWith("./") ||
-            url.startsWith("../")
-          ) {
-            return url;
-          }
-          if (!hasScheme) {
-            return url;
-          }
-          return "";
-        }}
+        remarkPlugins={remarkPluginsMemo}
+        rehypePlugins={rehypePluginsMemo}
+        urlTransform={urlTransform}
         components={components}
       >
         {content}

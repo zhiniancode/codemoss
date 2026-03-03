@@ -1,9 +1,23 @@
 import type { ConversationItem } from "../types";
 
-const MAX_ITEMS_PER_THREAD = 200;
 const MAX_ITEM_TEXT = 20000;
 const TOOL_OUTPUT_RECENT_ITEMS = 40;
 const NO_TRUNCATE_TOOL_TYPES = new Set(["fileChange", "commandExecution"]);
+const EDIT_TOOL_TYPE_HINTS = new Set([
+  "edit",
+  "edit_file",
+  "editfile",
+  "multiedit",
+  "write",
+  "write_file",
+  "writefile",
+  "write_to_file",
+  "replace_string",
+  "file_edit",
+  "file_write",
+  "notebookedit",
+  "create_file",
+]);
 const READ_COMMANDS = new Set(["cat", "sed", "head", "tail", "less", "more", "nl"]);
 const LIST_COMMANDS = new Set(["ls", "tree", "find", "fd"]);
 const SEARCH_COMMANDS = new Set(["rg", "grep", "ripgrep", "findstr"]);
@@ -26,9 +40,97 @@ const RG_FLAGS_WITH_VALUES = new Set([
   "--context",
   "--max-depth",
 ]);
+const PROJECT_MEMORY_BLOCK_REGEX = /^<project-memory\b[\s\S]*?<\/project-memory>\s*/i;
+const PROJECT_MEMORY_LINE_PREFIX_REGEX =
+  /^\[(?:已知问题|技术决策|项目上下文|对话记录|笔记|记忆)\]\s+/;
+const MODE_FALLBACK_PREFIX_REGEX =
+  /^(?:collaboration mode:\s*code\.|execution policy \(default mode\):|execution policy \(plan mode\):)/i;
+const MODE_FALLBACK_MARKER_REGEX = /User request\s*:\s*/i;
+const MAX_INJECTED_MEMORY_LINES = 12;
+const MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX = /\r?\n[^\S\r\n]*\r?\n+/;
+const ASSISTANT_FRAGMENT_MIN_RUN = 5;
+const ASSISTANT_FRAGMENT_MAX_LENGTH = 14;
+const ASSISTANT_FRAGMENT_MIN_TOTAL_CHARS = 12;
+const ASSISTANT_LINE_FRAGMENT_MIN_RUN = 6;
+const ASSISTANT_LINE_FRAGMENT_MAX_LENGTH = 10;
+const ASSISTANT_LINE_FRAGMENT_MIN_TOTAL_CHARS = 12;
+const ASSISTANT_TEXT_CACHE_MAX = 320;
+const ASSISTANT_NO_CONTENT_PLACEHOLDER_SET = new Set(["(no content)", "no content"]);
+const assistantNormalizedTextCache = new Map<string, string>();
+const assistantReadabilityScoreCache = new Map<
+  string,
+  { normalized: string; score: number }
+>();
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : value ? String(value) : "";
+}
+
+function normalizeCollaborationMode(value: unknown): "plan" | "code" | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "default") {
+    return "code";
+  }
+  return normalized === "plan" || normalized === "code"
+    ? normalized
+    : null;
+}
+
+function parseCollaborationModeValue(value: unknown): "plan" | "code" | null {
+  const direct = normalizeCollaborationMode(value);
+  if (direct) {
+    return direct;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    normalizeCollaborationMode(record.mode) ??
+    normalizeCollaborationMode(record.id) ??
+    normalizeCollaborationMode(record.name) ??
+    null
+  );
+}
+
+function extractModeFallbackMode(text: string): "plan" | "code" | null {
+  const trimmed = text.trimStart();
+  if (!MODE_FALLBACK_PREFIX_REGEX.test(trimmed)) {
+    return null;
+  }
+  return /^execution policy \(plan mode\):/i.test(trimmed) ? "plan" : "code";
+}
+
+function extractCollaborationModeFromUserMessageItem(
+  item: Record<string, unknown>,
+  fallbackMode: "plan" | "code" | null,
+): "plan" | "code" | null {
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const candidates: unknown[] = [
+    item.collaborationMode,
+    item.collaboration_mode,
+    item.selectedUiMode,
+    item.selected_ui_mode,
+    item.effectiveUiMode,
+    item.effective_ui_mode,
+    item.mode,
+    metadata?.collaborationMode,
+    metadata?.collaboration_mode,
+    metadata?.mode,
+  ];
+  for (const candidate of candidates) {
+    const mode = parseCollaborationModeValue(candidate);
+    if (mode) {
+      return mode;
+    }
+  }
+  return fallbackMode;
 }
 
 function asNumber(value: unknown) {
@@ -42,15 +144,129 @@ function asNumber(value: unknown) {
   return null;
 }
 
+function formatPlanSteps(value: unknown) {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+  const lines = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      const record = entry as Record<string, unknown>;
+      const step = asString(record.step ?? record.title ?? record.text ?? "").trim();
+      if (!step) {
+        return "";
+      }
+      const status = asString(record.status ?? "").trim();
+      return status ? `- [${status}] ${step}` : `- ${step}`;
+    })
+    .filter(Boolean);
+  return lines.join("\n");
+}
+
+function extractImplementPlanActionId(item: Record<string, unknown>) {
+  const direct = asString(item.actionId ?? item.action_id ?? "").trim();
+  if (direct) {
+    return direct;
+  }
+  const action =
+    item.action && typeof item.action === "object" && !Array.isArray(item.action)
+      ? (item.action as Record<string, unknown>)
+      : null;
+  const fromAction = asString(action?.id ?? action?.actionId ?? action?.action_id ?? "").trim();
+  if (fromAction) {
+    return fromAction;
+  }
+  const actions = Array.isArray(item.actions) ? item.actions : [];
+  for (const entry of actions) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = asString(record.id ?? record.actionId ?? record.action_id ?? "").trim();
+    if (id) {
+      return id;
+    }
+  }
+  return "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeCommandValue(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (!Array.isArray(value)) {
+    return "";
+  }
+  const parts = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return parts.join(" ").trim();
+}
+
+function getFirstStringField(source: Record<string, unknown> | null, keys: string[]) {
+  if (!source) {
+    return "";
+  }
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function getFirstCommandField(source: Record<string, unknown> | null, keys: string[]) {
+  if (!source) {
+    return "";
+  }
+  for (const key of keys) {
+    const normalized = normalizeCommandValue(source[key]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function joinReasoningFragments(parts: string[]) {
+  const fragments = parts.filter((entry) => entry.length > 0);
+  if (fragments.length === 0) {
+    return "";
+  }
+  if (fragments.length === 1) {
+    return fragments[0];
+  }
+  return fragments.slice(1).reduce((combined, fragment) => {
+    const previousChar = combined[combined.length - 1] ?? "";
+    const nextChar = fragment[0] ?? "";
+    const shouldInsertSpace =
+      /[A-Za-z0-9]/.test(previousChar) &&
+      /[A-Za-z0-9]/.test(nextChar);
+    return shouldInsertSpace ? `${combined} ${fragment}` : `${combined}${fragment}`;
+  }, fragments[0]);
+}
+
 function extractReasoningText(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
   if (Array.isArray(value)) {
-    return value
-      .map((entry) => extractReasoningText(entry))
-      .filter(Boolean)
-      .join("\n");
+    return joinReasoningFragments(
+      value
+        .map((entry) => extractReasoningText(entry))
+        .filter(Boolean),
+    );
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
@@ -72,6 +288,714 @@ function truncateText(text: string, maxLength = MAX_ITEM_TEXT) {
   }
   const sliceLength = Math.max(0, maxLength - 3);
   return `${text.slice(0, sliceLength)}...`;
+}
+
+function normalizeToolHint(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+}
+
+function hasStructuredEditDetail(detail: string) {
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("\"old_string\"") ||
+    normalized.includes("\"oldstring\"") ||
+    normalized.includes("\"new_string\"") ||
+    normalized.includes("\"newstring\"") ||
+    normalized.includes("\"file_path\"") ||
+    normalized.includes("\"filepath\"") ||
+    normalized.includes("\"replace_all\"")
+  );
+}
+
+function hasStructuredJsonDetail(detail: string) {
+  const trimmed = detail.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const startsLikeJsonObject = trimmed.startsWith("{") && trimmed.endsWith("}");
+  const startsLikeJsonArray = trimmed.startsWith("[") && trimmed.endsWith("]");
+  if (!startsLikeJsonObject && !startsLikeJsonArray) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === "object" && parsed !== null;
+  } catch {
+    return false;
+  }
+}
+
+function shouldPreserveToolDetail(item: Extract<ConversationItem, { kind: "tool" }>) {
+  if (NO_TRUNCATE_TOOL_TYPES.has(item.toolType)) {
+    return true;
+  }
+  if (hasStructuredJsonDetail(item.detail)) {
+    return true;
+  }
+  const toolTypeHint = normalizeToolHint(item.toolType);
+  if (EDIT_TOOL_TYPE_HINTS.has(toolTypeHint)) {
+    return true;
+  }
+  const titleHint = normalizeToolHint(item.title.replace(/^Tool:\s*/i, ""));
+  if (EDIT_TOOL_TYPE_HINTS.has(titleHint)) {
+    return true;
+  }
+  if (item.detail.length > 2000 && hasStructuredEditDetail(item.detail)) {
+    return true;
+  }
+  return false;
+}
+
+function compactMessageText(value: string) {
+  return value.replace(/\s+/g, "");
+}
+
+function compactComparableMessageText(value: string) {
+  return compactMessageText(value)
+    .replace(/[！!]/g, "!")
+    .replace(/[？?]/g, "?")
+    .replace(/[，,]/g, ",")
+    .replace(/[。．.]/g, ".");
+}
+
+function rememberCacheEntry<T>(
+  cache: Map<string, T>,
+  key: string,
+  value: T,
+) {
+  cache.set(key, value);
+  if (cache.size > ASSISTANT_TEXT_CACHE_MAX) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) {
+      cache.delete(oldestKey);
+    }
+  }
+  return value;
+}
+
+function startsWithMarkdownBlockSyntax(value: string) {
+  const trimmed = value.trimStart();
+  return (
+    /^[-*+]\s/.test(trimmed) ||
+    /^\d+\.\s/.test(trimmed) ||
+    /^>\s?/.test(trimmed) ||
+    /^#{1,6}\s/.test(trimmed) ||
+    /^```/.test(trimmed) ||
+    /^\|/.test(trimmed)
+  );
+}
+
+function shouldMergeAssistantFragment(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= ASSISTANT_FRAGMENT_MAX_LENGTH &&
+    !startsWithMarkdownBlockSyntax(trimmed)
+  );
+}
+
+function normalizeAssistantFragmentedParagraphs(value: string) {
+  if (!MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX.test(value)) {
+    return value;
+  }
+  const paragraphs = value.split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX);
+  if (paragraphs.length < ASSISTANT_FRAGMENT_MIN_RUN) {
+    return value;
+  }
+  let changed = false;
+  const normalized: string[] = [];
+  let index = 0;
+  while (index < paragraphs.length) {
+    const current = paragraphs[index] ?? "";
+    if (!shouldMergeAssistantFragment(current)) {
+      normalized.push(current);
+      index += 1;
+      continue;
+    }
+    let cursor = index;
+    const run: string[] = [];
+    let totalChars = 0;
+    while (cursor < paragraphs.length) {
+      const candidate = paragraphs[cursor] ?? "";
+      if (!shouldMergeAssistantFragment(candidate)) {
+        break;
+      }
+      const trimmed = candidate.trim();
+      run.push(trimmed);
+      totalChars += trimmed.length;
+      cursor += 1;
+    }
+    if (
+      run.length >= ASSISTANT_FRAGMENT_MIN_RUN &&
+      totalChars >= ASSISTANT_FRAGMENT_MIN_TOTAL_CHARS
+    ) {
+      normalized.push(joinReasoningFragments(run));
+      changed = true;
+    } else {
+      normalized.push(...paragraphs.slice(index, cursor));
+    }
+    index = cursor;
+  }
+  return changed ? normalized.join("\n\n") : value;
+}
+
+function shouldMergeAssistantLine(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= ASSISTANT_LINE_FRAGMENT_MAX_LENGTH &&
+    !startsWithMarkdownBlockSyntax(trimmed)
+  );
+}
+
+function normalizeAssistantFragmentedLines(value: string) {
+  if (!value.includes("\n")) {
+    return value;
+  }
+  const blocks = value.split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX);
+  let changed = false;
+  const normalizedBlocks = blocks.map((block) => {
+    const lines = block.split(/\r?\n/);
+    const normalizedLines: string[] = [];
+    let index = 0;
+    while (index < lines.length) {
+      const current = lines[index] ?? "";
+      if (!shouldMergeAssistantLine(current)) {
+        normalizedLines.push(current);
+        index += 1;
+        continue;
+      }
+      let cursor = index;
+      const run: string[] = [];
+      let totalChars = 0;
+      while (cursor < lines.length) {
+        const candidate = lines[cursor] ?? "";
+        if (!shouldMergeAssistantLine(candidate)) {
+          break;
+        }
+        const trimmed = candidate.trim();
+        run.push(trimmed);
+        totalChars += trimmed.length;
+        cursor += 1;
+      }
+      const runCompact = run.join("");
+      const nonSpaceLength = runCompact.replace(/\s+/g, "").length;
+      const cjkCount = (runCompact.match(/[\u4e00-\u9fff]/g) ?? []).length;
+      const isCjkDominant =
+        cjkCount >= Math.max(2, Math.floor(nonSpaceLength * 0.35));
+      if (
+        run.length >= ASSISTANT_LINE_FRAGMENT_MIN_RUN &&
+        totalChars >= ASSISTANT_LINE_FRAGMENT_MIN_TOTAL_CHARS &&
+        isCjkDominant
+      ) {
+        normalizedLines.push(joinReasoningFragments(run));
+        changed = true;
+      } else {
+        normalizedLines.push(...lines.slice(index, cursor));
+      }
+      index = cursor;
+    }
+    return normalizedLines.join("\n");
+  });
+  return changed ? normalizedBlocks.join("\n\n") : value;
+}
+
+function dedupeAdjacentAssistantParagraphs(value: string) {
+  const paragraphs = value
+    .split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (paragraphs.length <= 1) {
+    return value.trim();
+  }
+  const deduped: string[] = [];
+  for (const paragraph of paragraphs) {
+    const previous = deduped[deduped.length - 1];
+    if (
+      previous &&
+      compactComparableMessageText(previous) === compactComparableMessageText(paragraph) &&
+      compactComparableMessageText(paragraph).length >= 6
+    ) {
+      continue;
+    }
+    deduped.push(paragraph);
+  }
+  return deduped.join("\n\n");
+}
+
+function collapseRepeatedAssistantParagraphBlocks(value: string) {
+  const paragraphs = value
+    .split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (paragraphs.length < 2) {
+    return value;
+  }
+  for (const repeatCount of [3, 2]) {
+    if (paragraphs.length % repeatCount !== 0) {
+      continue;
+    }
+    const blockLength = paragraphs.length / repeatCount;
+    if (blockLength < 1) {
+      continue;
+    }
+    const firstBlock = paragraphs
+      .slice(0, blockLength)
+      .map((entry) => compactComparableMessageText(entry));
+    if (!firstBlock.some((entry) => entry.length >= 6)) {
+      continue;
+    }
+    let matches = true;
+    for (let blockIndex = 1; blockIndex < repeatCount; blockIndex += 1) {
+      const start = blockIndex * blockLength;
+      const candidate = paragraphs
+        .slice(start, start + blockLength)
+        .map((entry) => compactComparableMessageText(entry));
+      if (
+        candidate.length !== firstBlock.length ||
+        candidate.some((entry, index) => entry !== firstBlock[index])
+      ) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return paragraphs.slice(0, blockLength).join("\n\n");
+    }
+  }
+  return value;
+}
+
+function collapseRepeatedAssistantFullText(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const directRepeat = trimmed.match(/^([\s\S]{6,}?)(?:\s+\1){1,2}$/);
+  if (directRepeat?.[1]) {
+    return directRepeat[1].trim();
+  }
+  const compact = compactMessageText(trimmed);
+  for (const repeatCount of [3, 2]) {
+    if (compact.length < 12 || compact.length % repeatCount !== 0) {
+      continue;
+    }
+    const chunkLength = compact.length / repeatCount;
+    const chunk = compact.slice(0, chunkLength);
+    if (chunk.length < 6 || chunk.repeat(repeatCount) !== compact) {
+      continue;
+    }
+    let nonSpaceCount = 0;
+    for (let index = 0; index < trimmed.length; index += 1) {
+      if (!/\s/.test(trimmed[index])) {
+        nonSpaceCount += 1;
+      }
+      if (nonSpaceCount >= chunkLength) {
+        return trimmed.slice(0, index + 1).trim();
+      }
+    }
+  }
+  return trimmed;
+}
+
+function sharedComparablePrefixLength(left: string, right: string) {
+  const max = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < max && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+function sharedComparableSuffixLength(left: string, right: string) {
+  const max = Math.min(left.length, right.length);
+  let index = 0;
+  while (
+    index < max &&
+    left[left.length - 1 - index] === right[right.length - 1 - index]
+  ) {
+    index += 1;
+  }
+  return index;
+}
+
+function isNearDuplicateAssistantSentence(left: string, right: string) {
+  const leftCompact = compactComparableMessageText(left.trim());
+  const rightCompact = compactComparableMessageText(right.trim());
+  if (!leftCompact || !rightCompact) {
+    return false;
+  }
+  if (leftCompact === rightCompact) {
+    return true;
+  }
+  if (leftCompact.length < 6 || rightCompact.length < 6) {
+    return false;
+  }
+  if (leftCompact.includes(rightCompact) || rightCompact.includes(leftCompact)) {
+    return true;
+  }
+  const minLength = Math.min(leftCompact.length, rightCompact.length);
+  const sharedPrefix = sharedComparablePrefixLength(leftCompact, rightCompact);
+  if (sharedPrefix >= Math.floor(minLength * 0.72)) {
+    return true;
+  }
+  const sharedSuffix = sharedComparableSuffixLength(leftCompact, rightCompact);
+  if (sharedSuffix >= Math.floor(minLength * 0.72)) {
+    return true;
+  }
+  return sharedPrefix + sharedSuffix >= Math.floor(minLength * 0.92);
+}
+
+function scoreAssistantSentenceBlock(sentences: string[]) {
+  const joined = sentences.join("").trim();
+  const compactLength = compactMessageText(joined).length;
+  const punctuationCount = (joined.match(/[。！？!?]/g) ?? []).length;
+  const lineBreakPenalty = (joined.match(/\r?\n/g) ?? []).length;
+  return compactLength + punctuationCount * 2 - lineBreakPenalty;
+}
+
+function collapseNearDuplicateAssistantSentenceBlocks(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /```/.test(trimmed) || hasRichAssistantMarkdownStructure(trimmed)) {
+    return value;
+  }
+  const sentenceMatches = trimmed.match(/[^。！？!?]+[。！？!?]?/g);
+  if (!sentenceMatches || sentenceMatches.length < 4) {
+    return value;
+  }
+  for (const repeatCount of [3, 2]) {
+    if (sentenceMatches.length % repeatCount !== 0) {
+      continue;
+    }
+    const blockLength = sentenceMatches.length / repeatCount;
+    if (blockLength < 1) {
+      continue;
+    }
+    const blocks = Array.from({ length: repeatCount }, (_, blockIndex) =>
+      sentenceMatches.slice(blockIndex * blockLength, (blockIndex + 1) * blockLength),
+    );
+    const baseBlock = blocks[0] ?? [];
+    if (baseBlock.length === 0) {
+      continue;
+    }
+    let comparablePairs = 0;
+    let hasStrongPair = false;
+    let matches = true;
+    for (let blockIndex = 1; blockIndex < blocks.length; blockIndex += 1) {
+      const candidateBlock = blocks[blockIndex] ?? [];
+      if (candidateBlock.length !== baseBlock.length) {
+        matches = false;
+        break;
+      }
+      for (let sentenceIndex = 0; sentenceIndex < baseBlock.length; sentenceIndex += 1) {
+        const left = baseBlock[sentenceIndex] ?? "";
+        const right = candidateBlock[sentenceIndex] ?? "";
+        if (!isNearDuplicateAssistantSentence(left, right)) {
+          matches = false;
+          break;
+        }
+        const pairLength = Math.max(
+          compactMessageText(left).length,
+          compactMessageText(right).length,
+        );
+        if (pairLength >= 8) {
+          comparablePairs += 1;
+          hasStrongPair = true;
+        }
+      }
+      if (!matches) {
+        break;
+      }
+    }
+    if (!matches || !hasStrongPair || comparablePairs < Math.max(1, blockLength - 1)) {
+      continue;
+    }
+    let selectedIndex = 0;
+    let selectedScore = Number.NEGATIVE_INFINITY;
+    for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+      const score = scoreAssistantSentenceBlock(blocks[blockIndex] ?? []);
+      if (score > selectedScore || (score === selectedScore && blockIndex > selectedIndex)) {
+        selectedScore = score;
+        selectedIndex = blockIndex;
+      }
+    }
+    return (blocks[selectedIndex] ?? []).join("").trim();
+  }
+  return value;
+}
+
+function dedupeRepeatedAssistantSentences(value: string) {
+  const dedupeSentences = (paragraph: string) => {
+    const trimmed = paragraph.trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+    const sentences = trimmed.match(/[^。！？!?]+[。！？!?]/g);
+    if (!sentences || sentences.length < 2) {
+      return trimmed;
+    }
+    let collapsedSentences = sentences.map((sentence) => sentence.trim());
+    for (const repeatCount of [3, 2]) {
+      if (collapsedSentences.length % repeatCount !== 0) {
+        continue;
+      }
+      const blockLength = collapsedSentences.length / repeatCount;
+      if (blockLength < 1) {
+        continue;
+      }
+      const firstBlock = collapsedSentences
+        .slice(0, blockLength)
+        .map((entry) => compactComparableMessageText(entry));
+      if (!firstBlock.some((entry) => entry.length >= 6)) {
+        continue;
+      }
+      let matches = true;
+      for (let blockIndex = 1; blockIndex < repeatCount; blockIndex += 1) {
+        const start = blockIndex * blockLength;
+        const candidate = collapsedSentences
+          .slice(start, start + blockLength)
+          .map((entry) => compactComparableMessageText(entry));
+        if (
+          candidate.length !== firstBlock.length ||
+          candidate.some((entry, index) => entry !== firstBlock[index])
+        ) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        collapsedSentences = collapsedSentences.slice(0, blockLength);
+        break;
+      }
+    }
+
+    const deduped: string[] = [];
+    for (const sentence of collapsedSentences) {
+      const current = sentence.trim();
+      const previous = deduped[deduped.length - 1];
+      if (
+        previous &&
+        compactComparableMessageText(previous) === compactComparableMessageText(current) &&
+        compactComparableMessageText(current).length >= 6
+      ) {
+        continue;
+      }
+      deduped.push(current);
+    }
+    const consumed = sentences.join("");
+    const remainder = trimmed.slice(consumed.length);
+    return `${deduped.join("")}${remainder}`.trim();
+  };
+
+  if (!MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX.test(value)) {
+    return dedupeSentences(value);
+  }
+  return value
+    .split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => dedupeSentences(entry))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function normalizeAssistantMessageText(text: string) {
+  if (!text) {
+    return text;
+  }
+  let normalized = text;
+  normalized = collapseRepeatedAssistantParagraphBlocks(normalized);
+  normalized = collapseRepeatedAssistantFullText(normalized);
+  if (isLikelyFragmentedAssistantText(normalized)) {
+    normalized = normalizeAssistantFragmentedParagraphs(normalized);
+    normalized = normalizeAssistantFragmentedLines(normalized);
+  }
+  normalized = dedupeRepeatedAssistantSentences(normalized);
+  normalized = collapseNearDuplicateAssistantSentenceBlocks(normalized);
+  normalized = dedupeAdjacentAssistantParagraphs(normalized);
+  normalized = collapseRepeatedAssistantParagraphBlocks(normalized);
+  normalized = collapseRepeatedAssistantFullText(normalized);
+  return normalized.trim();
+}
+
+function hasRepeatedAssistantTextPattern(text: string) {
+  if (!text) {
+    return false;
+  }
+  const compact = compactComparableMessageText(text);
+  if (compact.length < 24) {
+    return false;
+  }
+  for (const repeatCount of [3, 2]) {
+    if (compact.length % repeatCount !== 0) {
+      continue;
+    }
+    const chunkLength = compact.length / repeatCount;
+    const chunk = compact.slice(0, chunkLength);
+    if (chunk.length >= 6 && chunk.repeat(repeatCount) === compact) {
+      return true;
+    }
+  }
+  const anchorLength = Math.max(6, Math.floor(compact.length / 4));
+  const anchor = compact.slice(0, anchorLength);
+  return anchor.length >= 6 && compact.indexOf(anchor, anchor.length) >= 0;
+}
+
+function hasDenseMarkdownStructure(text: string) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 4) {
+    return false;
+  }
+  const markdownStructureLines = lines.filter((line) => {
+    const trimmed = line.trimStart();
+    return (
+      /^[-*+]\s/.test(trimmed) ||
+      /^\d+\.\s/.test(trimmed) ||
+      /^>\s?/.test(trimmed) ||
+      /^#{1,6}\s/.test(trimmed) ||
+      /^\|/.test(trimmed)
+    );
+  }).length;
+  if (markdownStructureLines >= 3) {
+    return true;
+  }
+  const fenceCount = (text.match(/```|~~~/g) ?? []).length;
+  return fenceCount >= 2;
+}
+
+function hasRichAssistantMarkdownStructure(text: string) {
+  if (!text.includes("\n")) {
+    return false;
+  }
+  if (hasDenseMarkdownStructure(text)) {
+    return true;
+  }
+  const lines = text.split(/\r?\n/);
+  let tableSeparatorCount = 0;
+  let indentedCodeCount = 0;
+  for (const line of lines) {
+    if (
+      /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)
+    ) {
+      tableSeparatorCount += 1;
+    }
+    if (/^( {4}|\t)\S+/.test(line)) {
+      indentedCodeCount += 1;
+    }
+    if (tableSeparatorCount >= 1 || indentedCodeCount >= 3) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isLikelyFragmentedAssistantText(text: string) {
+  if (!text.includes("\n") || hasRichAssistantMarkdownStructure(text)) {
+    return false;
+  }
+  const paragraphs = text
+    .split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (paragraphs.length >= ASSISTANT_FRAGMENT_MIN_RUN) {
+    const shortParagraphs = paragraphs.filter(
+      (entry) =>
+        entry.length > 0 &&
+        entry.length <= ASSISTANT_FRAGMENT_MAX_LENGTH &&
+        !startsWithMarkdownBlockSyntax(entry),
+    ).length;
+    if (shortParagraphs >= ASSISTANT_FRAGMENT_MIN_RUN && shortParagraphs / paragraphs.length >= 0.6) {
+      return true;
+    }
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (lines.length >= ASSISTANT_LINE_FRAGMENT_MIN_RUN) {
+    const shortLines = lines.filter(
+      (entry) =>
+        entry.length > 0 &&
+        entry.length <= ASSISTANT_LINE_FRAGMENT_MAX_LENGTH &&
+        !startsWithMarkdownBlockSyntax(entry),
+    );
+    if (shortLines.length >= ASSISTANT_LINE_FRAGMENT_MIN_RUN) {
+      const cjkChars = (shortLines.join("").match(/[\u4e00-\u9fff]/g) ?? []).length;
+      const totalChars = shortLines.join("").replace(/\s+/g, "").length;
+      if (totalChars >= ASSISTANT_LINE_FRAGMENT_MIN_TOTAL_CHARS && cjkChars >= Math.max(2, Math.floor(totalChars * 0.35))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function shouldNormalizeAssistantText(text: string) {
+  if (!text) {
+    return false;
+  }
+  const hasRepeatedPattern = hasRepeatedAssistantTextPattern(text);
+  if (hasRepeatedPattern) {
+    return true;
+  }
+  const collapsedNearDuplicate = collapseNearDuplicateAssistantSentenceBlocks(text);
+  if (collapsedNearDuplicate.trim() !== text.trim()) {
+    return true;
+  }
+  if (hasRichAssistantMarkdownStructure(text)) {
+    return false;
+  }
+  return isLikelyFragmentedAssistantText(text);
+}
+
+function getNormalizedAssistantMessageText(text: string) {
+  const cached = assistantNormalizedTextCache.get(text);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const normalized = normalizeAssistantMessageText(text);
+  return rememberCacheEntry(assistantNormalizedTextCache, text, normalized);
+}
+
+function scoreAssistantMessageReadability(text: string) {
+  const cached = assistantReadabilityScoreCache.get(text);
+  if (cached) {
+    return cached;
+  }
+  const normalized = shouldNormalizeAssistantText(text)
+    ? getNormalizedAssistantMessageText(text)
+    : text;
+  const paragraphs = normalized
+    .split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const shortParagraphCount = paragraphs.filter((entry) => entry.length <= 8).length;
+  const compactOriginal = compactMessageText(text);
+  const compactNormalized = compactMessageText(normalized);
+  let score = shortParagraphCount * 3 + paragraphs.length;
+  if (
+    compactOriginal.length > compactNormalized.length &&
+    compactNormalized.length >= 6
+  ) {
+    score += Math.min(12, Math.floor((compactOriginal.length - compactNormalized.length) / 3));
+  }
+  return rememberCacheEntry(assistantReadabilityScoreCache, text, { normalized, score });
+}
+
+function normalizeAssistantPlaceholderText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll("（", "(")
+    .replaceAll("）", ")");
+}
+
+function isAssistantNoContentPlaceholder(value: string) {
+  if (!value) {
+    return false;
+  }
+  return ASSISTANT_NO_CONTENT_PLACEHOLDER_SET.has(
+    normalizeAssistantPlaceholderText(value),
+  );
 }
 
 function normalizeStringList(value: unknown) {
@@ -102,7 +1026,16 @@ function formatCollabAgentStates(value: unknown) {
 
 export function normalizeItem(item: ConversationItem): ConversationItem {
   if (item.kind === "message") {
-    return { ...item, text: truncateText(item.text) };
+    let normalizedText =
+      item.role === "assistant"
+        ? shouldNormalizeAssistantText(item.text)
+          ? getNormalizedAssistantMessageText(item.text)
+          : item.text
+        : item.text;
+    if (item.role === "assistant" && isAssistantNoContentPlaceholder(normalizedText)) {
+      normalizedText = "";
+    }
+    return { ...item, text: truncateText(normalizedText) };
   }
   if (item.kind === "explore") {
     return item;
@@ -118,11 +1051,12 @@ export function normalizeItem(item: ConversationItem): ConversationItem {
     return { ...item, diff: truncateText(item.diff) };
   }
   if (item.kind === "tool") {
+    const shouldKeepDetail = shouldPreserveToolDetail(item);
     const isNoTruncateTool = NO_TRUNCATE_TOOL_TYPES.has(item.toolType);
     return {
       ...item,
       title: truncateText(item.title, 200),
-      detail: truncateText(item.detail, 2000),
+      detail: shouldKeepDetail ? item.detail : truncateText(item.detail, 2000),
       output: isNoTruncateTool
         ? item.output
         : item.output
@@ -441,9 +1375,56 @@ function summarizeExploration(items: ConversationItem[]) {
   return result;
 }
 
+function mergeToolItemPreservingSnapshot(
+  existing: Extract<ConversationItem, { kind: "tool" }>,
+  incoming: Extract<ConversationItem, { kind: "tool" }>,
+): Extract<ConversationItem, { kind: "tool" }> {
+  const hasTitle = incoming.title.trim().length > 0;
+  const hasDetail = incoming.detail.trim().length > 0;
+  const hasOutput =
+    typeof incoming.output === "string" && incoming.output.trim().length > 0;
+  const hasChanges = Array.isArray(incoming.changes) && incoming.changes.length > 0;
+  return {
+    ...existing,
+    ...incoming,
+    title: hasTitle ? incoming.title : existing.title,
+    detail: hasDetail ? incoming.detail : existing.detail,
+    output: hasOutput ? incoming.output : existing.output,
+    changes: hasChanges ? incoming.changes : existing.changes,
+  };
+}
+
+function mergeSameKindItem(existing: ConversationItem, incoming: ConversationItem) {
+  if (existing.kind === "tool" && incoming.kind === "tool") {
+    return mergeToolItemPreservingSnapshot(existing, incoming);
+  }
+  return { ...existing, ...incoming };
+}
+
 export function prepareThreadItems(items: ConversationItem[]) {
+  const coalesced: ConversationItem[] = [];
+  const coalescedIndexByKey = new Map<string, number>();
+  for (const rawItem of items) {
+    const item = normalizeItem(rawItem);
+    const key = `${item.kind}\u0000${item.id}`;
+    const index = coalescedIndexByKey.get(key);
+    if (index === undefined) {
+      coalescedIndexByKey.set(key, coalesced.length);
+      coalesced.push(item);
+      continue;
+    }
+    coalesced[index] = mergeSameKindItem(coalesced[index], item);
+  }
   const filtered: ConversationItem[] = [];
-  for (const item of items) {
+  for (const item of coalesced) {
+    if (
+      item.kind === "message" &&
+      item.role === "assistant" &&
+      item.text.trim().length === 0 &&
+      (!item.images || item.images.length === 0)
+    ) {
+      continue;
+    }
     const last = filtered[filtered.length - 1];
     if (
       item.kind === "message" &&
@@ -456,12 +1437,7 @@ export function prepareThreadItems(items: ConversationItem[]) {
     }
     filtered.push(item);
   }
-  const normalized = filtered.map((item) => normalizeItem(item));
-  const limited =
-    normalized.length > MAX_ITEMS_PER_THREAD
-      ? normalized.slice(-MAX_ITEMS_PER_THREAD)
-      : normalized;
-  const summarized = summarizeExploration(limited);
+  const summarized = summarizeExploration(filtered);
   const cutoff = Math.max(0, summarized.length - TOOL_OUTPUT_RECENT_ITEMS);
   return summarized.map((item, index) => {
     if (index >= cutoff || item.kind !== "tool") {
@@ -487,23 +1463,7 @@ export function upsertItem(list: ConversationItem[], item: ConversationItem) {
     return [...list, item];
   }
   const next = [...list];
-  const existing = next[index];
-  if (existing.kind === "tool" && item.kind === "tool") {
-    const hasTitle = item.title.trim().length > 0;
-    const hasDetail = item.detail.trim().length > 0;
-    const hasOutput = typeof item.output === "string" && item.output.trim().length > 0;
-    const hasChanges = Array.isArray(item.changes) && item.changes.length > 0;
-    next[index] = {
-      ...existing,
-      ...item,
-      title: hasTitle ? item.title : existing.title,
-      detail: hasDetail ? item.detail : existing.detail,
-      output: hasOutput ? item.output : existing.output,
-      changes: hasChanges ? item.changes : existing.changes,
-    };
-    return next;
-  }
-  next[index] = { ...existing, ...item };
+  next[index] = mergeSameKindItem(next[index], item);
   return next;
 }
 
@@ -553,13 +1513,22 @@ export function buildConversationItem(
   }
   if (type === "userMessage") {
     const content = Array.isArray(item.content) ? item.content : [];
-    const { text, images } = parseUserInputs(content);
+    const {
+      text,
+      images,
+      collaborationMode: fallbackCollaborationMode,
+    } = parseUserInputs(content);
+    const collaborationMode = extractCollaborationModeFromUserMessageItem(
+      item,
+      fallbackCollaborationMode,
+    );
     return {
       id,
       kind: "message",
       role: "user",
       text,
       images: images.length > 0 ? images : undefined,
+      collaborationMode,
     };
   }
   if (type === "reasoning") {
@@ -568,17 +1537,71 @@ export function buildConversationItem(
     const content = contentFromItem || asString(item.text ?? "");
     return { id, kind: "reasoning", summary, content };
   }
+  if (type === "plan" || type === "planImplementation") {
+    const toolType = type === "plan" ? "proposed-plan" : "plan-implementation";
+    const actionId = extractImplementPlanActionId(item);
+    const planText = formatPlanSteps(item.steps ?? item.plan);
+    const fallbackOutput =
+      asString(item.content ?? item.text ?? item.summary ?? item.explanation ?? "");
+    return {
+      id,
+      kind: "tool",
+      toolType,
+      title: type === "plan" ? "Proposed Plan" : "Plan Implementation",
+      detail: actionId || "",
+      status: asString(item.status ?? ""),
+      output: planText || fallbackOutput,
+    };
+  }
   if (type === "commandExecution") {
-    const command = Array.isArray(item.command)
-      ? item.command.map((part) => asString(part)).join(" ")
-      : asString(item.command ?? "");
+    const input = asRecord(item.input);
+    const nestedArgs = asRecord(item.arguments);
+    const commandKeys = [
+      "command",
+      "cmd",
+      "script",
+      "shell_command",
+      "bash",
+      "argv",
+    ];
+    const descriptionKeys = [
+      "description",
+      "summary",
+      "label",
+      "title",
+      "task",
+    ];
+    const cwdKeys = ["cwd", "workdir", "working_directory", "workingDirectory"];
+    const command =
+      getFirstCommandField(item, commandKeys) ||
+      getFirstCommandField(input, commandKeys) ||
+      getFirstCommandField(nestedArgs, commandKeys);
+    const description =
+      getFirstStringField(item, descriptionKeys) ||
+      getFirstStringField(input, descriptionKeys) ||
+      getFirstStringField(nestedArgs, descriptionKeys);
+    const cwd =
+      getFirstStringField(item, cwdKeys) ||
+      getFirstStringField(input, cwdKeys) ||
+      getFirstStringField(nestedArgs, cwdKeys) ||
+      asString(item.cwd ?? "");
+    const detailPayload = description
+      ? JSON.stringify(
+          {
+            command: command || undefined,
+            description,
+            cwd: cwd || undefined,
+          },
+        )
+      : "";
     const durationMs = asNumber(item.durationMs ?? item.duration_ms);
+    const titleText = command || description;
     return {
       id,
       kind: "tool",
       toolType: type,
-      title: command ? `Command: ${command}` : "Command",
-      detail: asString(item.cwd ?? ""),
+      title: titleText ? `Command: ${titleText}` : "Command",
+      detail: detailPayload || cwd,
       status: asString(item.status ?? ""),
       output: asString(item.aggregatedOutput ?? ""),
       durationMs,
@@ -714,15 +1737,56 @@ function extractImageInputValue(input: Record<string, unknown>) {
   return value.trim();
 }
 
+function stripInjectedProjectMemoryBlock(text: string) {
+  if (!text) {
+    return "";
+  }
+  let normalized = text.trimStart();
+  while (PROJECT_MEMORY_BLOCK_REGEX.test(normalized)) {
+    normalized = normalized.replace(PROJECT_MEMORY_BLOCK_REGEX, "").trimStart();
+  }
+
+  const blocks = normalized.split(MESSAGE_PARAGRAPH_BREAK_SPLIT_REGEX);
+  if (blocks.length >= 2) {
+    const firstBlock = blocks[0] ?? "";
+    const firstBlockLines = firstBlock
+      .split(/\r?\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const looksLikeInjectedMemoryLines =
+      firstBlockLines.length > 0 &&
+      firstBlockLines.length <= MAX_INJECTED_MEMORY_LINES &&
+      firstBlockLines.every((line) => PROJECT_MEMORY_LINE_PREFIX_REGEX.test(line));
+    if (looksLikeInjectedMemoryLines) {
+      normalized = blocks.slice(1).join("\n\n").trimStart();
+    }
+  }
+  return normalized.trim();
+}
+
+function stripModeFallbackBlock(text: string) {
+  if (!extractModeFallbackMode(text)) {
+    return text;
+  }
+  const marker = MODE_FALLBACK_MARKER_REGEX.exec(text);
+  if (!marker || marker.index < 0) {
+    return text;
+  }
+  const extracted = text.slice(marker.index + marker[0].length).trim();
+  return extracted || text;
+}
+
 function parseUserInputs(inputs: Array<Record<string, unknown>>) {
   const textParts: string[] = [];
   const images: string[] = [];
+  let collaborationMode: "plan" | "code" | null = null;
   inputs.forEach((input) => {
     const type = asString(input.type);
     if (type === "text") {
       const text = asString(input.text);
       if (text) {
-        textParts.push(text);
+        collaborationMode = collaborationMode ?? extractModeFallbackMode(text);
+        textParts.push(stripModeFallbackBlock(stripInjectedProjectMemoryBlock(text)));
       }
       return;
     }
@@ -740,7 +1804,11 @@ function parseUserInputs(inputs: Array<Record<string, unknown>>) {
       }
     }
   });
-  return { text: textParts.join(" ").trim(), images };
+  return {
+    text: textParts.join(" ").trim(),
+    images,
+    collaborationMode,
+  };
 }
 
 export function buildConversationItemFromThreadItem(
@@ -753,13 +1821,22 @@ export function buildConversationItemFromThreadItem(
   }
   if (type === "userMessage") {
     const content = Array.isArray(item.content) ? item.content : [];
-    const { text, images } = parseUserInputs(content);
+    const {
+      text,
+      images,
+      collaborationMode: fallbackCollaborationMode,
+    } = parseUserInputs(content);
+    const collaborationMode = extractCollaborationModeFromUserMessageItem(
+      item,
+      fallbackCollaborationMode,
+    );
     return {
       id,
       kind: "message",
       role: "user",
       text,
       images: images.length > 0 ? images : undefined,
+      collaborationMode,
     };
   }
   if (type === "agentMessage") {
@@ -822,7 +1899,31 @@ function chooseRicherItem(remote: ConversationItem, local: ConversationItem) {
     return remote;
   }
   if (remote.kind === "message" && local.kind === "message") {
-    return local.text.length > remote.text.length ? local : remote;
+    if (remote.role !== local.role) {
+      return remote;
+    }
+    if (remote.role !== "assistant") {
+      return local.text.length > remote.text.length ? local : remote;
+    }
+    const remoteScored = scoreAssistantMessageReadability(remote.text);
+    const localScored = scoreAssistantMessageReadability(local.text);
+    if (localScored.score < remoteScored.score) {
+      return { ...local, text: localScored.normalized };
+    }
+    if (remoteScored.score < localScored.score) {
+      return { ...remote, text: remoteScored.normalized };
+    }
+    if (
+      compactMessageText(remoteScored.normalized) ===
+      compactMessageText(localScored.normalized)
+    ) {
+      return localScored.normalized.length >= remoteScored.normalized.length
+        ? { ...local, text: localScored.normalized }
+        : { ...remote, text: remoteScored.normalized };
+    }
+    return localScored.normalized.length > remoteScored.normalized.length
+      ? { ...local, text: localScored.normalized }
+      : { ...remote, text: remoteScored.normalized };
   }
   if (remote.kind === "reasoning" && local.kind === "reasoning") {
     const remoteLength = remote.summary.length + remote.content.length;
@@ -858,13 +1959,14 @@ export function mergeThreadItems(
   if (!localItems.length) {
     return remoteItems;
   }
-  const byId = new Map(remoteItems.map((item) => [item.id, item]));
+  const remoteIds = new Set(remoteItems.map((item) => item.id));
+  const localById = new Map(localItems.map((item) => [item.id, item]));
   const merged = remoteItems.map((item) => {
-    const local = localItems.find((entry) => entry.id === item.id);
+    const local = localById.get(item.id);
     return local ? chooseRicherItem(item, local) : item;
   });
   localItems.forEach((item) => {
-    if (!byId.has(item.id)) {
+    if (!remoteIds.has(item.id)) {
       merged.push(item);
     }
   });

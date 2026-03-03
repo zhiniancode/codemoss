@@ -37,11 +37,9 @@ type FileTreePanelProps = {
   workspacePath: string;
   files: string[];
   isLoading: boolean;
-  showPanelTabs?: boolean;
   filePanelMode: PanelTabId;
   onFilePanelModeChange: (mode: PanelTabId) => void;
   onInsertText?: (text: string) => void;
-  onAttachFile?: (path: string) => void;
   onOpenFile?: (path: string) => void;
   openTargets: OpenAppTarget[];
   openAppIconById: Record<string, string>;
@@ -150,11 +148,9 @@ export function FileTreePanel({
   workspacePath,
   files,
   isLoading,
-  showPanelTabs = true,
   filePanelMode,
   onFilePanelModeChange,
   onInsertText,
-  onAttachFile,
   onOpenFile,
   openTargets,
   openAppIconById,
@@ -641,16 +637,6 @@ export function FileTreePanel({
             openNewFilePrompt(parentFolder);
           },
         }),
-        ...(onAttachFile && !isFolder
-          ? [
-              await MenuItem.new({
-                text: t("files.attachToChat"),
-                action: () => {
-                  onAttachFile(relativePath);
-                },
-              }),
-            ]
-          : []),
         await MenuItem.new({
           text: t("files.duplicateItem"),
           action: async () => {
@@ -669,7 +655,7 @@ export function FileTreePanel({
             await revealItemInDir(resolvePath(relativePath));
           },
         }),
-        ...(onInsertText && !onAttachFile && !isFolder
+        ...(onInsertText && !isFolder
           ? [
               await MenuItem.new({
                 text: t("files.insertLspDiagnostics"),
@@ -698,16 +684,7 @@ export function FileTreePanel({
       const position = new LogicalPosition(event.clientX, event.clientY);
       await menu.popup(position, window);
     },
-    [
-      resolvePath,
-      copyPath,
-      trashItem,
-      duplicateItem,
-      openNewFilePrompt,
-      t,
-      onInsertText,
-      onAttachFile,
-    ],
+    [resolvePath, copyPath, trashItem, duplicateItem, openNewFilePrompt, t],
   );
 
   useEffect(() => {
@@ -795,25 +772,26 @@ export function FileTreePanel({
           </button>
           <button
             type="button"
-            className="ghost icon-button file-tree-action"
+            className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? " is-visible" : ""}`}
+            onMouseDown={(event) => {
+              // Keep row click from stealing the pointer sequence on dense list rows.
+              event.stopPropagation();
+            }}
             onClick={(event) => {
               event.stopPropagation();
-              if (node.type === "file" && onAttachFile) {
-                onAttachFile(node.path);
+              const absolutePath = resolvePath(node.path);
+              // Prefer ChatInputBox bridge so `+` follows the same render/update
+              // path as native @ file-reference insertion.
+              if (typeof window !== "undefined" && window.handleFilePathFromJava) {
+                window.handleFilePathFromJava(absolutePath);
                 return;
               }
-              onInsertText?.(node.path);
+              // Fallback for non-ChatInputBox contexts.
+              const mentionText = `@${absolutePath}${node.type === "file" ? " " : ""}`;
+              onInsertText?.(mentionText);
             }}
-            aria-label={
-              onAttachFile
-                ? t("files.attachFile", { name: node.name })
-                : t("files.mentionFile", { name: node.name })
-            }
-            title={
-              onAttachFile
-                ? t("files.attachToChat")
-                : t("files.mentionInChat")
-            }
+            aria-label={t("files.mentionFile", { name: node.name })}
+            title={t("files.mentionInChat")}
           >
             <Plus size={10} aria-hidden />
           </button>
@@ -830,9 +808,7 @@ export function FileTreePanel({
   return (
     <aside className="diff-panel file-tree-panel" ref={panelRef}>
       <div className="git-panel-header">
-        {showPanelTabs && (
-          <PanelTabs active={filePanelMode} onSelect={onFilePanelModeChange} />
-        )}
+        <PanelTabs active={filePanelMode} onSelect={onFilePanelModeChange} />
         <div className="file-tree-meta">
           <div className="file-tree-count">
           {filteredFiles.length

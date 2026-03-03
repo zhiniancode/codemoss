@@ -9,6 +9,7 @@ import type {
 import {
   archiveThread as archiveThreadService,
   deleteClaudeSession as deleteClaudeSessionService,
+  deleteOpenCodeSession as deleteOpenCodeSessionService,
   forkClaudeSession as forkClaudeSessionService,
   forkThread as forkThreadService,
   listThreadTitles as listThreadTitlesService,
@@ -28,6 +29,9 @@ import {
   mergeThreadItems,
   previewThreadName,
 } from "../../../utils/threadItems";
+import { createClaudeHistoryLoader } from "../loaders/claudeHistoryLoader";
+import { createCodexHistoryLoader } from "../loaders/codexHistoryLoader";
+import { createOpenCodeHistoryLoader } from "../loaders/opencodeHistoryLoader";
 import {
   asString,
   normalizeRootPath,
@@ -60,6 +64,7 @@ type UseThreadActionsOptions = {
     oldThreadId: string,
     newThreadId: string,
   ) => void;
+  useUnifiedHistoryLoader?: boolean;
 };
 
 export function useThreadActions({
@@ -77,6 +82,7 @@ export function useThreadActions({
   applyCollabThreadLinksFromThread,
   onThreadTitleMappingsLoaded,
   onRenameThreadTitleMapping,
+  useUnifiedHistoryLoader = false,
 }: UseThreadActionsOptions) {
   // Map workspaceId → filesystem path, populated in listThreadsForWorkspace
   const workspacePathsByIdRef = useRef<Record<string, string>>({});
@@ -168,6 +174,69 @@ export function useThreadActions({
     ) => {
       if (!threadId) {
         return null;
+      }
+      if (useUnifiedHistoryLoader) {
+        try {
+          const workspacePath = workspacePathsByIdRef.current[workspaceId] ?? null;
+          const loader = threadId.startsWith("claude:")
+            ? createClaudeHistoryLoader({
+                workspaceId,
+                workspacePath,
+                loadClaudeSession: loadClaudeSessionService,
+              })
+            : threadId.startsWith("opencode:")
+              ? createOpenCodeHistoryLoader({
+                  workspaceId,
+                  resumeThread: resumeThreadService,
+                })
+              : createCodexHistoryLoader({
+                  workspaceId,
+                  resumeThread: resumeThreadService,
+                });
+          const snapshot = await loader.load(threadId);
+          dispatch({
+            type: "ensureThread",
+            workspaceId,
+            threadId,
+            engine: snapshot.engine,
+          });
+          if (snapshot.items.length > 0) {
+            dispatch({ type: "setThreadItems", threadId, items: snapshot.items });
+          }
+          dispatch({ type: "setThreadPlan", threadId, plan: snapshot.plan });
+          dispatch({
+            type: "clearUserInputRequestsForThread",
+            workspaceId,
+            threadId,
+          });
+          snapshot.userInputQueue.forEach((request) => {
+            dispatch({ type: "addUserInputRequest", request });
+          });
+          if (snapshot.fallbackWarnings.length > 0) {
+            onDebug?.({
+              id: `${Date.now()}-history-loader-fallback`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/history fallback",
+              payload: {
+                workspaceId,
+                threadId,
+                warnings: snapshot.fallbackWarnings,
+              },
+            });
+          }
+          loadedThreadsRef.current[threadId] = true;
+          return threadId;
+        } catch (error) {
+          onDebug?.({
+            id: `${Date.now()}-history-loader-error`,
+            timestamp: Date.now(),
+            source: "error",
+            label: "thread/history loader error",
+            payload: error instanceof Error ? error.message : String(error),
+          });
+          // Fallback to legacy path to preserve recovery.
+        }
       }
       // Claude sessions don't use Codex thread/resume RPC —
       // load message history from JSONL and populate the thread
@@ -430,6 +499,7 @@ export function useThreadActions({
       onDebug,
       replaceOnResumeRef,
       threadStatusById,
+      useUnifiedHistoryLoader,
     ],
   );
 
@@ -601,8 +671,8 @@ export function useThreadActions({
         const knownActivityByThread = threadActivityRef.current[workspace.id] ?? {};
         const hasKnownActivity = Object.keys(knownActivityByThread).length > 0;
         const matchingThreads: Record<string, unknown>[] = [];
-        const targetCount = 20;
-        const pageSize = 20;
+        const targetCount = 50;
+        const pageSize = 50;
         const maxPagesWithoutMatch = hasKnownActivity ? Number.POSITIVE_INFINITY : 5;
         let pagesFetched = 0;
         let cursor: string | null = null;
@@ -858,8 +928,8 @@ export function useThreadActions({
           mappedTitles = {};
         }
         const matchingThreads: Record<string, unknown>[] = [];
-        const targetCount = 20;
-        const pageSize = 20;
+        const targetCount = 50;
+        const pageSize = 50;
         const maxPagesWithoutMatch = 10;
         let pagesFetched = 0;
         let cursor: string | null = nextCursor;
@@ -1020,9 +1090,9 @@ export function useThreadActions({
         return;
       }
       if (threadId.startsWith("opencode:")) {
-        throw new Error(
-          "[ENGINE_UNSUPPORTED] OpenCode hard-delete backend path is unavailable.",
-        );
+        const sessionId = threadId.slice("opencode:".length);
+        await deleteOpenCodeSessionService(workspaceId, sessionId);
+        return;
       }
       if (threadId.startsWith("openai:")) {
         // Local-only engine sessions: no backend persistence to delete.

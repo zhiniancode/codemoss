@@ -296,6 +296,8 @@ pub struct SendMessageParams {
     pub variant: Option<String>,
     /// Collaboration mode settings (for Codex)
     pub collaboration_mode: Option<Value>,
+    /// Optional external OpenSpec root to expose for the session.
+    pub custom_spec_root: Option<String>,
 }
 
 impl Default for SendMessageParams {
@@ -311,6 +313,7 @@ impl Default for SendMessageParams {
             agent: None,
             variant: None,
             collaboration_mode: None,
+            custom_spec_root: None,
         }
     }
 }

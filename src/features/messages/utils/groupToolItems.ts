@@ -3,7 +3,10 @@
  * Groups consecutive same-category tool items into batch entries
  */
 import type { ConversationItem } from '../../../types';
-import { classifyToolCategory } from '../components/toolBlocks/toolConstants';
+import {
+  classifyToolCategory,
+  extractToolName,
+} from '../components/toolBlocks/toolConstants';
 
 type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
 type ExploreItem = Extract<ConversationItem, { kind: 'explore' }>;
@@ -25,8 +28,17 @@ function mergeExploreItems(items: ExploreItem[]): ExploreItem {
     id: first.id,
     kind: 'explore',
     status: last?.status ?? 'explored',
+    title: last?.title ?? first.title,
+    collapsible: first.collapsible ?? last?.collapsible,
+    mergeKey: first.mergeKey ?? last?.mergeKey,
     entries: items.flatMap((item) => item.entries),
   };
+}
+
+function canMergeExploreItems(previous: ExploreItem, next: ExploreItem): boolean {
+  const previousKey = previous.mergeKey ?? "default";
+  const nextKey = next.mergeKey ?? "default";
+  return previousKey === nextKey;
 }
 
 /**
@@ -45,11 +57,9 @@ function isGroupableCategory(cat: string): cat is GroupableCategory {
   return cat in CATEGORY_TO_GROUP_KIND;
 }
 
-/**
- * 将 fileChange 归入 edit 类别进行分组
- */
-function normalizeCategory(cat: string): string {
-  return cat === 'fileChange' ? 'edit' : cat;
+function shouldHideToolItem(item: ToolItem): boolean {
+  const toolName = extractToolName(item.title).toLowerCase();
+  return toolName === 'todowrite' || toolName === 'todo_write';
 }
 
 /**
@@ -75,10 +85,9 @@ export function groupToolItems(items: ConversationItem[]): GroupedEntry[] {
 
   const flushTools = () => {
     if (toolBuffer.length === 0) return;
-    const normalized = normalizeCategory(currentCategory);
-    if (toolBuffer.length >= 2 && isGroupableCategory(normalized)) {
+    if (toolBuffer.length >= 2 && isGroupableCategory(currentCategory)) {
       entries.push({
-        kind: CATEGORY_TO_GROUP_KIND[normalized],
+        kind: CATEGORY_TO_GROUP_KIND[currentCategory],
         items: toolBuffer,
       } as GroupedEntry);
     } else {
@@ -93,6 +102,10 @@ export function groupToolItems(items: ConversationItem[]): GroupedEntry[] {
   for (const item of items) {
     if (item.kind === 'explore') {
       flushTools();
+      const lastExplore = exploreBuffer[exploreBuffer.length - 1];
+      if (lastExplore && !canMergeExploreItems(lastExplore, item)) {
+        flushExplores();
+      }
       exploreBuffer.push(item);
       continue;
     }
@@ -100,10 +113,12 @@ export function groupToolItems(items: ConversationItem[]): GroupedEntry[] {
     flushExplores();
 
     if (item.kind === 'tool') {
+      if (shouldHideToolItem(item)) {
+        flushTools();
+        continue;
+      }
       const cat = classifyToolCategory(item);
-      const normalized = normalizeCategory(cat);
-
-      if (toolBuffer.length > 0 && normalized === normalizeCategory(currentCategory)) {
+      if (toolBuffer.length > 0 && cat === currentCategory) {
         toolBuffer.push(item);
       } else {
         flushTools();

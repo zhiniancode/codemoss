@@ -2,8 +2,8 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 
-const MIN_SIDEBAR_WIDTH = 220;
-const MAX_SIDEBAR_WIDTH = 420;
+const MIN_SIDEBAR_WIDTH = 210;
+const MAX_SIDEBAR_WIDTH = 360;
 const MIN_RIGHT_PANEL_WIDTH = 270;
 const MAX_RIGHT_PANEL_WIDTH = 420;
 const MIN_PLAN_PANEL_HEIGHT = 140;
@@ -14,12 +14,14 @@ const MIN_DEBUG_PANEL_HEIGHT = 120;
 const MAX_DEBUG_PANEL_HEIGHT = 420;
 const MIN_KANBAN_CONVERSATION_WIDTH = 340;
 const MAX_KANBAN_CONVERSATION_WIDTH = 800;
-const DEFAULT_SIDEBAR_WIDTH = 280;
+const DEFAULT_SIDEBAR_WIDTH = 210;
 const DEFAULT_RIGHT_PANEL_WIDTH = 230;
 const DEFAULT_PLAN_PANEL_HEIGHT = 220;
 const DEFAULT_TERMINAL_PANEL_HEIGHT = 220;
 const DEFAULT_DEBUG_PANEL_HEIGHT = 180;
 const DEFAULT_KANBAN_CONVERSATION_WIDTH = 420;
+const PANEL_RESIZING_DATASET_KEY = "panelResizing";
+const GIT_HISTORY_SIDEBAR_MIN_WIDTH = 360;
 
 type ResizeState = {
   type: "sidebar" | "right-panel" | "plan-panel" | "terminal-panel" | "debug-panel" | "kanban-conversation";
@@ -39,6 +41,70 @@ function readStoredNum(key: string, fallback: number, min: number, max: number) 
     return fallback;
   }
   return clamp(stored, min, max);
+}
+
+function setPanelResizing(active: boolean) {
+  if (active) {
+    document.body.dataset[PANEL_RESIZING_DATASET_KEY] = "true";
+    return;
+  }
+  delete document.body.dataset[PANEL_RESIZING_DATASET_KEY];
+}
+
+function getAppElement(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".app");
+}
+
+function resolveSidebarCssWidth(sidebarWidth: number): number {
+  const app = getAppElement();
+  if (!app) {
+    return sidebarWidth;
+  }
+  const isCompact = app.classList.contains("layout-compact");
+  const isGitHistoryActive = app.classList.contains("git-history-active");
+  const isSidebarCollapsed = app.classList.contains("sidebar-collapsed");
+  if (isCompact) {
+    return sidebarWidth;
+  }
+  if (isGitHistoryActive) {
+    return Math.max(sidebarWidth, GIT_HISTORY_SIDEBAR_MIN_WIDTH);
+  }
+  if (isSidebarCollapsed) {
+    return 0;
+  }
+  return sidebarWidth;
+}
+
+function applyLiveSizeCssVar(
+  type: ResizeState["type"],
+  value: number,
+) {
+  const app = getAppElement();
+  if (!app) {
+    return;
+  }
+  switch (type) {
+    case "sidebar":
+      app.style.setProperty("--sidebar-width", `${resolveSidebarCssWidth(value)}px`);
+      break;
+    case "right-panel":
+      app.style.setProperty("--right-panel-width", `${value}px`);
+      break;
+    case "plan-panel":
+      app.style.setProperty("--plan-panel-height", `${value}px`);
+      break;
+    case "terminal-panel":
+      app.style.setProperty("--terminal-panel-height", `${value}px`);
+      break;
+    case "debug-panel":
+      app.style.setProperty("--debug-panel-height", `${value}px`);
+      break;
+    case "kanban-conversation":
+      app.style.setProperty("--kanban-conversation-width", `${value}px`);
+      break;
+    default:
+      break;
+  }
 }
 
 export function useResizablePanels() {
@@ -61,32 +127,109 @@ export function useResizablePanels() {
     readStoredNum("kanbanConversationWidth", DEFAULT_KANBAN_CONVERSATION_WIDTH, MIN_KANBAN_CONVERSATION_WIDTH, MAX_KANBAN_CONVERSATION_WIDTH),
   );
   const resizeRef = useRef<ResizeState | null>(null);
+  const liveSizesRef = useRef({
+    sidebarWidth,
+    rightPanelWidth,
+    planPanelHeight,
+    terminalPanelHeight,
+    debugPanelHeight,
+    kanbanConversationWidth,
+  });
+  const resizeRafRef = useRef<number | null>(null);
+  const pendingValueRef = useRef<number | null>(null);
+  const appNodeRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    liveSizesRef.current.sidebarWidth = sidebarWidth;
     writeClientStoreValue("layout", "sidebarWidth", sidebarWidth);
   }, [sidebarWidth]);
 
   useEffect(() => {
+    liveSizesRef.current.rightPanelWidth = rightPanelWidth;
     writeClientStoreValue("layout", "rightPanelWidth", rightPanelWidth);
   }, [rightPanelWidth]);
 
   useEffect(() => {
+    liveSizesRef.current.planPanelHeight = planPanelHeight;
     writeClientStoreValue("layout", "planPanelHeight", planPanelHeight);
   }, [planPanelHeight]);
 
   useEffect(() => {
+    liveSizesRef.current.terminalPanelHeight = terminalPanelHeight;
     writeClientStoreValue("layout", "terminalPanelHeight", terminalPanelHeight);
   }, [terminalPanelHeight]);
 
   useEffect(() => {
+    liveSizesRef.current.debugPanelHeight = debugPanelHeight;
     writeClientStoreValue("layout", "debugPanelHeight", debugPanelHeight);
   }, [debugPanelHeight]);
 
   useEffect(() => {
+    liveSizesRef.current.kanbanConversationWidth = kanbanConversationWidth;
     writeClientStoreValue("layout", "kanbanConversationWidth", kanbanConversationWidth);
   }, [kanbanConversationWidth]);
 
+  const getAppNode = useCallback(() => {
+    if (appNodeRef.current?.isConnected) {
+      return appNodeRef.current;
+    }
+    const node = document.querySelector(".app");
+    if (!(node instanceof HTMLElement)) {
+      appNodeRef.current = null;
+      return null;
+    }
+    appNodeRef.current = node;
+    return node;
+  }, []);
+
+  const setResizingMode = useCallback(
+    (active: boolean) => {
+      const appNode = getAppNode();
+      if (!appNode) {
+        return;
+      }
+      if (active) {
+        appNode.classList.add("is-resizing");
+      } else {
+        appNode.classList.remove("is-resizing");
+      }
+    },
+    [getAppNode],
+  );
+
   useEffect(() => {
+    const flushPendingResize = () => {
+      if (!resizeRef.current || pendingValueRef.current == null) {
+        return;
+      }
+      const next = pendingValueRef.current;
+      pendingValueRef.current = null;
+      if (resizeRef.current.type === "sidebar") {
+        setSidebarWidth((current) => (current === next ? current : next));
+      } else if (resizeRef.current.type === "right-panel") {
+        setRightPanelWidth((current) => (current === next ? current : next));
+      } else if (resizeRef.current.type === "plan-panel") {
+        setPlanPanelHeight((current) => (current === next ? current : next));
+      } else if (resizeRef.current.type === "terminal-panel") {
+        setTerminalPanelHeight((current) => (current === next ? current : next));
+      } else if (resizeRef.current.type === "kanban-conversation") {
+        setKanbanConversationWidth((current) => (current === next ? current : next));
+      } else {
+        setDebugPanelHeight((current) => (current === next ? current : next));
+      }
+    };
+
+    const scheduleResizeApply = (next: number) => {
+      pendingValueRef.current = next;
+      if (resizeRafRef.current != null) {
+        return;
+      }
+      resizeRafRef.current = window.requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        flushPendingResize();
+      });
+    };
+
     function handleMouseMove(event: MouseEvent) {
       if (!resizeRef.current) {
         return;
@@ -98,7 +241,9 @@ export function useResizablePanels() {
           MIN_SIDEBAR_WIDTH,
           MAX_SIDEBAR_WIDTH,
         );
-        setSidebarWidth(next);
+        scheduleResizeApply(next);
+        liveSizesRef.current.sidebarWidth = next;
+        applyLiveSizeCssVar("sidebar", next);
       } else if (resizeRef.current.type === "right-panel") {
         const delta = event.clientX - resizeRef.current.startX;
         const next = clamp(
@@ -106,7 +251,9 @@ export function useResizablePanels() {
           MIN_RIGHT_PANEL_WIDTH,
           MAX_RIGHT_PANEL_WIDTH,
         );
-        setRightPanelWidth(next);
+        scheduleResizeApply(next);
+        liveSizesRef.current.rightPanelWidth = next;
+        applyLiveSizeCssVar("right-panel", next);
       } else if (resizeRef.current.type === "plan-panel") {
         const delta = event.clientY - resizeRef.current.startY;
         const next = clamp(
@@ -114,7 +261,9 @@ export function useResizablePanels() {
           MIN_PLAN_PANEL_HEIGHT,
           MAX_PLAN_PANEL_HEIGHT,
         );
-        setPlanPanelHeight(next);
+        scheduleResizeApply(next);
+        liveSizesRef.current.planPanelHeight = next;
+        applyLiveSizeCssVar("plan-panel", next);
       } else if (resizeRef.current.type === "terminal-panel") {
         const delta = event.clientY - resizeRef.current.startY;
         const next = clamp(
@@ -122,7 +271,9 @@ export function useResizablePanels() {
           MIN_TERMINAL_PANEL_HEIGHT,
           MAX_TERMINAL_PANEL_HEIGHT,
         );
-        setTerminalPanelHeight(next);
+        liveSizesRef.current.terminalPanelHeight = next;
+        applyLiveSizeCssVar("terminal-panel", next);
+        scheduleResizeApply(next);
       } else if (resizeRef.current.type === "kanban-conversation") {
         const delta = event.clientX - resizeRef.current.startX;
         const next = clamp(
@@ -130,7 +281,9 @@ export function useResizablePanels() {
           MIN_KANBAN_CONVERSATION_WIDTH,
           MAX_KANBAN_CONVERSATION_WIDTH,
         );
-        setKanbanConversationWidth(next);
+        scheduleResizeApply(next);
+        liveSizesRef.current.kanbanConversationWidth = next;
+        applyLiveSizeCssVar("kanban-conversation", next);
       } else {
         const delta = event.clientY - resizeRef.current.startY;
         const next = clamp(
@@ -138,7 +291,9 @@ export function useResizablePanels() {
           MIN_DEBUG_PANEL_HEIGHT,
           MAX_DEBUG_PANEL_HEIGHT,
         );
-        setDebugPanelHeight(next);
+        scheduleResizeApply(next);
+        liveSizesRef.current.debugPanelHeight = next;
+        applyLiveSizeCssVar("debug-panel", next);
       }
     }
 
@@ -146,10 +301,23 @@ export function useResizablePanels() {
       if (!resizeRef.current) {
         return;
       }
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      flushPendingResize();
       resizeRef.current = null;
+      setPanelResizing(false);
+      setSidebarWidth(liveSizesRef.current.sidebarWidth);
+      setRightPanelWidth(liveSizesRef.current.rightPanelWidth);
+      setPlanPanelHeight(liveSizesRef.current.planPanelHeight);
+      setTerminalPanelHeight(liveSizesRef.current.terminalPanelHeight);
+      setDebugPanelHeight(liveSizesRef.current.debugPanelHeight);
+      setKanbanConversationWidth(liveSizesRef.current.kanbanConversationWidth);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.style.webkitUserSelect = "";
+      setResizingMode(false);
     }
 
     function handleSelectStart(event: Event) {
@@ -160,16 +328,31 @@ export function useResizablePanels() {
 
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleMouseUp);
     document.addEventListener("selectstart", handleSelectStart);
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("blur", handleMouseUp);
       document.removeEventListener("selectstart", handleSelectStart);
+      setPanelResizing(false);
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      pendingValueRef.current = null;
+      setResizingMode(false);
     };
-  }, []);
+  }, [setResizingMode]);
 
   const onSidebarResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "sidebar",
         startX: event.clientX,
@@ -177,15 +360,22 @@ export function useResizablePanels() {
         startWidth: sidebarWidth,
         startHeight: planPanelHeight,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [planPanelHeight, sidebarWidth],
+    [planPanelHeight, setResizingMode, sidebarWidth],
   );
 
   const onRightPanelResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "right-panel",
         startX: event.clientX,
@@ -193,15 +383,22 @@ export function useResizablePanels() {
         startWidth: rightPanelWidth,
         startHeight: planPanelHeight,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [planPanelHeight, rightPanelWidth],
+    [planPanelHeight, rightPanelWidth, setResizingMode],
   );
 
   const onPlanPanelResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "plan-panel",
         startX: event.clientX,
@@ -209,15 +406,22 @@ export function useResizablePanels() {
         startWidth: rightPanelWidth,
         startHeight: planPanelHeight,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [planPanelHeight, rightPanelWidth],
+    [planPanelHeight, rightPanelWidth, setResizingMode],
   );
 
   const onTerminalPanelResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "terminal-panel",
         startX: event.clientX,
@@ -225,15 +429,22 @@ export function useResizablePanels() {
         startWidth: rightPanelWidth,
         startHeight: terminalPanelHeight,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [rightPanelWidth, terminalPanelHeight],
+    [rightPanelWidth, setResizingMode, terminalPanelHeight],
   );
 
   const onDebugPanelResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "debug-panel",
         startX: event.clientX,
@@ -241,15 +452,22 @@ export function useResizablePanels() {
         startWidth: rightPanelWidth,
         startHeight: debugPanelHeight,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [debugPanelHeight, rightPanelWidth],
+    [debugPanelHeight, rightPanelWidth, setResizingMode],
   );
 
   const onKanbanConversationResizeStart = useCallback(
     (event: ReactMouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setResizingMode(true);
       resizeRef.current = {
         type: "kanban-conversation",
         startX: event.clientX,
@@ -257,11 +475,12 @@ export function useResizablePanels() {
         startWidth: kanbanConversationWidth,
         startHeight: 0,
       };
+      setPanelResizing(true);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [kanbanConversationWidth],
+    [kanbanConversationWidth, setResizingMode],
   );
 
   return {

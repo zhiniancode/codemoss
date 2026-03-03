@@ -1,13 +1,11 @@
 :root {
-  font-family: "SF Pro Text", "SF Pro Display", -apple-system, "Helvetica Neue",
-    sans-serif;
+  font-family: "Monaco", "Menlo", "Consolas", monospace;
   color: var(--text-primary);
   background-color: #0d0f14;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   color-scheme: dark;
-  --ui-font-family: "SF Pro Text", "SF Pro Display", -apple-system, "Helvetica Neue",
-    sans-serif;
+  --ui-font-family: "Monaco", "Menlo", "Consolas", monospace;
   --code-font-family: "SF Mono", "SFMono-Regular", Menlo, Monaco,
     "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei Mono", monospace;
   --code-font-size: 11px;
@@ -43,7 +41,9 @@
   --surface-command: #0c0e14;
   --surface-diff-card: #101218;
   --surface-bubble: #30303a;
-  --surface-bubble-user: #2e4a74;
+  --surface-bubble-user: #005fb8;
+  --color-message-user-bg: #005fb8;
+  --color-message-user-text: #ffffff;
   --surface-context-core: #0c0f16;
   --surface-popover: #0a0e14;
   --surface-review: #281c26;
@@ -63,7 +63,7 @@
   --message-link-color: #c49aff;
   --shadow-accent: #2a5080;
   --titlebar-inset-left: 72px;
-  --titlebar-height: 24px;
+  --titlebar-height: 44px;
   --titlebar-toggle-size: 28px;
   --titlebar-toggle-offset: 4px;
   --titlebar-toggle-title-offset: -6px;
@@ -132,6 +132,9 @@
   --color-success: #4caf50;
   --color-warning: #ff9800;
   --color-error: #f44336;
+
+  --color-thinking-border: #333;
+  --color-thinking-text: #999;
 
   --color-tool-bg: #161616;
   --color-tool-icon: #64b5f6;

@@ -151,4 +151,149 @@ describe("RequestUserInputMessage", () => {
       expect(onSubmit).toHaveBeenCalledWith(request, { answers: {} });
     });
   });
+
+  it("keeps FIFO order for same-thread requests after submit", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const requestA: RequestUserInputRequest = {
+      ...baseRequest,
+      request_id: "req-a",
+      params: {
+        ...baseRequest.params,
+        questions: [
+          {
+            id: "q-a",
+            header: "First",
+            question: "First question",
+          },
+        ],
+      },
+    };
+    const requestB: RequestUserInputRequest = {
+      ...baseRequest,
+      request_id: "req-b",
+      params: {
+        ...baseRequest.params,
+        questions: [
+          {
+            id: "q-b",
+            header: "Second",
+            question: "Second question",
+          },
+        ],
+      },
+    };
+
+    const { rerender } = render(
+      <RequestUserInputMessage
+        requests={[requestA, requestB]}
+        activeThreadId="thread-1"
+        activeWorkspaceId="ws-1"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByText("First question")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "approval.submit" }));
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(requestA, { answers: { "q-a": { answers: [] } } });
+    });
+
+    rerender(
+      <RequestUserInputMessage
+        requests={[requestB]}
+        activeThreadId="thread-1"
+        activeWorkspaceId="ws-1"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByText("Second question")).toBeTruthy();
+  });
+
+  it("allows deselecting a selected option by clicking it again", () => {
+    const request: RequestUserInputRequest = {
+      ...baseRequest,
+      params: {
+        ...baseRequest.params,
+        questions: [
+          {
+            id: "q-opt",
+            header: "Age",
+            question: "How old are you?",
+            options: [
+              { label: "18-25", description: "" },
+              { label: "26-35", description: "" },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(
+      <RequestUserInputMessage
+        requests={[request]}
+        activeThreadId="thread-1"
+        activeWorkspaceId="ws-1"
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    const option = screen.getByRole("button", { name: "18-25" });
+    fireEvent.click(option);
+    expect(option.classList.contains("is-selected")).toBe(true);
+
+    fireEvent.click(option);
+    expect(option.classList.contains("is-selected")).toBe(false);
+  });
+
+  it("clears option highlight when custom input is entered", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const request: RequestUserInputRequest = {
+      ...baseRequest,
+      params: {
+        ...baseRequest.params,
+        questions: [
+          {
+            id: "q-opt",
+            header: "Age",
+            question: "How old are you?",
+            options: [
+              { label: "18-25", description: "" },
+              { label: "26-35", description: "" },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(
+      <RequestUserInputMessage
+        requests={[request]}
+        activeThreadId="thread-1"
+        activeWorkspaceId="ws-1"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    const option = screen.getByRole("button", { name: "18-25" });
+    fireEvent.click(option);
+    expect(option.classList.contains("is-selected")).toBe(true);
+
+    const textarea = screen.getByPlaceholderText("approval.addNotesOptional");
+    fireEvent.change(textarea, { target: { value: "再说吧" } });
+    expect(option.classList.contains("is-selected")).toBe(false);
+    fireEvent.click(option);
+    expect(option.classList.contains("is-selected")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "approval.submit" }));
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(request, {
+        answers: {
+          "q-opt": {
+            answers: ["user_note: 再说吧"],
+          },
+        },
+      });
+    });
+  });
 });

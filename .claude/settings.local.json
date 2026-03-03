@@ -7,7 +7,10 @@
       "mcp__ace-tool__search_context",
       "Bash(npm run typecheck:*)",
       "Bash(npm run lint:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(git branch:*)"
     ]
   }
 }

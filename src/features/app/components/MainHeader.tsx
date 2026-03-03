@@ -86,8 +86,8 @@ export function MainHeader({
   branches,
   onCheckoutBranch,
   onCreateBranch,
-  canCopyThread = false,
-  onCopyThread,
+  canCopyThread: _canCopyThread = false,
+  onCopyThread: _onCopyThread,
   onLockPanel,
   extraActionsNode,
   launchScript = null,
@@ -111,10 +111,8 @@ export function MainHeader({
   const [infoOpen, setInfoOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [copyFeedback, setCopyFeedback] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
-  const copyTimeoutRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const infoRef = useRef<HTMLDivElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
@@ -122,42 +120,24 @@ export function MainHeader({
   const renameConfirmRef = useRef<HTMLButtonElement | null>(null);
   const renameOnCancel = worktreeRename?.onCancel;
 
-  const scopedGroupedWorkspaces = useMemo(() => {
-    if (!groupedWorkspaces) {
-      return [];
-    }
-    const engineType = workspace.settings.engineType ?? null;
-    const isOpenAIWorkspace =
-      typeof engineType === "string" && engineType.toLowerCase() === "openai";
-
-    // Keep OpenAI Compatible workspaces separate from CLI workspaces in the project picker.
-    // In an OpenAI workspace: only show OpenAI workspaces (folders). Otherwise: hide OpenAI workspaces.
-    return groupedWorkspaces
-      .map((group) => ({
-        ...group,
-        workspaces: group.workspaces.filter((ws) => {
-          const wsEngineType = ws.settings.engineType ?? null;
-          const isWsOpenAI =
-            typeof wsEngineType === "string" && wsEngineType.toLowerCase() === "openai";
-          return isOpenAIWorkspace ? isWsOpenAI : !isWsOpenAI;
-        }),
-      }))
-      .filter((group) => group.workspaces.length > 0);
-  }, [groupedWorkspaces, workspace.settings.engineType]);
-
   // 判断是否显示项目选择菜单
   const showProjectMenu = Boolean(
-    scopedGroupedWorkspaces.length > 0 && onSelectWorkspace
+    groupedWorkspaces &&
+    groupedWorkspaces.length > 0 &&
+    onSelectWorkspace
   );
 
   // 项目搜索过滤
   const trimmedProjectQuery = projectQuery.trim();
   const lowercaseProjectQuery = trimmedProjectQuery.toLowerCase();
   const filteredGroups = useMemo(() => {
-    if (trimmedProjectQuery.length === 0) {
-      return scopedGroupedWorkspaces;
+    if (!groupedWorkspaces) {
+      return [];
     }
-    return scopedGroupedWorkspaces
+    if (trimmedProjectQuery.length === 0) {
+      return groupedWorkspaces;
+    }
+    return groupedWorkspaces
       .map((group) => ({
         ...group,
         workspaces: group.workspaces.filter((ws) =>
@@ -165,7 +145,7 @@ export function MainHeader({
         ),
       }))
       .filter((group) => group.workspaces.length > 0);
-  }, [lowercaseProjectQuery, scopedGroupedWorkspaces, trimmedProjectQuery]);
+  }, [groupedWorkspaces, lowercaseProjectQuery, trimmedProjectQuery]);
 
   const trimmedQuery = branchQuery.trim();
   const lowercaseQuery = trimmedQuery.toLowerCase();
@@ -269,32 +249,6 @@ export function MainHeader({
       renameOnCancel();
     }
   }, [infoOpen, renameOnCancel]);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        window.clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopyClick = async () => {
-    if (!onCopyThread) {
-      return;
-    }
-    try {
-      await onCopyThread();
-      setCopyFeedback(true);
-      if (copyTimeoutRef.current) {
-        window.clearTimeout(copyTimeoutRef.current);
-      }
-      copyTimeoutRef.current = window.setTimeout(() => {
-        setCopyFeedback(false);
-      }, 1200);
-    } catch {
-      // Errors are handled upstream in the copy handler.
-    }
-  };
 
   return (
     <header className="main-header" data-tauri-drag-region>
@@ -738,20 +692,6 @@ export function MainHeader({
         >
           <span className="main-header-icon" aria-hidden>
             <Lock size={16} />
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`ghost main-header-action${copyFeedback ? " is-copied" : ""}`}
-          onClick={handleCopyClick}
-          disabled={!canCopyThread || !onCopyThread}
-          data-tauri-drag-region="false"
-          aria-label={t("threads.copyThread")}
-          title={t("threads.copyThread")}
-        >
-          <span className="main-header-icon" aria-hidden>
-            <Copy className="main-header-icon-copy" size={14} />
-            <Check className="main-header-icon-check" size={14} />
           </span>
         </button>
         {extraActionsNode}

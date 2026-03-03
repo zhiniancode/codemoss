@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppSettings, WorkspaceInfo } from "../../../types";
 import { SettingsView } from "./SettingsView";
 
@@ -23,6 +23,11 @@ vi.mock("../../../i18n", () => ({
     use: () => ({ init: vi.fn() }),
   },
 }));
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 const baseSettings: AppSettings = {
   codexBin: null,
@@ -53,12 +58,13 @@ const baseSettings: AppSettings = {
   lastComposerReasoningEffort: null,
   uiScale: 1,
   theme: "system",
+  userMsgColor: "",
   usageShowRemaining: false,
   showMessageAnchors: true,
   uiFontFamily:
-    "\"SF Pro Text\", \"SF Pro Display\", -apple-system, \"Helvetica Neue\", sans-serif",
+    "Monaco, \"SF Pro Text\", \"SF Pro Display\", -apple-system, \"Helvetica Neue\", sans-serif",
   codeFontFamily:
-    "\"SF Mono\", \"SFMono-Regular\", Menlo, Monaco, monospace",
+    "Monaco, \"SF Mono\", \"SFMono-Regular\", Menlo, monospace",
   codeFontSize: 11,
   notificationSoundsEnabled: true,
   systemNotificationEnabled: true,
@@ -67,11 +73,15 @@ const baseSettings: AppSettings = {
   experimentalCollaborationModesEnabled: false,
   experimentalSteerEnabled: false,
   experimentalUnifiedExecEnabled: false,
+  chatCanvasUseNormalizedRealtime: false,
+  chatCanvasUseUnifiedHistoryLoader: false,
+  chatCanvasUsePresentationProfile: false,
   dictationEnabled: false,
   dictationModelId: "base",
   dictationPreferredLanguage: null,
   dictationHoldKey: null,
   composerEditorPreset: "default",
+  composerSendShortcut: "enter",
   composerFenceExpandOnSpace: false,
   composerFenceExpandOnEnter: false,
   composerFenceLanguageTags: false,
@@ -136,6 +146,8 @@ const renderDisplaySection = (
     onDeleteWorkspaceGroup: vi.fn().mockResolvedValue(null),
     onAssignWorkspaceGroup: vi.fn().mockResolvedValue(null),
     onRunDoctor: vi.fn().mockResolvedValue(createDoctorResult()),
+    activeWorkspace: null,
+    activeEngine: "codex",
     onUpdateWorkspaceCodexBin: vi.fn().mockResolvedValue(undefined),
     onUpdateWorkspaceSettings: vi.fn().mockResolvedValue(undefined),
     scaleShortcutTitle: "Scale shortcut",
@@ -148,12 +160,66 @@ const renderDisplaySection = (
   };
 
   render(<SettingsView {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Display & Sound" }));
 
   return { onUpdateAppSettings, onToggleTransparency };
 };
 
+const renderComposerSection = (
+  options: {
+    appSettings?: Partial<AppSettings>;
+    onUpdateAppSettings?: ComponentProps<typeof SettingsView>["onUpdateAppSettings"];
+  } = {},
+) => {
+  cleanup();
+  const onUpdateAppSettings =
+    options.onUpdateAppSettings ?? vi.fn().mockResolvedValue(undefined);
+  const props: ComponentProps<typeof SettingsView> = {
+    reduceTransparency: false,
+    onToggleTransparency: vi.fn(),
+    appSettings: { ...baseSettings, ...options.appSettings },
+    openAppIconById: {},
+    onUpdateAppSettings,
+    workspaceGroups: [],
+    groupedWorkspaces: [],
+    ungroupedLabel: "Ungrouped",
+    onClose: vi.fn(),
+    onMoveWorkspace: vi.fn(),
+    onDeleteWorkspace: vi.fn(),
+    onCreateWorkspaceGroup: vi.fn().mockResolvedValue(null),
+    onRenameWorkspaceGroup: vi.fn().mockResolvedValue(null),
+    onMoveWorkspaceGroup: vi.fn().mockResolvedValue(null),
+    onDeleteWorkspaceGroup: vi.fn().mockResolvedValue(null),
+    onAssignWorkspaceGroup: vi.fn().mockResolvedValue(null),
+    onRunDoctor: vi.fn().mockResolvedValue(createDoctorResult()),
+    activeWorkspace: null,
+    activeEngine: "codex",
+    onUpdateWorkspaceCodexBin: vi.fn().mockResolvedValue(undefined),
+    onUpdateWorkspaceSettings: vi.fn().mockResolvedValue(undefined),
+    scaleShortcutTitle: "Scale shortcut",
+    scaleShortcutText: "Use Command +/-",
+    onTestNotificationSound: vi.fn(),
+    dictationModelStatus: null,
+    onDownloadDictationModel: vi.fn(),
+    onCancelDictationDownload: vi.fn(),
+    onRemoveDictationModel: vi.fn(),
+    initialSection: "composer",
+  };
+
+  render(<SettingsView {...props} />);
+
+  return { onUpdateAppSettings };
+};
+
 describe("SettingsView Display", () => {
+  it("hides dictation, git, codex, and experimental sidebar entries", () => {
+    renderDisplaySection();
+
+    expect(screen.queryByRole("button", { name: "Dictation" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Git" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Codex" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Experimental" })).toBeNull();
+  });
+
   it("updates the theme selection", async () => {
     const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
     renderDisplaySection({ onUpdateAppSettings });
@@ -165,6 +231,36 @@ describe("SettingsView Display", () => {
         expect.objectContaining({ theme: "dark" }),
       );
     });
+  });
+
+  it("updates user message color using reference-compatible format", async () => {
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    renderDisplaySection({ onUpdateAppSettings });
+
+    fireEvent.click(screen.getByTestId("settings-user-msg-color-preset-6e40c9"));
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ userMsgColor: "#6e40c9" }),
+      );
+    });
+
+    fireEvent.change(screen.getByTestId("settings-user-msg-color-hex-input"), {
+      target: { value: "#cf222e" },
+    });
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ userMsgColor: "#cf222e" }),
+      );
+    });
+
+    const callCountBeforeInvalid = onUpdateAppSettings.mock.calls.length;
+    fireEvent.change(screen.getByTestId("settings-user-msg-color-hex-input"), {
+      target: { value: "#zzzzzz" },
+    });
+
+    expect(onUpdateAppSettings).toHaveBeenCalledTimes(callCountBeforeInvalid);
   });
 
   it("toggles remaining limits display", async () => {
@@ -264,12 +360,12 @@ describe("SettingsView Display", () => {
     await waitFor(() => {
       expect(onUpdateAppSettings).toHaveBeenCalledWith(
         expect.objectContaining({
-          uiFontFamily: expect.stringContaining("SF Pro Text"),
+          uiFontFamily: expect.stringMatching(/^Monaco,/),
         }),
       );
       expect(onUpdateAppSettings).toHaveBeenCalledWith(
         expect.objectContaining({
-          codeFontFamily: expect.stringContaining("SF Mono"),
+          codeFontFamily: expect.stringMatching(/^Monaco,/),
         }),
       );
     });
@@ -312,6 +408,21 @@ describe("SettingsView Display", () => {
   });
 });
 
+describe("SettingsView Composer", () => {
+  it("updates send shortcut mode", async () => {
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    renderComposerSection({ onUpdateAppSettings });
+
+    fireEvent.click(screen.getByRole("radio", { name: /⌘\/Ctrl\+Enter sends/i }));
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ composerSendShortcut: "cmdEnter" }),
+      );
+    });
+  });
+});
+
 describe("SettingsView Codex overrides", () => {
   it("updates workspace Codex args override on blur", async () => {
     const onUpdateWorkspaceSettings = vi.fn().mockResolvedValue(undefined);
@@ -348,6 +459,8 @@ describe("SettingsView Codex overrides", () => {
         openAppIconById={{}}
         onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
         onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        activeWorkspace={workspace}
+        activeEngine="codex"
         onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
         onUpdateWorkspaceSettings={onUpdateWorkspaceSettings}
         scaleShortcutTitle="Scale shortcut"
@@ -374,7 +487,7 @@ describe("SettingsView Codex overrides", () => {
 });
 
 describe("SettingsView Shortcuts", () => {
-  it("closes on Cmd+W", () => {
+  it("closes when clicking back to app", async () => {
     const onClose = vi.fn();
     render(
       <SettingsView
@@ -395,6 +508,8 @@ describe("SettingsView Shortcuts", () => {
         openAppIconById={{}}
         onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
         onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        activeWorkspace={null}
+        activeEngine="codex"
         onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
         onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
         scaleShortcutTitle="Scale shortcut"
@@ -407,16 +522,19 @@ describe("SettingsView Shortcuts", () => {
       />,
     );
 
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "w", metaKey: true, bubbles: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Back to app" }));
 
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("closes on Escape", () => {
-    const onClose = vi.fn();
-    render(
+  it("closes on Cmd+W", async () => {
+    let unmount = () => {};
+    const onClose = vi.fn(() => {
+      unmount();
+    });
+    const rendered = render(
       <SettingsView
         workspaceGroups={[]}
         groupedWorkspaces={[]}
@@ -435,6 +553,8 @@ describe("SettingsView Shortcuts", () => {
         openAppIconById={{}}
         onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
         onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        activeWorkspace={null}
+        activeEngine="codex"
         onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
         onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
         scaleShortcutTitle="Scale shortcut"
@@ -446,9 +566,58 @@ describe("SettingsView Shortcuts", () => {
         onRemoveDictationModel={vi.fn()}
       />,
     );
+    unmount = rendered.unmount;
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    fireEvent.keyDown(window, { key: "w", metaKey: true, bubbles: true });
 
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("closes on Escape", async () => {
+    let unmount = () => {};
+    const onClose = vi.fn(() => {
+      unmount();
+    });
+    const rendered = render(
+      <SettingsView
+        workspaceGroups={[]}
+        groupedWorkspaces={[]}
+        ungroupedLabel="Ungrouped"
+        onClose={onClose}
+        onMoveWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onCreateWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRenameWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onMoveWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onDeleteWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onAssignWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        reduceTransparency={false}
+        onToggleTransparency={vi.fn()}
+        appSettings={baseSettings}
+        openAppIconById={{}}
+        onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
+        onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        activeWorkspace={null}
+        activeEngine="codex"
+        onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
+        onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
+        scaleShortcutTitle="Scale shortcut"
+        scaleShortcutText="Use Command +/-"
+        onTestNotificationSound={vi.fn()}
+        dictationModelStatus={null}
+        onDownloadDictationModel={vi.fn()}
+        onCancelDictationDownload={vi.fn()}
+        onRemoveDictationModel={vi.fn()}
+      />,
+    );
+    unmount = rendered.unmount;
+
+    fireEvent.keyDown(window, { key: "Escape", bubbles: true });
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 });

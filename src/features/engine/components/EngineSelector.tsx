@@ -1,4 +1,10 @@
 import { useTranslation } from "react-i18next";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+} from "../../../components/ui/select";
 import type { EngineType } from "../../../types";
 import type { EngineDisplayInfo } from "../hooks/useEngineController";
 import { EngineIcon } from "./EngineIcon";
@@ -6,6 +12,7 @@ import {
   getEngineAvailabilityStatusKey,
   isEngineSelectable,
 } from "../utils/engineAvailability";
+import { formatEngineVersionLabel } from "../utils/engineLabels";
 
 type EngineSelectorProps = {
   engines: EngineDisplayInfo[];
@@ -32,7 +39,7 @@ const DEFAULT_ENGINE_INFO: Record<EngineType, { displayName: string; shortName: 
   codex: { displayName: "Codex CLI", shortName: "Codex" },
   gemini: { displayName: "Gemini CLI", shortName: "Gemini" },
   opencode: { displayName: "OpenCode", shortName: "OpenCode" },
-  openai: { displayName: "Custom API", shortName: "Custom API" },
+  openai: { displayName: "OpenAI Compatible", shortName: "OpenAI Compatible" },
 };
 
 /**
@@ -45,8 +52,7 @@ export function EngineSelector({
   disabled = false,
   showOnlyIfMultiple = true,
   showLabel = false,
-  // Default to installed engines only; "show all" is mainly useful for settings/debug screens.
-  showAllEngines = false,
+  showAllEngines = true,
   opencodeStatusTone,
 }: EngineSelectorProps & { showLabel?: boolean }) {
   const { t } = useTranslation();
@@ -80,8 +86,11 @@ export function EngineSelector({
 
   const selectedEngineInfo = engineList.find((e) => e.type === selectedEngine);
 
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newEngine = e.target.value as EngineType;
+  const handleChange = (value: EngineType | null) => {
+    if (!value) {
+      return;
+    }
+    const newEngine = value as EngineType;
     if (isEngineSelectable(engineList, newEngine)) {
       onSelectEngine(newEngine);
     }
@@ -110,30 +119,45 @@ export function EngineSelector({
           }
         />
       )}
-      <select
-        className="composer-select composer-select--engine"
-        aria-label={t("composer.engine")}
+      <Select
         value={selectedEngine}
-        onChange={handleChange}
-        disabled={disabled}
+        onValueChange={handleChange}
       >
+        <SelectTrigger
+          aria-label={t("composer.engine")}
+          className="composer-inline-select-trigger"
+          disabled={disabled}
+        />
+        <SelectPopup
+          side="top"
+          sideOffset={8}
+          align="start"
+          className="composer-inline-select-popup"
+        >
         {engineList.map((engine) => {
           const statusKey = getEngineAvailabilityStatusKey(engineList, engine.type);
           const statusText = statusKey ? t(statusKey) : "";
+          const versionLabel = formatEngineVersionLabel(engine);
 
           return (
-            <option
+            <SelectItem
               key={engine.type}
               value={engine.type}
-              disabled={!isEngineSelectable(engineList, engine.type)}
+              disabled={disabled || !isEngineSelectable(engineList, engine.type)}
             >
-              {engine.shortName}
-              {engine.version ? ` (${engine.version})` : ""}
-              {statusText ? ` - ${statusText}` : ""}
-            </option>
+              <span className="composer-inline-select-item">
+                <EngineIcon engine={engine.type} size={14} />
+                <span className="composer-inline-select-item-label">
+                  {engine.displayName}
+                  {versionLabel ? ` (${versionLabel})` : ""}
+                  {statusText ? ` - ${statusText}` : ""}
+                </span>
+              </span>
+            </SelectItem>
           );
         })}
-      </select>
+        </SelectPopup>
+      </Select>
     </div>
   );
 }

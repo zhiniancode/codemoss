@@ -1,6 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
-import type { EngineType, QueuedMessage, WorkspaceInfo } from "../../../types";
-import { useComposerContextFiles } from "../../composer/hooks/useComposerContextFiles";
+import { startTransition, useCallback, useMemo, useState } from "react";
+import type {
+  EngineType,
+  MessageSendOptions,
+  QueuedMessage,
+  WorkspaceInfo,
+} from "../../../types";
 import { useComposerImages } from "../../composer/hooks/useComposerImages";
 import { useQueuedSend } from "../../threads/hooks/useQueuedSend";
 
@@ -20,11 +24,15 @@ export function useComposerController({
   startReview,
   startResume,
   startMcp,
+  startSpecRoot,
   startStatus,
   startExport,
   startImport,
   startLsp,
   startShare,
+  startMode,
+  setCodexCollaborationMode,
+  getCodexCollaborationMode,
 }: {
   activeThreadId: string | null;
   activeWorkspaceId: string | null;
@@ -38,26 +46,36 @@ export function useComposerController({
     workspaceId: string,
     options?: { activate?: boolean; engine?: EngineType },
   ) => Promise<string | null>;
-  sendUserMessage: (text: string, images?: string[]) => Promise<void>;
+  sendUserMessage: (
+    text: string,
+    images?: string[],
+    options?: MessageSendOptions,
+  ) => Promise<void>;
   sendUserMessageToThread: (
     workspace: WorkspaceInfo,
     threadId: string,
     text: string,
     images?: string[],
+    options?: MessageSendOptions,
   ) => Promise<void>;
   startFork: (text: string) => Promise<void>;
   startReview: (text: string) => Promise<void>;
   startResume: (text: string) => Promise<void>;
   startMcp: (text: string) => Promise<void>;
+  startSpecRoot: (text: string) => Promise<void>;
   startStatus: (text: string) => Promise<void>;
   startExport: (text: string) => Promise<void>;
   startImport: (text: string) => Promise<void>;
   startLsp: (text: string) => Promise<void>;
   startShare: (text: string) => Promise<void>;
+  startMode: (text: string) => Promise<void>;
+  setCodexCollaborationMode?: (mode: "plan" | "code") => void;
+  getCodexCollaborationMode?: () => "plan" | "code" | null;
 }) {
   const [composerDraftsByThread, setComposerDraftsByThread] = useState<
     Record<string, string>
   >({});
+  const [detachedDraft, setDetachedDraft] = useState("");
   const [prefillDraft, setPrefillDraft] = useState<QueuedMessage | null>(null);
   const [composerInsert, setComposerInsert] = useState<QueuedMessage | null>(
     null,
@@ -72,15 +90,6 @@ export function useComposerController({
     setImagesForThread,
     removeImagesForThread,
   } = useComposerImages({ activeThreadId, activeWorkspaceId });
-
-  const {
-    activeFiles: activeContextFiles,
-    attachFiles: attachContextFiles,
-    removeFile: removeContextFile,
-    clearActiveFiles: clearActiveContextFiles,
-    setFilesForThread: setContextFilesForThread,
-    removeFilesForThread: removeContextFilesForThread,
-  } = useComposerContextFiles({ activeThreadId, activeWorkspaceId });
 
   const {
     activeQueue,
@@ -102,29 +111,38 @@ export function useComposerController({
     startReview,
     startResume,
     startMcp,
+    startSpecRoot,
     startStatus,
     startExport,
     startImport,
     startLsp,
     startShare,
+    startMode,
+    setCodexCollaborationMode,
+    getCodexCollaborationMode,
     clearActiveImages,
   });
 
   const activeDraft = useMemo(
     () =>
-      activeThreadId ? composerDraftsByThread[activeThreadId] ?? "" : "",
-    [activeThreadId, composerDraftsByThread],
+      activeThreadId
+        ? composerDraftsByThread[activeThreadId] ?? ""
+        : detachedDraft,
+    [activeThreadId, composerDraftsByThread, detachedDraft],
   );
 
   const handleDraftChange = useCallback(
     (next: string) => {
       if (!activeThreadId) {
+        setDetachedDraft(next);
         return;
       }
-      setComposerDraftsByThread((prev) => ({
-        ...prev,
-        [activeThreadId]: next,
-      }));
+      startTransition(() => {
+        setComposerDraftsByThread((prev) => ({
+          ...prev,
+          [activeThreadId]: next,
+        }));
+      });
     },
     [activeThreadId],
   );
@@ -146,10 +164,9 @@ export function useComposerController({
       }
       removeQueuedMessage(activeThreadId, item.id);
       setImagesForThread(activeThreadId, item.images ?? []);
-      setContextFilesForThread(activeThreadId, item.files ?? []);
       setPrefillDraft(item);
     },
-    [activeThreadId, removeQueuedMessage, setContextFilesForThread, setImagesForThread],
+    [activeThreadId, removeQueuedMessage, setImagesForThread],
   );
 
   const handleDeleteQueued = useCallback(
@@ -180,12 +197,6 @@ export function useComposerController({
     clearActiveImages,
     setImagesForThread,
     removeImagesForThread,
-    activeContextFiles,
-    attachContextFiles,
-    removeContextFile,
-    clearActiveContextFiles,
-    setContextFilesForThread,
-    removeContextFilesForThread,
     activeQueue,
     handleSend,
     queueMessage,

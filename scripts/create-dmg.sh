@@ -137,7 +137,7 @@ trap cleanup EXIT
 APP_SIZE_KB=$(du -sk "$APP_PATH" | cut -f1)
 DMG_SIZE_KB=$((APP_SIZE_KB + 20480))
 
-STAGE_DIR="$(mktemp -d /tmp/codemoss-dmg-stage-XXXXXX)"
+STAGE_DIR="$(mktemp -d /tmp/mossx-dmg-stage-XXXXXX)"
 mkdir -p "$STAGE_DIR/.background"
 
 if ! copy_app_bundle "$APP_PATH" "$STAGE_DIR/CodeMoss.app"; then
@@ -148,7 +148,7 @@ fi
 create_applications_alias "$STAGE_DIR"
 cp "$BG_IMAGE" "$STAGE_DIR/.background/background.png"
 
-TEMP_DMG="$(mktemp /tmp/codemoss-dmg-XXXXXX).dmg"
+TEMP_DMG="$(mktemp /tmp/mossx-dmg-XXXXXX).dmg"
 rm -f "$TEMP_DMG"
 
 echo "Creating writable DMG image..."

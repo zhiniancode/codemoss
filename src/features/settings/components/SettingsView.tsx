@@ -637,16 +637,8 @@ export function SettingsView({
         return;
       }
 
-      // Prefer `code` so shortcuts are stable across keyboard layouts/IME,
-      // but keep a `key` fallback for environments that don't populate `code`
-      // (e.g. some tests / older WebViews).
-      const isEscape = event.code === "Escape" || event.key === "Escape";
-      const isCloseKeyW =
-        (event.metaKey || event.ctrlKey) &&
-        (event.code === "KeyW" ||
-          (typeof event.key === "string" && event.key.toLowerCase() === "w"));
-
-      if (isEscape) {
+      // Use `code` so shortcuts are stable across keyboard layouts/IME.
+      if (event.code === "Escape") {
         if (isEditableTarget) {
           return;
         }
@@ -655,7 +647,7 @@ export function SettingsView({
         return;
       }
 
-      if (isCloseKeyW) {
+      if ((event.metaKey || event.ctrlKey) && event.code === "KeyW") {
         if (isEditableTarget) {
           return;
         }
@@ -3341,7 +3333,7 @@ export function SettingsView({
                   <button
                     type="button"
                     className="ghost"
-                    onClick={() => void openUrl("https://github.com/zhiniancode/codemoss")}
+                    onClick={() => void openUrl("https://github.com/zhukunpenglinyutong/codemoss")}
                   >
                     {t("about.github")}
                   </button>

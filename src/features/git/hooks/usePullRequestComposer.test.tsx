@@ -36,7 +36,7 @@ const diffs: GitHubPullRequestDiff[] = [
 
 const connectedWorkspace: WorkspaceInfo = {
   id: "workspace-1",
-  name: "CodeMoss",
+  name: "MossX",
   path: "/tmp/codex",
   connected: true,
   settings: { sidebarCollapsed: false },
@@ -44,7 +44,7 @@ const connectedWorkspace: WorkspaceInfo = {
 
 const disconnectedWorkspace: WorkspaceInfo = {
   id: "workspace-2",
-  name: "CodeMoss",
+  name: "MossX",
   path: "/tmp/codex",
   connected: false,
   settings: { sidebarCollapsed: false },
@@ -118,10 +118,10 @@ describe("usePullRequestComposer", () => {
     const { result } = renderHook(() => usePullRequestComposer(options));
 
     await act(async () => {
-      await result.current.handleComposerSend("Hello", [], []);
+      await result.current.handleComposerSend("Hello", []);
     });
 
-    expect(options.handleSend).toHaveBeenCalledWith("Hello", [], []);
+    expect(options.handleSend).toHaveBeenCalledWith("Hello", []);
     expect(options.startThreadForWorkspace).not.toHaveBeenCalled();
   });
 
@@ -133,7 +133,7 @@ describe("usePullRequestComposer", () => {
     const { result } = renderHook(() => usePullRequestComposer(options));
 
     await act(async () => {
-      await result.current.handleComposerSend("  Question? ", ["img-1"], []);
+      await result.current.handleComposerSend("  Question? ", ["img-1"]);
     });
 
     expect(options.connectWorkspace).toHaveBeenCalledWith(disconnectedWorkspace);
@@ -160,7 +160,7 @@ describe("usePullRequestComposer", () => {
     const { result } = renderHook(() => usePullRequestComposer(options));
 
     await act(async () => {
-      await result.current.handleComposerSend("  ", [], []);
+      await result.current.handleComposerSend("  ", []);
     });
 
     expect(options.startThreadForWorkspace).not.toHaveBeenCalled();

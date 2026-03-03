@@ -6,7 +6,7 @@ import { useQueuedSend } from "./useQueuedSend";
 
 const workspace: WorkspaceInfo = {
   id: "workspace-1",
-  name: "CodeMoss",
+  name: "MossX",
   path: "/tmp/codex",
   connected: true,
   settings: { sidebarCollapsed: false },
@@ -28,11 +28,14 @@ const makeOptions = (
   startReview: vi.fn().mockResolvedValue(undefined),
   startResume: vi.fn().mockResolvedValue(undefined),
   startMcp: vi.fn().mockResolvedValue(undefined),
+  startSpecRoot: vi.fn().mockResolvedValue(undefined),
   startStatus: vi.fn().mockResolvedValue(undefined),
   startExport: vi.fn().mockResolvedValue(undefined),
   startImport: vi.fn().mockResolvedValue(undefined),
   startLsp: vi.fn().mockResolvedValue(undefined),
   startShare: vi.fn().mockResolvedValue(undefined),
+  startMode: vi.fn().mockResolvedValue(undefined),
+  setCodexCollaborationMode: vi.fn(),
   clearActiveImages: vi.fn(),
   ...overrides,
 });
@@ -55,7 +58,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("First", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("First", []);
 
     await act(async () => {
       rerender({ ...options, isProcessing: true });
@@ -71,7 +74,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(2);
-    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Second", [], []);
+    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Second", []);
   });
 
   it("waits for processing to start before sending the next queued message", async () => {
@@ -90,7 +93,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Alpha", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Alpha", []);
   });
 
   it("queues send while processing when steer is disabled", async () => {
@@ -119,7 +122,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Steer", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Steer", []);
     expect(result.current.activeQueue).toHaveLength(0);
   });
 
@@ -146,7 +149,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(2);
-    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Retry", [], []);
+    expect(options.sendUserMessage).toHaveBeenLastCalledWith("Retry", []);
   });
 
   it("queues messages per thread and only flushes the active thread", async () => {
@@ -177,7 +180,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Thread-1", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Thread-1", []);
   });
 
   it("connects workspace before sending when disconnected", async () => {
@@ -198,7 +201,7 @@ describe("useQueuedSend", () => {
       ...workspace,
       connected: false,
     });
-    expect(options.sendUserMessage).toHaveBeenCalledWith("Connect", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("Connect", []);
   });
 
   it("ignores images for queued review messages and blocks while reviewing", async () => {
@@ -238,7 +241,7 @@ describe("useQueuedSend", () => {
     });
 
     expect(options.sendUserMessage).toHaveBeenCalledTimes(1);
-    expect(options.sendUserMessage).toHaveBeenCalledWith("After review", [], []);
+    expect(options.sendUserMessage).toHaveBeenCalledWith("After review", []);
   });
 
   it("starts a new thread for /new and sends the remaining text there", async () => {
@@ -298,6 +301,155 @@ describe("useQueuedSend", () => {
     expect(startStatus).toHaveBeenCalledWith("/status now");
     expect(options.sendUserMessage).not.toHaveBeenCalled();
     expect(options.startReview).not.toHaveBeenCalled();
+  });
+
+  it("switches to plan mode and sends remaining text for codex /plan", async () => {
+    const setCodexCollaborationMode = vi.fn();
+    const options = makeOptions({
+      activeEngine: "codex",
+      setCodexCollaborationMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("/plan 请先分析");
+    });
+
+    expect(setCodexCollaborationMode).toHaveBeenCalledWith("plan");
+    expect(options.sendUserMessage).toHaveBeenCalledWith(
+      "请先分析",
+      [],
+      expect.objectContaining({
+        collaborationMode: expect.objectContaining({
+          mode: "plan",
+        }),
+      }),
+    );
+  });
+
+  it("switches to default mode for codex /default and /code alias", async () => {
+    const setCodexCollaborationMode = vi.fn();
+    const options = makeOptions({
+      activeEngine: "codex",
+      setCodexCollaborationMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("/default");
+      await result.current.handleSend("/code");
+    });
+
+    expect(setCodexCollaborationMode).toHaveBeenNthCalledWith(1, "code");
+    expect(setCodexCollaborationMode).toHaveBeenNthCalledWith(2, "code");
+    expect(options.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("routes /mode to local mode handler in codex", async () => {
+    const startMode = vi.fn().mockResolvedValue(undefined);
+    const options = makeOptions({
+      activeEngine: "codex",
+      startMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("/mode");
+    });
+
+    expect(startMode).toHaveBeenCalledWith("/mode");
+    expect(options.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("routes implicit current-mode question to local mode handler in codex", async () => {
+    const startMode = vi.fn().mockResolvedValue(undefined);
+    const options = makeOptions({
+      activeEngine: "codex",
+      startMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("现在是什么模式 是计划模式吗");
+    });
+
+    expect(startMode).toHaveBeenCalledWith("现在是什么模式 是计划模式吗");
+    expect(options.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not treat mode-difference question as implicit mode query", async () => {
+    const startMode = vi.fn().mockResolvedValue(undefined);
+    const options = makeOptions({
+      activeEngine: "codex",
+      startMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("计划模式和default模式区别多大");
+    });
+
+    expect(startMode).not.toHaveBeenCalled();
+    expect(options.sendUserMessage).toHaveBeenCalledWith(
+      "计划模式和default模式区别多大",
+      [],
+    );
+  });
+
+  it("treats codex-only slash commands as plain text on non-codex engines", async () => {
+    const startMode = vi.fn().mockResolvedValue(undefined);
+    const setCodexCollaborationMode = vi.fn();
+    const options = makeOptions({
+      activeEngine: "claude",
+      startMode,
+      setCodexCollaborationMode,
+    });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("/plan keep text", ["img-1"]);
+      await result.current.handleSend("/mode", ["img-2"]);
+    });
+
+    expect(options.sendUserMessage).toHaveBeenNthCalledWith(
+      1,
+      "/plan keep text",
+      ["img-1"],
+    );
+    expect(options.sendUserMessage).toHaveBeenNthCalledWith(
+      2,
+      "/mode",
+      ["img-2"],
+    );
+    expect(startMode).not.toHaveBeenCalled();
+    expect(setCodexCollaborationMode).not.toHaveBeenCalled();
+  });
+
+  it("routes /spec-root to the spec root handler", async () => {
+    const startSpecRoot = vi.fn().mockResolvedValue(undefined);
+    const options = makeOptions({ startSpecRoot });
+    const { result } = renderHook((props) => useQueuedSend(props), {
+      initialProps: options,
+    });
+
+    await act(async () => {
+      await result.current.handleSend("/spec-root rebind", ["img-1"]);
+    });
+
+    expect(startSpecRoot).toHaveBeenCalledWith("/spec-root rebind");
+    expect(options.sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("routes /mcp to the MCP handler", async () => {
@@ -440,7 +592,7 @@ describe("useQueuedSend", () => {
     expect(options.sendUserMessage).toHaveBeenCalledWith("Images", [
       "img-1",
       "img-2",
-    ], []);
+    ]);
   });
 
   it("releases stalled in-flight queue item for opencode only", async () => {

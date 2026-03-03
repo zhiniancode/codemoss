@@ -36,60 +36,49 @@ function renderComposerInput(overrides: Partial<ComponentProps<typeof ComposerIn
 }
 
 describe("ComposerInput collaboration mode", () => {
-  it("keeps collaboration entry enabled for codex even when feature toggle is off", () => {
+  it("shows plan mode switch for codex engine", () => {
     const view = renderComposerInput({ collaborationModesEnabled: false });
 
-    const select = within(view.container).getByLabelText("composer.collaborationMode");
-    expect(select.getAttribute("disabled")).toBeNull();
-    expect((select as HTMLSelectElement).value).toBe("plan");
-    expect(within(view.container).getByText("composer.collaborationPlanInlineHint")).toBeTruthy();
+    const modeSwitch = within(view.container).getByRole("switch", {
+      name: "composer.planModeToggle",
+    });
+    expect(modeSwitch).toBeTruthy();
+    expect(modeSwitch.getAttribute("aria-checked")).toBe("false");
   });
 
-  it("hides collaboration mode entry for non-codex engines", () => {
+  it("hides plan mode switch for non-codex engines", () => {
     const view = renderComposerInput({ selectedEngine: "claude", collaborationModesEnabled: true });
 
-    expect(within(view.container).queryByLabelText("Collaboration mode")).toBeNull();
+    expect(within(view.container).queryByRole("switch", { name: "composer.planModeToggle" })).toBeNull();
   });
 
-  it("allows selecting fallback mode when presets are temporarily unavailable", () => {
+  it("switches from default(code) to plan", () => {
     const onSelectCollaborationMode = vi.fn();
     const view = renderComposerInput({
-      collaborationModesEnabled: true,
-      collaborationModes: [],
       selectedCollaborationModeId: "code",
       onSelectCollaborationMode,
     });
 
-    const select = within(view.container).getByLabelText("composer.collaborationMode");
-    expect(select.getAttribute("disabled")).toBeNull();
+    const modeSwitch = within(view.container).getByRole("switch", {
+      name: "composer.planModeToggle",
+    });
+    fireEvent.click(modeSwitch);
 
-    fireEvent.change(select, { target: { value: "plan" } });
     expect(onSelectCollaborationMode).toHaveBeenCalledWith("plan");
   });
 
-  it("shows inline plan hint inside the mode selector label", () => {
+  it("switches from plan to default(code)", () => {
+    const onSelectCollaborationMode = vi.fn();
     const view = renderComposerInput({
-      collaborationModesEnabled: true,
-      collaborationModes: [
-        { id: "code", label: "Code" },
-        { id: "plan", label: "Plan" },
-      ],
       selectedCollaborationModeId: "plan",
+      onSelectCollaborationMode,
     });
 
-    expect(within(view.container).getByText("composer.collaborationPlanInlineHint")).toBeTruthy();
-  });
-
-  it("shows inline code hint inside the mode selector label", () => {
-    const view = renderComposerInput({
-      collaborationModesEnabled: true,
-      collaborationModes: [
-        { id: "code", label: "Code" },
-        { id: "plan", label: "Plan" },
-      ],
-      selectedCollaborationModeId: "code",
+    const modeSwitch = within(view.container).getByRole("switch", {
+      name: "composer.planModeToggle",
     });
+    fireEvent.click(modeSwitch);
 
-    expect(within(view.container).getByText("Code · directly implement code changes")).toBeTruthy();
+    expect(onSelectCollaborationMode).toHaveBeenCalledWith("code");
   });
 });

@@ -83,6 +83,14 @@ pub enum EngineEvent {
         message: Option<String>,
     },
 
+    /// User input request (AskUserQuestion tool)
+    #[serde(rename = "userInput:request")]
+    RequestUserInput {
+        workspace_id: String,
+        request_id: Value,
+        questions: Value,
+    },
+
     /// Turn/response completed
     #[serde(rename = "turn:completed")]
     TurnCompleted {
@@ -122,10 +130,7 @@ pub enum EngineEvent {
 
     /// Processing heartbeat while waiting for first visible output
     #[serde(rename = "processing:heartbeat")]
-    ProcessingHeartbeat {
-        workspace_id: String,
-        pulse: u64,
-    },
+    ProcessingHeartbeat { workspace_id: String, pulse: u64 },
 
     /// Raw engine-specific event (passthrough)
     #[serde(rename = "raw")]
@@ -148,6 +153,7 @@ impl EngineEvent {
             EngineEvent::ToolCompleted { workspace_id, .. } => workspace_id,
             EngineEvent::ToolInputUpdated { workspace_id, .. } => workspace_id,
             EngineEvent::ApprovalRequest { workspace_id, .. } => workspace_id,
+            EngineEvent::RequestUserInput { workspace_id, .. } => workspace_id,
             EngineEvent::TurnCompleted { workspace_id, .. } => workspace_id,
             EngineEvent::TurnError { workspace_id, .. } => workspace_id,
             EngineEvent::SessionEnded { workspace_id, .. } => workspace_id,
@@ -204,9 +210,7 @@ pub fn engine_event_to_app_server_event(
 
     let message = match event {
         EngineEvent::SessionStarted {
-            session_id,
-            engine,
-            ..
+            session_id, engine, ..
         } => json!({
             "method": "thread/started",
             "params": {
@@ -295,7 +299,7 @@ pub fn engine_event_to_app_server_event(
                     }
                 }
             })
-        },
+        }
         EngineEvent::ToolInputUpdated {
             tool_id,
             tool_name,
@@ -363,6 +367,20 @@ pub fn engine_event_to_app_server_event(
                 "threadId": thread_id,
                 "pulse": pulse,
             }
+        }),
+        EngineEvent::RequestUserInput {
+            request_id,
+            questions,
+            ..
+        } => json!({
+            "method": "item/tool/requestUserInput",
+            "params": {
+                "threadId": thread_id,
+                "turnId": item_id,
+                "itemId": item_id,
+                "questions": questions,
+            },
+            "id": request_id,
         }),
         EngineEvent::Raw { data, engine, .. } => json!({
             "method": format!("{}/raw", engine.icon()),

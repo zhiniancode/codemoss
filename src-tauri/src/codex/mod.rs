@@ -1,5 +1,6 @@
+use serde::Serialize;
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,8 +11,10 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 pub(crate) mod args;
+pub(crate) mod collaboration_policy;
 pub(crate) mod config;
 pub(crate) mod home;
+pub(crate) mod thread_mode_state;
 
 use self::args::apply_codex_args;
 use self::args::resolve_workspace_codex_args;
@@ -300,6 +303,208 @@ pub(crate) async fn list_threads(
     codex_core::list_threads_core(&state.sessions, workspace_id, cursor, limit).await
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GlobalMcpServerEntry {
+    name: String,
+    enabled: bool,
+    transport: Option<String>,
+    command: Option<String>,
+    url: Option<String>,
+    args_count: usize,
+    source: String,
+}
+
+fn parse_disabled_mcp_set(root: &Map<String, Value>) -> HashSet<String> {
+    root.get("disabledMcpServers")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_mcp_entries_from_object(
+    mcp_servers: &Map<String, Value>,
+    disabled_servers: &HashSet<String>,
+    source: &str,
+) -> Vec<GlobalMcpServerEntry> {
+    let mut entries = Vec::new();
+    for (name, raw_spec) in mcp_servers {
+        let server_name = name.trim();
+        if server_name.is_empty() {
+            continue;
+        }
+        let spec = match raw_spec.as_object() {
+            Some(value) => value,
+            None => continue,
+        };
+        let transport = spec
+            .get("type")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let command = spec
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let url = spec
+            .get("url")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let args_count = spec
+            .get("args")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len())
+            .unwrap_or(0);
+        entries.push(GlobalMcpServerEntry {
+            name: server_name.to_string(),
+            enabled: !disabled_servers.contains(server_name),
+            transport,
+            command,
+            url,
+            args_count,
+            source: source.to_string(),
+        });
+    }
+    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    entries
+}
+
+fn parse_mcp_entries_from_array(
+    mcp_servers: &[Value],
+    source: &str,
+) -> Vec<GlobalMcpServerEntry> {
+    let mut entries = Vec::new();
+    for raw_item in mcp_servers {
+        let item = match raw_item.as_object() {
+            Some(value) => value,
+            None => continue,
+        };
+        let name = item
+            .get("id")
+            .or_else(|| item.get("name"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let Some(name) = name else {
+            continue;
+        };
+        let enabled = item
+            .get("enabled")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
+        let spec = item
+            .get("server")
+            .and_then(|value| value.as_object())
+            .unwrap_or(item);
+        let transport = spec
+            .get("type")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let command = spec
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let url = spec
+            .get("url")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let args_count = spec
+            .get("args")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len())
+            .unwrap_or(0);
+        entries.push(GlobalMcpServerEntry {
+            name,
+            enabled,
+            transport,
+            command,
+            url,
+            args_count,
+            source: source.to_string(),
+        });
+    }
+    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    entries
+}
+
+fn parse_mcp_entries_from_json_value(
+    root: &Value,
+    source: &str,
+) -> Result<Vec<GlobalMcpServerEntry>, String> {
+    let object = root
+        .as_object()
+        .ok_or_else(|| "MCP config root is not a JSON object".to_string())?;
+    let disabled_servers = parse_disabled_mcp_set(object);
+    match object.get("mcpServers") {
+        Some(Value::Object(mcp_servers)) => Ok(parse_mcp_entries_from_object(
+            mcp_servers,
+            &disabled_servers,
+            source,
+        )),
+        Some(Value::Array(mcp_servers)) => Ok(parse_mcp_entries_from_array(mcp_servers, source)),
+        Some(_) => Ok(Vec::new()),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn read_json_file(path: &PathBuf) -> Result<Value, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read {}: {}", path.display(), error))?;
+    serde_json::from_str::<Value>(&raw)
+        .map_err(|error| format!("Failed to parse {}: {}", path.display(), error))
+}
+
+#[tauri::command]
+pub(crate) async fn list_global_mcp_servers() -> Result<Vec<GlobalMcpServerEntry>, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    let claude_json_path = home.join(".claude.json");
+    if claude_json_path.exists() {
+        match read_json_file(&claude_json_path)
+            .and_then(|root| parse_mcp_entries_from_json_value(&root, "claude_json"))
+        {
+            Ok(entries) if !entries.is_empty() => return Ok(entries),
+            Ok(_) => {}
+            Err(error) => {
+                log::warn!(
+                    "[list_global_mcp_servers] Failed to parse {}: {}",
+                    claude_json_path.display(),
+                    error
+                );
+            }
+        }
+    }
+
+    let codemoss_config_path = home.join(".codemoss").join("config.json");
+    if codemoss_config_path.exists() {
+        match read_json_file(&codemoss_config_path)
+            .and_then(|root| parse_mcp_entries_from_json_value(&root, "codemoss_config"))
+        {
+            Ok(entries) => return Ok(entries),
+            Err(error) => {
+                log::warn!(
+                    "[list_global_mcp_servers] Failed to parse {}: {}",
+                    codemoss_config_path.display(),
+                    error
+                );
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
 #[tauri::command]
 pub(crate) async fn list_mcp_server_status(
     workspace_id: String,
@@ -344,7 +549,7 @@ pub(crate) async fn archive_thread(
 /// Ensure a Codex session exists for the workspace. If not, spawn one.
 /// This is called before sending messages to handle the case where user
 /// switches from Claude to Codex engine without reconnecting the workspace.
-async fn ensure_codex_session(
+pub(crate) async fn ensure_codex_session(
     workspace_id: &str,
     state: &AppState,
     app: &AppHandle,
@@ -385,6 +590,10 @@ async fn ensure_codex_session(
     };
 
     let codex_home = resolve_workspace_codex_home(&entry, parent_entry.as_ref());
+    let mode_enforcement_enabled = {
+        let settings = state.app_settings.lock().await;
+        settings.codex_mode_enforcement_enabled
+    };
 
     let session = spawn_workspace_session(
         entry.clone(),
@@ -394,6 +603,7 @@ async fn ensure_codex_session(
         codex_home,
     )
     .await?;
+    session.set_mode_enforcement_enabled(mode_enforcement_enabled);
 
     state.sessions.lock().await.insert(entry.id, session);
     Ok(())
@@ -410,9 +620,32 @@ pub(crate) async fn send_user_message(
     images: Option<Vec<String>>,
     collaboration_mode: Option<Value>,
     preferred_language: Option<String>,
+    custom_spec_root: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
+    let selected_mode = collaboration_mode
+        .as_ref()
+        .and_then(|value| {
+            if let Some(text) = value.as_str() {
+                return Some(text.to_string());
+            }
+            value
+                .as_object()
+                .and_then(|object| object.get("mode").or_else(|| object.get("id")))
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+        .map(|mode| {
+            let normalized = mode.trim().to_lowercase();
+            if normalized == "default" {
+                "code".to_string()
+            } else {
+                normalized
+            }
+        })
+        .filter(|mode| mode == "plan" || mode == "code");
+
     if remote_backend::is_remote_mode(&*state).await {
         let images = images.map(|paths| {
             paths
@@ -429,6 +662,11 @@ pub(crate) async fn send_user_message(
         payload.insert("accessMode".to_string(), json!(access_mode));
         payload.insert("images".to_string(), json!(images));
         payload.insert("preferredLanguage".to_string(), json!(preferred_language));
+        if let Some(spec_root) = custom_spec_root.clone() {
+            if !spec_root.trim().is_empty() {
+                payload.insert("customSpecRoot".to_string(), json!(spec_root));
+            }
+        }
         if let Some(mode) = collaboration_mode {
             if !mode.is_null() {
                 payload.insert("collaborationMode".to_string(), mode);
@@ -446,11 +684,15 @@ pub(crate) async fn send_user_message(
     // Ensure Codex session exists before sending message
     // This handles the case where user switches from Claude to Codex engine
     ensure_codex_session(&workspace_id, &state, &app).await?;
+    let mode_enforcement_enabled = {
+        let settings = state.app_settings.lock().await;
+        settings.codex_mode_enforcement_enabled
+    };
 
-    codex_core::send_user_message_core(
+    let response = codex_core::send_user_message_core(
         &state.sessions,
-        workspace_id,
-        thread_id,
+        workspace_id.clone(),
+        thread_id.clone(),
         text,
         model,
         effort,
@@ -458,8 +700,63 @@ pub(crate) async fn send_user_message(
         images,
         collaboration_mode,
         preferred_language,
+        custom_spec_root,
+        mode_enforcement_enabled,
     )
-    .await
+    .await?;
+
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(&workspace_id).cloned()
+    };
+    let (effective_runtime_mode, fallback_reason) = if let Some(session) = session {
+        let runtime_mode = session
+            .get_thread_effective_mode(&thread_id)
+            .await
+            .unwrap_or_else(|| "code".to_string());
+        let fallback_reason = if selected_mode.is_some() && !session.collaboration_mode_supported()
+        {
+            Some("collaboration_mode_capability_unsupported_prompt_fallback")
+        } else {
+            None
+        };
+        (runtime_mode, fallback_reason)
+    } else {
+        ("code".to_string(), None)
+    };
+    let effective_ui_mode = if effective_runtime_mode == "plan" {
+        "plan"
+    } else {
+        "default"
+    };
+    let selected_ui_mode = match selected_mode.as_deref() {
+        Some("plan") => "plan",
+        Some("code") => "default",
+        _ => effective_ui_mode,
+    };
+    let _ = app.emit(
+        "app-server-event",
+        AppServerEvent {
+            workspace_id: workspace_id.clone(),
+            message: json!({
+                "method": "collaboration/modeResolved",
+                "params": {
+                    "threadId": thread_id.clone(),
+                    "thread_id": thread_id,
+                    "selectedUiMode": selected_ui_mode,
+                    "selected_ui_mode": selected_ui_mode,
+                    "effectiveRuntimeMode": effective_runtime_mode.clone(),
+                    "effective_runtime_mode": effective_runtime_mode,
+                    "effectiveUiMode": effective_ui_mode,
+                    "effective_ui_mode": effective_ui_mode,
+                    "fallbackReason": fallback_reason,
+                    "fallback_reason": fallback_reason
+                }
+            }),
+        },
+    );
+
+    Ok(response)
 }
 
 #[tauri::command]
@@ -664,6 +961,7 @@ pub(crate) async fn skills_list(
                     json!({
                         "name": entry.name,
                         "path": entry.path,
+                        "source": entry.source,
                         "description": entry.description,
                         "enabled": true,
                     })
@@ -702,6 +1000,21 @@ pub(crate) async fn respond_to_server_request(
         )
         .await?;
         return Ok(());
+    }
+
+    // Route to the appropriate engine based on active engine type
+    let active_engine = state.engine_manager.get_active_engine().await;
+    if active_engine == crate::engine::EngineType::Claude {
+        if let Some(session) = state
+            .engine_manager
+            .claude_manager
+            .get_session(&workspace_id)
+            .await
+        {
+            return session
+                .respond_to_user_input(request_id, result)
+                .await;
+        }
     }
 
     codex_core::respond_to_server_request_core(&state.sessions, workspace_id, request_id, result)

@@ -5,6 +5,7 @@ import type { ConversationItem, WorkspaceInfo } from "../../../types";
 import {
   archiveThread,
   deleteClaudeSession,
+  deleteOpenCodeSession,
   forkClaudeSession,
   forkThread,
   getOpenCodeSessionList,
@@ -41,6 +42,7 @@ vi.mock("../../../services/tauri", () => ({
   listThreads: vi.fn(),
   archiveThread: vi.fn(),
   deleteClaudeSession: vi.fn(),
+  deleteOpenCodeSession: vi.fn(),
 }));
 
 vi.mock("../../../utils/threadItems", () => ({
@@ -58,7 +60,7 @@ vi.mock("../utils/threadStorage", () => ({
 describe("useThreadActions", () => {
   const workspace: WorkspaceInfo = {
     id: "ws-1",
-    name: "CodeMoss",
+    name: "MossX",
     path: "/tmp/codex",
     connected: true,
     settings: { sidebarCollapsed: false },
@@ -71,6 +73,10 @@ describe("useThreadActions", () => {
     vi.mocked(renameThreadTitleKey).mockResolvedValue(undefined);
     vi.mocked(setThreadTitle).mockResolvedValue("title");
     vi.mocked(deleteClaudeSession).mockResolvedValue(undefined);
+    vi.mocked(deleteOpenCodeSession).mockResolvedValue({
+      deleted: true,
+      method: "filesystem",
+    });
   });
 
   function renderActions(
@@ -392,6 +398,165 @@ describe("useThreadActions", () => {
     });
   });
 
+  it("uses unified history loader path for codex threads when enabled", async () => {
+    const assistantItem: ConversationItem = {
+      id: "assistant-unified-1",
+      kind: "message",
+      role: "assistant",
+      text: "Unified loader response",
+    };
+    vi.mocked(resumeThread).mockResolvedValue({
+      result: {
+        thread: {
+          turns: [
+            {
+              id: "turn-1",
+              explanation: "Plan first",
+              plan: [{ step: "Inspect", status: "in_progress" }],
+            },
+          ],
+        },
+      },
+    });
+    vi.mocked(buildItemsFromThread).mockReturnValue([assistantItem]);
+
+    const { result, dispatch } = renderActions({
+      useUnifiedHistoryLoader: true,
+    });
+
+    await act(async () => {
+      await result.current.resumeThreadForWorkspace("ws-1", "thread-unified");
+    });
+
+    expect(resumeThread).toHaveBeenCalledWith("ws-1", "thread-unified");
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "ensureThread",
+      workspaceId: "ws-1",
+      threadId: "thread-unified",
+      engine: "codex",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadItems",
+      threadId: "thread-unified",
+      items: [assistantItem],
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadPlan",
+      threadId: "thread-unified",
+      plan: {
+        turnId: "turn-1",
+        explanation: "Plan first",
+        steps: [{ step: "Inspect", status: "inProgress" }],
+      },
+    });
+  });
+
+  it("reports unified history loader fallback warnings through debug channel", async () => {
+    vi.mocked(resumeThread).mockResolvedValue(null);
+    const onDebug = vi.fn();
+    const { result, dispatch } = renderActions({
+      useUnifiedHistoryLoader: true,
+      onDebug,
+    });
+
+    await act(async () => {
+      await result.current.resumeThreadForWorkspace("ws-1", "thread-empty");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "ensureThread",
+      workspaceId: "ws-1",
+      threadId: "thread-empty",
+      engine: "codex",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadPlan",
+      threadId: "thread-empty",
+      plan: null,
+    });
+    expect(onDebug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "thread/history fallback",
+      }),
+    );
+  });
+
+  it("hydrates user input queue from unified history snapshots", async () => {
+    const assistantItem: ConversationItem = {
+      id: "assistant-unified-user-input",
+      kind: "message",
+      role: "assistant",
+      text: "Need confirmation",
+    };
+    vi.mocked(buildItemsFromThread).mockReturnValue([assistantItem]);
+    vi.mocked(resumeThread).mockResolvedValue({
+      result: {
+        thread: {
+          user_input_queue: [
+            {
+              request_id: "req-9",
+              params: {
+                turn_id: "turn-9",
+                item_id: "tool-9",
+                questions: [
+                  {
+                    id: "confirm",
+                    header: "Confirm",
+                    question: "Proceed?",
+                    options: [{ label: "Yes", description: "Continue." }],
+                  },
+                ],
+              },
+            },
+          ],
+          turns: [
+            {
+              id: "turn-9",
+              explanation: "Plan",
+              plan: [{ step: "Verify", status: "in_progress" }],
+            },
+          ],
+        },
+      },
+    });
+
+    const { result, dispatch } = renderActions({
+      useUnifiedHistoryLoader: true,
+    });
+
+    await act(async () => {
+      await result.current.resumeThreadForWorkspace("ws-1", "thread-user-input");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "clearUserInputRequestsForThread",
+      workspaceId: "ws-1",
+      threadId: "thread-user-input",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "addUserInputRequest",
+      request: {
+        workspace_id: "ws-1",
+        request_id: "req-9",
+        params: {
+          thread_id: "thread-user-input",
+          turn_id: "turn-9",
+          item_id: "tool-9",
+          questions: [
+            {
+              id: "confirm",
+              header: "Confirm",
+              question: "Proceed?",
+              isOther: false,
+              isSecret: false,
+              options: [{ label: "Yes", description: "Continue." }],
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("lists threads for a workspace and persists activity", async () => {
     vi.mocked(listThreads).mockResolvedValue({
       result: {
@@ -495,16 +660,15 @@ describe("useThreadActions", () => {
     });
   });
 
-  it("marks opencode hard delete as unsupported in adapter", async () => {
+  it("routes opencode hard delete to backend adapter", async () => {
     const { result } = renderActions();
 
-    await expect(
-      act(async () => {
-        await result.current.deleteThreadForWorkspace("ws-1", "opencode:ses_opc_1");
-      }),
-    ).rejects.toThrow("[ENGINE_UNSUPPORTED]");
+    await act(async () => {
+      await result.current.deleteThreadForWorkspace("ws-1", "opencode:ses_opc_1");
+    });
 
     expect(archiveThread).not.toHaveBeenCalled();
+    expect(deleteOpenCodeSession).toHaveBeenCalledWith("ws-1", "ses_opc_1");
   });
 
   it("keeps deleted claude sessions absent after reload", async () => {

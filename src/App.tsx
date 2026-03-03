@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import "./styles/globals.css";
@@ -15,7 +16,6 @@ import "./styles/base.css";
 import "./styles/buttons.css";
 import "./styles/sidebar.css";
 import "./styles/home.css";
-import "./styles/workspace-home.css";
 import "./styles/main.css";
 import "./styles/messages.css";
 import "./styles/approval-toasts.css";
@@ -45,14 +45,17 @@ import "./styles/tool-blocks.css";
 import "./styles/status-panel.css";
 import "./styles/opencode-panel.css";
 import "./styles/kanban.css";
+import "./styles/git-history.css";
 import "./styles/search-palette.css";
 import "./styles/panel-lock.css";
+import "./styles/spec-hub.css";
+import "./styles/workspace-home.css";
 import successSoundUrl from "./assets/success-notification.mp3";
 import errorSoundUrl from "./assets/error-notification.mp3";
 import { AppLayout } from "./features/app/components/AppLayout";
 import { AppModals } from "./features/app/components/AppModals";
-import { MainHeaderActions } from "./features/app/components/MainHeaderActions";
 import { LockScreenOverlay } from "./features/app/components/LockScreenOverlay";
+import { MainHeaderActions } from "./features/app/components/MainHeaderActions";
 import { useLayoutNodes } from "./features/layout/hooks/useLayoutNodes";
 import { useWorkspaceDropZone } from "./features/workspaces/hooks/useWorkspaceDropZone";
 import { useThreads } from "./features/threads/hooks/useThreads";
@@ -79,7 +82,9 @@ import { useRenameWorktreePrompt } from "./features/workspaces/hooks/useRenameWo
 import { useLayoutController } from "./features/app/hooks/useLayoutController";
 import { useWindowLabel } from "./features/layout/hooks/useWindowLabel";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isWindowsPlatform } from "./utils/platform";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { ask } from "@tauri-apps/plugin-dialog";
 import {
   SidebarCollapseButton,
   TitlebarExpandControls,
@@ -117,6 +122,7 @@ import { useTerminalController } from "./features/terminal/hooks/useTerminalCont
 import { useWorkspaceLaunchScript } from "./features/app/hooks/useWorkspaceLaunchScript";
 import { useKanbanStore } from "./features/kanban/hooks/useKanbanStore";
 import { KanbanView } from "./features/kanban/components/KanbanView";
+import { GitHistoryPanel } from "./features/git-history/components/GitHistoryPanel";
 import type { KanbanTask } from "./features/kanban/types";
 import {
   resolveKanbanThreadCreationStrategy,
@@ -130,30 +136,40 @@ import {
   WorkspaceHome,
   type WorkspaceHomeDeleteResult,
 } from "./features/workspaces/components/WorkspaceHome";
+import { SpecHub } from "./features/spec/components/SpecHub";
 import { SearchPalette } from "./features/search/components/SearchPalette";
 import { useUnifiedSearch } from "./features/search/hooks/useUnifiedSearch";
 import { loadHistoryWithImportance } from "./features/composer/hooks/useInputHistoryStore";
+import { forceRefreshAgents } from "./features/composer/components/ChatInputBox/providers";
 import { recordSearchResultOpen } from "./features/search/ranking/recencyStore";
 import type { SearchContentFilter, SearchResult, SearchScope } from "./features/search/types";
 import { toggleSearchContentFilters } from "./features/search/utils/contentFilters";
+import { resolveSearchScopeOnOpen } from "./features/search/utils/scope";
 import {
+  getSelectedAgentConfig,
   getOpenCodeAgentsList,
+  setSelectedAgentConfig,
   getWorkspaceFiles,
-  pickFiles,
   pickWorkspacePath,
   readPanelLockPasswordFile,
   writePanelLockPasswordFile,
 } from "./services/tauri";
 import type {
   AccessMode,
+  AppMode,
   ConversationItem,
   ComposerEditorSettings,
   EngineType,
+  MessageSendOptions,
   OpenCodeAgentOption,
+  RequestUserInputRequest,
+  RequestUserInputResponse,
+  SelectedAgentOption,
+  TurnPlan,
+  TurnPlanStepStatus,
   WorkspaceInfo,
 } from "./types";
 import { getClientStoreSync, writeClientStoreValue } from "./services/clientStorage";
-import { pushErrorToast } from "./services/toasts";
 import { useOpenAppIcons } from "./features/app/hooks/useOpenAppIcons";
 import { useCodeCssVars } from "./features/app/hooks/useCodeCssVars";
 import { useAccountSwitching } from "./features/app/hooks/useAccountSwitching";
@@ -178,17 +194,72 @@ const GitHubPanelData = lazy(() =>
   })),
 );
 
-const PANEL_LOCK_DEFAULT_PASSWORD = "123456";
+// Non-security UI panel lock: decorative only, not for access control.
+const PANEL_LOCK_INITIAL_PASSWORD = "000000";
 const LOCK_LIVE_SESSION_LIMIT = 12;
-const LAST_CUSTOM_API_WORKSPACE_ID_KEY = "lastCustomApiWorkspaceId";
 const LOCK_LIVE_PREVIEW_MAX = 180;
 const OPENCODE_VARIANT_OPTIONS = ["minimal", "low", "medium", "high", "max"];
+const GIT_HISTORY_PANEL_MIN_HEIGHT = 260;
+const GIT_HISTORY_PANEL_MIN_TOP_CLEARANCE = 120;
+const GIT_HISTORY_PANEL_DEFAULT_RATIO = 0.5;
+const APP_JANK_DEBUG_FLAG_KEY = "mossx.debug.jank";
+const LOCAL_PLAN_APPLY_REQUEST_PREFIX = "mossx-plan-apply:";
+const PLAN_APPLY_ACTION_QUESTION_ID = "plan_apply_action";
+const PLAN_APPLY_EXECUTE_PROMPT = "Implement this plan.";
+const CODE_MODE_RESUME_PROMPT =
+  "I switched to code mode. Continue from the latest context and execute directly.";
+
+function extractFirstUserInputAnswer(response: RequestUserInputResponse): string | null {
+  const entries = Object.values(response.answers ?? {});
+  for (const entry of entries) {
+    for (const answer of entry?.answers ?? []) {
+      const normalized = String(answer ?? "").trim();
+      if (!normalized) {
+        continue;
+      }
+      if (normalized.toLowerCase().startsWith("user_note:")) {
+        const note = normalized.slice("user_note:".length).trim();
+        if (note) {
+          return note;
+        }
+        continue;
+      }
+      return normalized;
+    }
+  }
+  return null;
+}
 
 type ThreadCompletionTracker = {
   isProcessing: boolean;
   lastDurationMs: number | null;
   lastAgentTimestamp: number;
 };
+
+function getViewportHeight(): number {
+  if (typeof window === "undefined") {
+    return 900;
+  }
+  return window.innerHeight;
+}
+
+function clampGitHistoryPanelHeight(height: number, viewportHeight = getViewportHeight()): number {
+  const maxHeight = Math.max(GIT_HISTORY_PANEL_MIN_HEIGHT, viewportHeight - GIT_HISTORY_PANEL_MIN_TOP_CLEARANCE);
+  const minHeight = Math.min(GIT_HISTORY_PANEL_MIN_HEIGHT, maxHeight);
+  return Math.round(Math.min(maxHeight, Math.max(minHeight, height)));
+}
+
+function getDefaultGitHistoryPanelHeight(): number {
+  const viewportHeight = getViewportHeight();
+  return clampGitHistoryPanelHeight(viewportHeight * GIT_HISTORY_PANEL_DEFAULT_RATIO, viewportHeight);
+}
+
+function isJankDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(APP_JANK_DEBUG_FLAG_KEY) === "1";
+}
 
 function normalizeLockLiveSnippet(text: string, maxLength = LOCK_LIVE_PREVIEW_MAX) {
   const compact = text.replace(/\s+/g, " ").trim();
@@ -199,6 +270,72 @@ function normalizeLockLiveSnippet(text: string, maxLength = LOCK_LIVE_PREVIEW_MA
     return compact;
   }
   return `${compact.slice(0, Math.max(0, maxLength - 1))}...`;
+}
+
+function normalizeTimelinePlanStepStatus(raw: string): TurnPlanStepStatus {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "completed" || normalized === "done" || normalized === "success") {
+    return "completed";
+  }
+  if (
+    normalized === "in_progress" ||
+    normalized === "in-progress" ||
+    normalized === "inprogress" ||
+    normalized === "running"
+  ) {
+    return "inProgress";
+  }
+  return "pending";
+}
+
+function extractPlanFromTimelineItems(items: ConversationItem[]): TurnPlan | null {
+  const latestPlanItem = [...items]
+    .reverse()
+    .find(
+      (item) =>
+        item.kind === "tool" &&
+        (item.toolType === "proposed-plan" || item.toolType === "plan-implementation"),
+    );
+  if (!latestPlanItem || latestPlanItem.kind !== "tool") {
+    return null;
+  }
+  const output = (latestPlanItem.output ?? "").trim();
+  const lines = output
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const steps = lines
+    .map((line) => {
+      const withStatus = line.match(/^- \[([^\]]+)\]\s*(.+)$/);
+      if (withStatus) {
+        return {
+          step: withStatus[2].trim(),
+          status: normalizeTimelinePlanStepStatus(withStatus[1]),
+        };
+      }
+      const bullet = line.match(/^- (.+)$/);
+      if (bullet) {
+        return {
+          step: bullet[1].trim(),
+          status: "pending" as TurnPlanStepStatus,
+        };
+      }
+      return null;
+    })
+    .filter((entry): entry is { step: string; status: TurnPlanStepStatus } => Boolean(entry));
+  const detail = (latestPlanItem.detail ?? "").trim();
+  const turnId = detail.startsWith("implement-plan:")
+    ? detail.slice("implement-plan:".length).trim() || latestPlanItem.id
+    : latestPlanItem.id;
+  const explanation = steps.length > 0 ? null : output || null;
+  if (!explanation && steps.length === 0) {
+    return null;
+  }
+  return {
+    turnId,
+    explanation,
+    steps,
+  };
 }
 
 function resolveLockLivePreview(
@@ -292,9 +429,10 @@ function MainApp() {
     clearDebugEntries,
   } = useDebugLog();
   useLiquidGlassEffect({ reduceTransparency, onDebug: addDebugEntry });
-  const [accessMode, setAccessMode] = useState<AccessMode>("current");
+  const [accessMode, setAccessMode] = useState<AccessMode>("full-access");
+  const claudeAccessModeRef = useRef<AccessMode>("full-access");
   const [activeTab, setActiveTab] = useState<
-    "projects" | "codex" | "git" | "log"
+    "projects" | "codex" | "spec" | "git" | "log"
   >("codex");
   const tabletTab = activeTab === "projects" ? "codex" : activeTab;
   const {
@@ -308,13 +446,9 @@ function MainApp() {
     setActiveWorkspaceId,
     addWorkspace,
     addWorkspaceFromPath,
-    addOpenAIWorkspace,
-    addOpenAIWorkspaceFromPath,
-    retargetOpenAIWorkspace,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
-    ensureOpenAIChatWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,
@@ -377,15 +511,74 @@ function MainApp() {
     toggleDebugPanelShortcut: appSettings.toggleDebugPanelShortcut,
     toggleTerminalShortcut: appSettings.toggleTerminalShortcut,
   });
-  const sidebarToggleProps = {
-    isCompact,
-    sidebarCollapsed,
-    rightPanelCollapsed,
-    onCollapseSidebar: collapseSidebar,
-    onExpandSidebar: expandSidebar,
-    onCollapseRightPanel: collapseRightPanel,
-    onExpandRightPanel: expandRightPanel,
-  };
+  const [gitHistoryPanelHeight, setGitHistoryPanelHeight] = useState(() => {
+    const stored = getClientStoreSync<number>("layout", "gitHistoryPanelHeight");
+    if (typeof stored === "number" && Number.isFinite(stored)) {
+      return clampGitHistoryPanelHeight(stored);
+    }
+    return getDefaultGitHistoryPanelHeight();
+  });
+
+  useEffect(() => {
+    writeClientStoreValue("layout", "gitHistoryPanelHeight", gitHistoryPanelHeight);
+  }, [gitHistoryPanelHeight]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setGitHistoryPanelHeight((current) => clampGitHistoryPanelHeight(current));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  const onGitHistoryPanelResizeStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pointerId = event.pointerId;
+      const startY = event.clientY;
+      const startHeight = gitHistoryPanelHeight;
+      const dragHandle = event.currentTarget;
+      dragHandle.setPointerCapture(pointerId);
+      document.body.dataset.gitHistoryResizing = "true";
+
+      const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return;
+        }
+        const delta = moveEvent.clientY - startY;
+        const nextHeight = startHeight - delta;
+        setGitHistoryPanelHeight(clampGitHistoryPanelHeight(nextHeight));
+      };
+
+      const handlePointerUp = (upEvent: globalThis.PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) {
+          return;
+        }
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
+        if (dragHandle.hasPointerCapture(pointerId)) {
+          dragHandle.releasePointerCapture(pointerId);
+        }
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.body.style.webkitUserSelect = "";
+        delete document.body.dataset.gitHistoryResizing;
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handlePointerUp);
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      document.body.style.webkitUserSelect = "none";
+    },
+    [gitHistoryPanelHeight],
+  );
+
   const {
     settingsOpen,
     settingsSection,
@@ -393,6 +586,7 @@ function MainApp() {
     openSettings,
     closeSettings,
   } = useSettingsModalState();
+
   const [isSearchPaletteOpen, setIsSearchPaletteOpen] = useState(false);
   const [searchScope, setSearchScope] = useState<SearchScope>("active-workspace");
   const [searchContentFilters, setSearchContentFilters] =
@@ -421,11 +615,11 @@ function MainApp() {
 
   const { errorToasts, dismissErrorToast } = useErrorToasts();
 
+  // Force accessMode to "full-access" (Auto Mode)
+  // Other modes are temporarily disabled in ModeSelect component
   useEffect(() => {
-    setAccessMode((prev) =>
-      prev === "current" ? appSettings.defaultAccessMode : prev
-    );
-  }, [appSettings.defaultAccessMode]);
+    setAccessMode("full-access");
+  }, []);
 
   const {
     gitIssues,
@@ -493,6 +687,7 @@ function MainApp() {
     handleActiveDiffPath,
     handleGitPanelModeChange,
     activeEditorFilePath,
+    editorNavigationTarget,
     openFileTabs,
     handleOpenFile,
     handleActivateFileTab,
@@ -517,7 +712,10 @@ function MainApp() {
     startLine: number;
     endLine: number;
   } | null>(null);
-  const [fileReferenceMode, setFileReferenceMode] = useState<"path" | "none">("path");
+  const [fileReferenceMode, setFileReferenceMode] = useState<"path" | "none">("none");
+  const [editorSplitLayout, setEditorSplitLayout] = useState<"vertical" | "horizontal">(
+    "vertical",
+  );
 
   useEffect(() => {
     if (!activeEditorFilePath) {
@@ -571,46 +769,105 @@ function MainApp() {
     enabled: true,
     onDebug: addDebugEntry,
   });
+  const [collaborationUiModeByThread, setCollaborationUiModeByThread] = useState<
+    Record<string, "plan" | "code">
+  >({});
+  const [collaborationRuntimeModeByThread, setCollaborationRuntimeModeByThread] = useState<
+    Record<string, "plan" | "code">
+  >({});
+  const activeThreadIdForModeRef = useRef<string | null>(null);
+  const lastCodexModeSyncThreadRef = useRef<string | null>(null);
+  const codexComposerModeRef = useRef<"plan" | "code" | null>(null);
+  const applySelectedCollaborationMode = useCallback(
+    (modeId: string | null) => {
+      if (!modeId) {
+        codexComposerModeRef.current = null;
+        setSelectedCollaborationModeId(null);
+        return;
+      }
+      const normalized = modeId === "plan" ? "plan" : "code";
+      codexComposerModeRef.current = normalized;
+      const threadId = activeThreadIdForModeRef.current;
+      if (threadId) {
+        setCollaborationUiModeByThread((prev) => {
+          if (prev[threadId] === normalized) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [threadId]: normalized,
+          };
+        });
+      }
+      setSelectedCollaborationModeId(normalized);
+    },
+    [setSelectedCollaborationModeId],
+  );
+  const setCodexCollaborationMode = useCallback(
+    (mode: "plan" | "code") => {
+      applySelectedCollaborationMode(mode);
+    },
+    [applySelectedCollaborationMode],
+  );
+  const resolveCollaborationRuntimeMode = useCallback(
+    (threadId: string): "plan" | "code" | null =>
+      collaborationRuntimeModeByThread[threadId] ?? null,
+    [collaborationRuntimeModeByThread],
+  );
+  const resolveCollaborationUiMode = useCallback(
+    (threadId: string): "plan" | "code" | null =>
+      collaborationUiModeByThread[threadId] ?? null,
+    [collaborationUiModeByThread],
+  );
+  const handleCollaborationModeResolved = useCallback(
+    (payload: {
+      workspaceId: string;
+      threadId: string;
+      selectedUiMode: "plan" | "default";
+      effectiveRuntimeMode: "plan" | "code";
+      effectiveUiMode: "plan" | "default";
+      fallbackReason: string | null;
+    }) => {
+      const threadId = payload.threadId.trim();
+      if (!threadId) {
+        return;
+      }
+      const effectiveRuntimeMode = payload.effectiveRuntimeMode === "plan"
+        ? "plan"
+        : "code";
+      const effectiveUiMode = payload.effectiveUiMode === "plan"
+        ? "plan"
+        : "code";
+      setCollaborationRuntimeModeByThread((prev) => {
+        if (prev[threadId] === effectiveRuntimeMode) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [threadId]: effectiveRuntimeMode,
+        };
+      });
+      setCollaborationUiModeByThread((prev) => {
+        if (prev[threadId] === effectiveUiMode) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [threadId]: effectiveUiMode,
+        };
+      });
+    },
+    [],
+  );
 
   const { skills } = useSkills({ activeWorkspace, onDebug: addDebugEntry });
   const {
     activeEngine,
-    availableEngines,
     installedEngines,
     setActiveEngine,
     engineModelsAsOptions,
     engineStatuses,
   } = useEngineController({ activeWorkspace, onDebug: addDebugEntry });
-
-  useEffect(() => {
-    const workspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
-    const isOpenAIWorkspace =
-      typeof workspaceEngineType === "string" &&
-      workspaceEngineType.toLowerCase() === "openai";
-
-    if (isOpenAIWorkspace) {
-      if (activeEngine !== "openai") {
-        void setActiveEngine("openai");
-      }
-      return;
-    }
-
-    if (activeEngine === "openai") {
-      // Avoid leaving the UI in an OpenAI engine state when the active workspace is a CLI workspace.
-      const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
-      const fallback =
-        preferredCliOrder.find(
-          (engine) =>
-            (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
-        ) ?? "claude";
-      void setActiveEngine(fallback);
-    }
-  }, [
-    activeEngine,
-    activeWorkspace?.settings?.engineType,
-    engineStatuses,
-    setActiveEngine,
-  ]);
   const [openCodeAgents, setOpenCodeAgents] = useState<OpenCodeAgentOption[]>([]);
   const [openCodeAgentByThreadId, setOpenCodeAgentByThreadId] = useState<Record<string, string | null>>({});
   const [openCodeVariantByThreadId, setOpenCodeVariantByThreadId] = useState<
@@ -622,6 +879,69 @@ function MainApp() {
   const [openCodeDefaultVariantByWorkspace, setOpenCodeDefaultVariantByWorkspace] = useState<
     Record<string, string | null>
   >({});
+  const [selectedAgent, setSelectedAgent] = useState<SelectedAgentOption | null>(null);
+
+  const reloadSelectedAgent = useCallback(async () => {
+    try {
+      const selected = await getSelectedAgentConfig();
+      const agent = selected.agent;
+      setSelectedAgent(
+        agent
+          ? {
+              id: agent.id,
+              name: agent.name,
+              prompt: agent.prompt ?? null,
+            }
+          : null,
+      );
+    } catch (error) {
+      addDebugEntry({
+        id: `${Date.now()}-agent-selected-load-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "agent/selected load error",
+        payload: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [addDebugEntry]);
+
+  const handleSelectAgent = useCallback(
+    (agent: SelectedAgentOption | null) => {
+      const normalized =
+        agent && agent.id.trim().length > 0
+          ? {
+              id: agent.id.trim(),
+              name: agent.name.trim(),
+              prompt: agent.prompt ?? null,
+            }
+          : null;
+      setSelectedAgent(normalized);
+      void setSelectedAgentConfig(normalized?.id ?? null)
+        .then((result) => {
+          if (!result.agent) {
+            if (!normalized) {
+              setSelectedAgent(null);
+            }
+            return;
+          }
+          setSelectedAgent({
+            id: result.agent.id,
+            name: result.agent.name,
+            prompt: result.agent.prompt ?? null,
+          });
+        })
+        .catch((error) => {
+          addDebugEntry({
+            id: `${Date.now()}-agent-selected-save-error`,
+            timestamp: Date.now(),
+            source: "error",
+            label: "agent/selected save error",
+            payload: error instanceof Error ? error.message : String(error),
+          });
+        });
+    },
+    [addDebugEntry],
+  );
 
   useEffect(() => {
     if (activeEngine !== "opencode") {
@@ -665,7 +985,14 @@ function MainApp() {
   }, [activeEngine, addDebugEntry]);
 
   // --- Kanban mode ---
-  const [appMode, setAppMode] = useState<import("./types").AppMode>("chat");
+  const [appMode, setAppMode] = useState<AppMode>("chat");
+  const handleAppModeChange = useCallback(
+    (mode: AppMode) => {
+      setAppMode(mode);
+      closeSettings();
+    },
+    [closeSettings],
+  );
   const {
     panels: kanbanPanels,
     tasks: kanbanTasks,
@@ -766,6 +1093,31 @@ function MainApp() {
     return effectiveModels.find((m) => m.id === effectiveSelectedModelId) ?? null;
   }, [effectiveModels, effectiveSelectedModelId]);
 
+  // Sync accessMode when switching engines (Codex forces full-access, Claude restores saved mode)
+  useEffect(() => {
+    if (activeEngine === "codex") {
+      setAccessMode((prev) => {
+        if (prev !== "full-access") {
+          claudeAccessModeRef.current = prev;
+        }
+        return "full-access";
+      });
+    } else {
+      setAccessMode(claudeAccessModeRef.current);
+    }
+  }, [activeEngine]);
+
+  // Keep claudeAccessModeRef in sync when user changes mode on a non-codex engine
+  const handleSetAccessMode = useCallback(
+    (mode: AccessMode) => {
+      setAccessMode(mode);
+      if (activeEngine !== "codex") {
+        claudeAccessModeRef.current = mode;
+      }
+    },
+    [activeEngine],
+  );
+
   useComposerShortcuts({
     textareaRef: composerInputRef,
     modelShortcut: appSettings.composerModelShortcut,
@@ -777,9 +1129,9 @@ function MainApp() {
     selectedModelId: effectiveSelectedModelId,
     onSelectModel: handleSelectModel,
     selectedCollaborationModeId,
-    onSelectCollaborationMode: setSelectedCollaborationModeId,
+    onSelectCollaborationMode: applySelectedCollaborationMode,
     accessMode,
-    onSelectAccessMode: setAccessMode,
+    onSelectAccessMode: handleSetAccessMode,
     reasoningOptions,
     selectedEffort,
     onSelectEffort: setSelectedEffort,
@@ -792,9 +1144,9 @@ function MainApp() {
     onSelectModel: handleSelectModel,
     collaborationModes,
     selectedCollaborationModeId,
-    onSelectCollaborationMode: setSelectedCollaborationModeId,
+    onSelectCollaborationMode: applySelectedCollaborationMode,
     accessMode,
-    onSelectAccessMode: setAccessMode,
+    onSelectAccessMode: handleSetAccessMode,
     reasoningOptions,
     selectedEffort,
     onSelectEffort: setSelectedEffort,
@@ -811,10 +1163,16 @@ function MainApp() {
     getWorkspacePromptsDir,
     getGlobalPromptsDir,
   } = useCustomPrompts({ activeWorkspace, onDebug: addDebugEntry });
-  const { commands } = useCustomCommands({ onDebug: addDebugEntry, activeEngine });
+  const { commands } = useCustomCommands({
+    onDebug: addDebugEntry,
+    activeEngine,
+    workspaceId: activeWorkspace?.id ?? null,
+  });
+  const workspaceFilesPollingEnabled = !isCompact && !rightPanelCollapsed && filePanelMode === "files";
   const { files, directories, gitignoredFiles, isLoading: isFilesLoading, refreshFiles } = useWorkspaceFiles({
     activeWorkspace,
     onDebug: addDebugEntry,
+    pollingEnabled: workspaceFilesPollingEnabled,
   });
   const { branches, checkoutBranch, createBranch } = useGitBranches({
     activeWorkspace,
@@ -973,6 +1331,8 @@ function MainApp() {
     selectedEffort: resolvedEffort,
     resolvedModel,
   });
+  const threadAccessMode =
+    accessMode === "default" ? "current" : accessMode;
 
   const {
     setActiveThreadId,
@@ -1014,7 +1374,9 @@ function MainApp() {
     startReview,
     startResume,
     startMcp,
+    startSpecRoot,
     startStatus,
+    startMode,
     startExport,
     startImport,
     startLsp,
@@ -1050,14 +1412,125 @@ function MainApp() {
     model: resolvedModel,
     effort: resolvedEffort,
     collaborationMode: collaborationModePayload,
-    accessMode,
+    accessMode: threadAccessMode,
     steerEnabled: appSettings.experimentalSteerEnabled,
     customPrompts: prompts,
     onMessageActivity: queueGitStatusRefresh,
     activeEngine,
+    useNormalizedRealtimeAdapters: appSettings.chatCanvasUseNormalizedRealtime,
+    useUnifiedHistoryLoader: appSettings.chatCanvasUseUnifiedHistoryLoader,
     resolveOpenCodeAgent: resolveOpenCodeAgentForThread,
     resolveOpenCodeVariant: resolveOpenCodeVariantForThread,
+    resolveCollaborationUiMode,
+    resolveCollaborationRuntimeMode,
+    onCollaborationModeResolved: handleCollaborationModeResolved,
   });
+  const handleUserInputSubmitWithPlanApply = useCallback(
+    async (
+      request: RequestUserInputRequest,
+      response: RequestUserInputResponse,
+    ) => {
+      const requestThreadId = String(request.params.thread_id ?? "").trim();
+      const runtimeMode = requestThreadId
+        ? resolveCollaborationRuntimeMode(requestThreadId)
+        : null;
+      const uiMode = requestThreadId
+        ? (resolveCollaborationUiMode(requestThreadId) ??
+          (selectedCollaborationModeId === "plan" ? "plan" : "code"))
+        : (selectedCollaborationModeId === "plan" ? "plan" : "code");
+      const shouldForceResumeInCode =
+        activeEngine === "codex" &&
+        runtimeMode === "plan" &&
+        uiMode === "code";
+      await handleUserInputSubmit(request, response);
+      const requestId = String(request.request_id ?? "");
+      if (!requestId.startsWith(LOCAL_PLAN_APPLY_REQUEST_PREFIX)) {
+        if (!shouldForceResumeInCode) {
+          return;
+        }
+        applySelectedCollaborationMode("code");
+        await interruptTurn();
+        const firstAnswer = extractFirstUserInputAnswer(response);
+        const resumePrompt = firstAnswer
+          ? `${CODE_MODE_RESUME_PROMPT}\n\nUser confirmation: ${firstAnswer}`
+          : CODE_MODE_RESUME_PROMPT;
+        const immediateCodeModePayload: Record<string, unknown> = {
+          mode: "code",
+          settings: {
+            model: resolvedModel ?? null,
+            reasoning_effort: resolvedEffort ?? null,
+          },
+        };
+        await sendUserMessage(resumePrompt, [], {
+          collaborationMode: immediateCodeModePayload,
+        });
+        return;
+      }
+      const selectedAnswer = String(
+        response.answers?.[PLAN_APPLY_ACTION_QUESTION_ID]?.answers?.[0] ?? "",
+      )
+        .trim()
+        .toLowerCase();
+      const shouldImplementPlan = selectedAnswer.startsWith("yes");
+      if (!shouldImplementPlan) {
+        applySelectedCollaborationMode("plan");
+        return;
+      }
+      applySelectedCollaborationMode("code");
+      const immediateCodeModePayload: Record<string, unknown> = {
+        mode: "code",
+        settings: {
+          model: resolvedModel ?? null,
+          reasoning_effort: resolvedEffort ?? null,
+        },
+      };
+      await sendUserMessage(PLAN_APPLY_EXECUTE_PROMPT, [], {
+        collaborationMode: immediateCodeModePayload,
+      });
+    },
+    [
+      activeEngine,
+      applySelectedCollaborationMode,
+      handleUserInputSubmit,
+      interruptTurn,
+      resolveCollaborationRuntimeMode,
+      resolveCollaborationUiMode,
+      resolvedEffort,
+      resolvedModel,
+      selectedCollaborationModeId,
+      sendUserMessage,
+    ],
+  );
+  const hydratedThreadListWorkspaceIdsRef = useRef(new Set<string>());
+  const listThreadsForWorkspaceTracked = useCallback(
+    async (
+      workspace: WorkspaceInfo,
+      options?: { preserveState?: boolean },
+    ) => {
+      await listThreadsForWorkspace(workspace, options);
+      hydratedThreadListWorkspaceIdsRef.current.add(workspace.id);
+    },
+    [listThreadsForWorkspace],
+  );
+  const ensureWorkspaceThreadListLoaded = useCallback(
+    (
+      workspaceId: string,
+      options?: { preserveState?: boolean; force?: boolean },
+    ) => {
+      const workspace = workspacesById.get(workspaceId);
+      if (!workspace) {
+        return;
+      }
+      const force = options?.force ?? false;
+      if (!force && hydratedThreadListWorkspaceIdsRef.current.has(workspaceId)) {
+        return;
+      }
+      void listThreadsForWorkspaceTracked(workspace, {
+        preserveState: options?.preserveState,
+      });
+    },
+    [listThreadsForWorkspaceTracked, workspacesById],
+  );
   const {
     activeAccount,
     accountSwitching,
@@ -1100,6 +1573,17 @@ function MainApp() {
     }
     previousThreadIdRef.current = activeThreadId ?? null;
   }, [activeThreadId]);
+
+  useEffect(() => {
+    void reloadSelectedAgent();
+  }, [activeThreadId, reloadSelectedAgent]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      forceRefreshAgents();
+      void reloadSelectedAgent();
+    }
+  }, [reloadSelectedAgent, settingsOpen]);
 
   const selectedOpenCodeAgent = useMemo(
     () => resolveOpenCodeAgentForThread(activeThreadId),
@@ -1197,7 +1681,7 @@ function MainApp() {
     renameWorktreeUpstream,
     onRenameSuccess: (workspace) => {
       resetWorkspaceThreads(workspace.id);
-      void listThreadsForWorkspace(workspace);
+      void listThreadsForWorkspaceTracked(workspace);
       if (activeThreadId && activeWorkspaceId === workspace.id) {
         void refreshThread(workspace.id, activeThreadId);
       }
@@ -1292,10 +1776,14 @@ function MainApp() {
   });
   const {
     worktreePrompt,
+    worktreeCreateResult,
     openPrompt: openWorktreePrompt,
     confirmPrompt: confirmWorktreePrompt,
     cancelPrompt: cancelWorktreePrompt,
+    closeWorktreeCreateResult,
     updateBranch: updateWorktreeBranch,
+    updateBaseRef: updateWorktreeBaseRef,
+    updatePublishToOrigin: updateWorktreePublishToOrigin,
     updateSetupScript: updateWorktreeSetupScript,
   } = useWorktreePrompt({
     addWorktreeAgent,
@@ -1355,7 +1843,7 @@ function MainApp() {
     try {
       const filePassword = await readPanelLockPasswordFile();
       if (filePassword == null) {
-        void writePanelLockPasswordFile(PANEL_LOCK_DEFAULT_PASSWORD);
+        void writePanelLockPasswordFile(PANEL_LOCK_INITIAL_PASSWORD);
         setIsPanelLocked(false);
         return true;
       }
@@ -1377,12 +1865,11 @@ function MainApp() {
     (workspaceId: string, threadId: string) => {
       exitDiffView();
       setAppMode("chat");
+      setActiveTab("codex");
+      collapseRightPanel();
       setSelectedKanbanTaskId(null);
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
-      if (isCompact) {
-        setActiveTab("codex");
-      }
       const threads = threadsByWorkspace[workspaceId] ?? [];
       const targetThread = threads.find((entry) => entry.id === threadId);
       if (targetThread?.engineSource) {
@@ -1391,7 +1878,8 @@ function MainApp() {
     },
     [
       exitDiffView,
-      isCompact,
+      collapseRightPanel,
+      setAppMode,
       selectWorkspace,
       setActiveEngine,
       setActiveTab,
@@ -1512,24 +2000,49 @@ function MainApp() {
   const activeTokenUsage = activeThreadId
     ? tokenUsageByThread[activeThreadId] ?? null
     : null;
+  const timelinePlan = useMemo(
+    () => extractPlanFromTimelineItems(activeItems),
+    [activeItems],
+  );
   const activePlan = activeThreadId
-    ? planByThread[activeThreadId] ?? null
-    : null;
+    ? timelinePlan ?? planByThread[activeThreadId] ?? null
+    : timelinePlan;
   useEffect(() => {
-    if (activeEngine !== "codex" || !activeThreadId) {
+    activeThreadIdForModeRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (activeEngine !== "codex") {
       return;
     }
-    if (selectedCollaborationModeId === "plan") {
+    const mappedMode = activeThreadId
+      ? collaborationUiModeByThread[activeThreadId] ?? null
+      : null;
+    if (mappedMode === "plan" || mappedMode === "code") {
+      lastCodexModeSyncThreadRef.current = activeThreadId;
+      codexComposerModeRef.current = mappedMode;
+      if (selectedCollaborationModeId !== mappedMode) {
+        setSelectedCollaborationModeId(mappedMode);
+      }
       return;
     }
-    if (activeItems.length > 0) {
+    const threadChanged = lastCodexModeSyncThreadRef.current !== activeThreadId;
+    if (!threadChanged) {
       return;
     }
-    setSelectedCollaborationModeId("plan");
+    lastCodexModeSyncThreadRef.current = activeThreadId;
+    if (!activeThreadId) {
+      codexComposerModeRef.current = null;
+      return;
+    }
+    codexComposerModeRef.current = "code";
+    if (selectedCollaborationModeId !== "code") {
+      setSelectedCollaborationModeId("code");
+    }
   }, [
     activeEngine,
-    activeItems.length,
     activeThreadId,
+    collaborationUiModeByThread,
     selectedCollaborationModeId,
     setSelectedCollaborationModeId,
   ]);
@@ -1550,9 +2063,17 @@ function MainApp() {
     setIsPlanPanelDismissed(true);
   }, []);
   const showKanban = appMode === "kanban";
+  const showGitHistory = appMode === "gitHistory";
   const [selectedKanbanTaskId, setSelectedKanbanTaskId] = useState<string | null>(null);
+  const [workspaceHomeWorkspaceId, setWorkspaceHomeWorkspaceId] = useState<string | null>(null);
   const showHome = !activeWorkspace && !showKanban;
-  const showWorkspaceHome = Boolean(activeWorkspace && !activeThreadId);
+  const showWorkspaceHome = Boolean(
+    activeWorkspace &&
+      workspaceHomeWorkspaceId === activeWorkspace.id &&
+      !activeThreadId &&
+      appMode === "chat" &&
+      (isCompact ? (isTablet ? tabletTab : activeTab) === "codex" : activeTab !== "spec"),
+  );
   const canInterrupt = activeThreadId
     ? threadStatusById[activeThreadId]?.isProcessing ?? false
     : false;
@@ -1569,9 +2090,6 @@ function MainApp() {
     removeImage,
     clearActiveImages,
     removeImagesForThread,
-    activeContextFiles,
-    attachContextFiles,
-    removeContextFile,
     activeQueue,
     handleSend,
     queueMessage,
@@ -1601,77 +2119,27 @@ function MainApp() {
     startReview,
     startResume,
     startMcp,
+    startSpecRoot,
     startStatus,
+    startMode,
     startExport,
     startImport,
     startLsp,
     startShare,
+    setCodexCollaborationMode,
+    getCodexCollaborationMode: () => {
+      const threadMode = activeThreadId
+        ? collaborationUiModeByThread[activeThreadId] ?? null
+        : null;
+      if (threadMode === "plan" || threadMode === "code") {
+        return threadMode;
+      }
+      if (selectedCollaborationModeId === "plan" || selectedCollaborationModeId === "code") {
+        return selectedCollaborationModeId;
+      }
+      return "code";
+    },
   });
-
-  const pickContextFiles = useCallback(async () => {
-    if (!activeWorkspaceId || !activeWorkspace) {
-      return;
-    }
-    const engineType = activeWorkspace.settings.engineType ?? null;
-    const isOpenAIWorkspace =
-      typeof engineType === "string" && engineType.toLowerCase() === "openai";
-    if (!isOpenAIWorkspace) {
-      return;
-    }
-
-    const picked = await pickFiles({
-      multiple: true,
-      defaultPath: activeWorkspace.path,
-      title: "选择要添加到对话的文件",
-    });
-    if (picked.length === 0) {
-      return;
-    }
-
-    const normalizeFsPath = (value: string) =>
-      value.replace(/\//g, "\\").replace(/[\\]+$/, "");
-
-    const workspaceRoot = normalizeFsPath(activeWorkspace.path);
-    const workspaceRootLower = workspaceRoot.toLowerCase();
-
-    const relPaths: string[] = [];
-    const invalidPaths: string[] = [];
-    for (const absPath of picked) {
-      const normalized = absPath.replace(/\//g, "\\");
-      const normalizedLower = normalized.toLowerCase();
-      if (
-        normalizedLower === workspaceRootLower ||
-        !normalizedLower.startsWith(`${workspaceRootLower}\\`)
-      ) {
-        invalidPaths.push(absPath);
-        continue;
-      }
-
-      const rel = normalized.slice(workspaceRoot.length).replace(/^[\\]+/, "");
-      if (!rel.trim()) {
-        invalidPaths.push(absPath);
-        continue;
-      }
-      relPaths.push(rel.replace(/\\/g, "/"));
-    }
-
-    if (relPaths.length === 0) {
-      pushErrorToast({
-        title: "无法添加文件",
-        message: "请选择当前工作区文件夹内的文件。",
-      });
-      return;
-    }
-
-    if (invalidPaths.length > 0) {
-      pushErrorToast({
-        title: "部分文件未添加",
-        message: `${invalidPaths.length} 个文件不在当前工作区文件夹内，已忽略。`,
-      });
-    }
-
-    attachContextFiles(relPaths);
-  }, [activeWorkspace, activeWorkspaceId, attachContextFiles]);
 
   const handleInsertComposerText = useComposerInsert({
     activeThreadId,
@@ -1679,6 +2147,68 @@ function MainApp() {
     onDraftChange: handleDraftChange,
     textareaRef: composerInputRef,
   });
+  const perfSnapshotRef = useRef({
+    activeThreadId: null as string | null,
+    isProcessing: false,
+    activeItems: 0,
+    filesLoading: false,
+    files: 0,
+    directories: 0,
+    filePanelMode: "git" as "git" | "files" | "prompts" | "memory",
+    rightPanelCollapsed: false,
+    isCompact: false,
+    draftLength: 0,
+  });
+  useEffect(() => {
+    perfSnapshotRef.current = {
+      activeThreadId,
+      isProcessing,
+      activeItems: activeItems.length,
+      filesLoading: isFilesLoading,
+      files: files.length,
+      directories: directories.length,
+      filePanelMode,
+      rightPanelCollapsed,
+      isCompact,
+      draftLength: activeDraft.length,
+    };
+  }, [
+    activeDraft.length,
+    activeItems.length,
+    activeThreadId,
+    directories.length,
+    filePanelMode,
+    files.length,
+    isCompact,
+    isFilesLoading,
+    isProcessing,
+    rightPanelCollapsed,
+  ]);
+  useEffect(() => {
+    if (!import.meta.env.DEV || !isJankDebugEnabled() || typeof window === "undefined") {
+      return;
+    }
+    let rafId = 0;
+    let lastFrameAt = performance.now();
+    const monitor = (timestamp: number) => {
+      const delta = timestamp - lastFrameAt;
+      if (delta >= 120) {
+        const snapshot = perfSnapshotRef.current;
+        console.warn("[perf][jank]", {
+          frameGapMs: Number(delta.toFixed(2)),
+          ...snapshot,
+        });
+      }
+      lastFrameAt = timestamp;
+      rafId = window.requestAnimationFrame(monitor);
+    };
+    rafId = window.requestAnimationFrame(monitor);
+    return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, []);
 
   const activeWorkspaceKanbanTasks = useMemo(
     () => {
@@ -1691,6 +2221,31 @@ function MainApp() {
     () => (activeWorkspaceId ? threadsByWorkspace[activeWorkspaceId] ?? [] : []),
     [activeWorkspaceId, threadsByWorkspace],
   );
+  const RECENT_THREAD_LIMIT = 8;
+  const recentThreads = useMemo(() => {
+    if (!activeWorkspaceId) {
+      return [];
+    }
+    const threads = threadsByWorkspace[activeWorkspaceId] ?? [];
+    if (threads.length === 0) {
+      return [];
+    }
+    return [...threads]
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, RECENT_THREAD_LIMIT)
+      .map((thread) => {
+        const status = threadStatusById[thread.id];
+        return {
+          id: thread.id,
+          workspaceId: activeWorkspaceId,
+          threadId: thread.id,
+          title: thread.name?.trim() || t("threads.untitledThread"),
+          updatedAt: thread.updatedAt,
+          isProcessing: status?.isProcessing ?? false,
+          isReviewing: status?.isReviewing ?? false,
+        };
+      });
+  }, [activeWorkspaceId, threadStatusById, threadsByWorkspace, t]);
   useEffect(() => {
     if (!activeWorkspaceId) {
       return;
@@ -1806,35 +2361,6 @@ function MainApp() {
     workspaceNameByPath,
   });
 
-  const RECENT_THREAD_LIMIT = 8;
-  const { recentThreads } = useMemo(() => {
-    if (!activeWorkspaceId) {
-      return { recentThreads: [] };
-    }
-    const threads = threadsByWorkspace[activeWorkspaceId] ?? [];
-    if (threads.length === 0) {
-      return { recentThreads: [] };
-    }
-    const sorted = [...threads].sort((a, b) => b.updatedAt - a.updatedAt);
-    const slice = sorted.slice(0, RECENT_THREAD_LIMIT);
-    const summaries = slice.map((thread) => {
-      const status = threadStatusById[thread.id];
-      const displayName = thread.name?.trim() || t("threads.untitledThread");
-      return {
-        id: thread.id,
-        workspaceId: activeWorkspaceId,
-        threadId: thread.id,
-        title: displayName,
-        updatedAt: thread.updatedAt,
-        isProcessing: status?.isProcessing ?? false,
-        isReviewing: status?.isReviewing ?? false,
-      };
-    });
-    return {
-      recentThreads: summaries,
-    };
-  }, [activeWorkspaceId, threadStatusById, threadsByWorkspace, t]);
-
   const lockLiveSessions = useMemo(() => {
     const sessions = workspaces.flatMap((workspace) => {
       const threads = threadsByWorkspace[workspace.id] ?? [];
@@ -1947,7 +2473,15 @@ function MainApp() {
         });
       }
     }
-  }, [appSettings.systemNotificationEnabled, lastAgentMessageByThread, t, threadStatusById, threadsByWorkspace, workspaces]);
+  }, [
+    appSettings.systemNotificationEnabled,
+    lastAgentMessageByThread,
+    t,
+    threadItemsByThread,
+    threadStatusById,
+    threadsByWorkspace,
+    workspaces,
+  ]);
 
   const {
     commitMessage,
@@ -2137,11 +2671,13 @@ function MainApp() {
 
   useWindowDrag("titlebar");
 
+  const isWindowsDesktop = useMemo(() => isWindowsPlatform(), []);
+
   useEffect(() => {
     try {
       const title = activeWorkspace
-        ? `CodeMoss - ${activeWorkspace.name}`
-        : "CodeMoss";
+        ? `MossX - ${activeWorkspace.name}`
+        : "MossX";
       void getCurrentWindow().setTitle(title);
     } catch {
       // Non-Tauri environment, ignore.
@@ -2152,12 +2688,14 @@ function MainApp() {
     workspaces,
     hasLoaded,
     connectWorkspace,
-    listThreadsForWorkspace
+    activeWorkspaceId,
+    listThreadsForWorkspace: listThreadsForWorkspaceTracked,
   });
   useWorkspaceRefreshOnFocus({
     workspaces,
     refreshWorkspaces,
-    listThreadsForWorkspace
+    activeWorkspaceId,
+    listThreadsForWorkspace: listThreadsForWorkspaceTracked,
   });
 
   const {
@@ -2170,6 +2708,7 @@ function MainApp() {
     activeWorkspace,
     isCompact,
     activeEngine,
+    setActiveEngine,
     addWorkspace,
     addWorkspaceFromPath,
     connectWorkspace,
@@ -2235,19 +2774,33 @@ function MainApp() {
     t,
   ]);
 
+  const closeSearchPalette = useCallback(() => {
+    setIsSearchPaletteOpen(false);
+    setSearchPaletteQuery("");
+    setSearchPaletteSelectedIndex(0);
+  }, []);
+
+  const handleOpenSearchPalette = useCallback(() => {
+    const nextScope = resolveSearchScopeOnOpen(searchScope, activeWorkspaceId);
+    if (nextScope !== searchScope) {
+      setSearchScope(nextScope);
+    }
+    setIsSearchPaletteOpen(true);
+    setSearchPaletteSelectedIndex(0);
+  }, [activeWorkspaceId, searchScope]);
+
+  const handleToggleSearchPalette = useCallback(() => {
+    if (isSearchPaletteOpen) {
+      closeSearchPalette();
+      return;
+    }
+    handleOpenSearchPalette();
+  }, [closeSearchPalette, handleOpenSearchPalette, isSearchPaletteOpen]);
+
   useGlobalSearchShortcut({
     isEnabled: true,
     shortcut: appSettings.toggleGlobalSearchShortcut,
-    onTrigger: () => {
-      setIsSearchPaletteOpen((prev) => {
-        const next = !prev;
-        if (!next) {
-          setSearchPaletteQuery("");
-          setSearchPaletteSelectedIndex(0);
-        }
-        return next;
-      });
-    },
+    onTrigger: handleToggleSearchPalette,
   });
 
   useEffect(() => {
@@ -2360,11 +2913,10 @@ function MainApp() {
           break;
       }
       recordSearchResultOpen(result.id);
-      setIsSearchPaletteOpen(false);
-      setSearchPaletteQuery("");
-      setSearchPaletteSelectedIndex(0);
+      closeSearchPalette();
     },
     [
+      closeSearchPalette,
       exitDiffView,
       handleDraftChange,
       handleOpenFile,
@@ -2513,8 +3065,32 @@ function MainApp() {
     [composerLinkedKanbanPanels, selectedComposerKanbanPanelId],
   );
 
+  const mergeSelectedAgentOption = useCallback(
+    (options?: MessageSendOptions): MessageSendOptions | undefined => {
+      if (activeEngine === "opencode") {
+        return options;
+      }
+      const merged: MessageSendOptions = {
+        ...(options ?? {}),
+        selectedAgent: selectedAgent
+          ? {
+              id: selectedAgent.id,
+              name: selectedAgent.name,
+              prompt: selectedAgent.prompt ?? null,
+            }
+          : null,
+      };
+      return merged;
+    },
+    [activeEngine, selectedAgent],
+  );
+
   const handleComposerSendWithKanban = useCallback(
-    async (text: string, images: string[], files: string[]) => {
+    async (
+      text: string,
+      images: string[],
+      options?: MessageSendOptions,
+    ) => {
       const trimmedOriginalText = text.trim();
       const { panelId, cleanText } = resolveComposerKanbanPanel(trimmedOriginalText);
       const textForSending = cleanText;
@@ -2522,7 +3098,11 @@ function MainApp() {
       if (!panelId || !activeWorkspaceId || isPullRequestComposer) {
         const fallbackText =
           textForSending.length > 0 ? textForSending : trimmedOriginalText;
-        await handleComposerSend(fallbackText, images, files);
+        await handleComposerSend(
+          fallbackText,
+          images,
+          mergeSelectedAgentOption(options),
+        );
         return;
       }
 
@@ -2531,7 +3111,7 @@ function MainApp() {
         await handleComposerSend(
           textForSending.length > 0 ? textForSending : trimmedOriginalText,
           images,
-          files,
+          mergeSelectedAgentOption(options),
         );
         return;
       }
@@ -2591,7 +3171,13 @@ function MainApp() {
       }
 
       if (textForSending.length > 0 || images.length > 0) {
-        await sendUserMessageToThread(workspace, resolvedThreadId, textForSending, images);
+        await sendUserMessageToThread(
+          workspace,
+          resolvedThreadId,
+          textForSending,
+          images,
+          mergeSelectedAgentOption(options),
+        );
       }
 
       const taskDescription = textForSending.length > 0 ? textForSending : trimmedOriginalText;
@@ -2619,6 +3205,7 @@ function MainApp() {
     [
       resolveComposerKanbanPanel,
       handleComposerSend,
+      mergeSelectedAgentOption,
       activeWorkspaceId,
       workspacesById,
       connectWorkspace,
@@ -2639,8 +3226,12 @@ function MainApp() {
   );
 
   const handleComposerSendWithEditorFallback = useCallback(
-    async (text: string, images: string[], files: string[]) => {
-      await handleComposerSendWithKanban(text, images, files);
+    async (
+      text: string,
+      images: string[],
+      options?: MessageSendOptions,
+    ) => {
+      await handleComposerSendWithKanban(text, images, options);
       if (!isCompact && centerMode === "editor") {
         setCenterMode("chat");
       }
@@ -2649,367 +3240,84 @@ function MainApp() {
   );
 
   const handleComposerQueueWithEditorFallback = useCallback(
-    async (text: string, images: string[], files: string[]) => {
-      await handleComposerQueue(text, images, files);
+    async (
+      text: string,
+      images: string[],
+      options?: MessageSendOptions,
+    ) => {
+      await handleComposerQueue(text, images, mergeSelectedAgentOption(options));
       if (!isCompact && centerMode === "editor") {
         setCenterMode("chat");
       }
     },
-    [centerMode, handleComposerQueue, isCompact, setCenterMode],
+    [centerMode, handleComposerQueue, isCompact, mergeSelectedAgentOption, setCenterMode],
   );
 
   const handleSelectWorkspaceInstance = useCallback(
     (workspaceId: string, threadId: string) => {
       exitDiffView();
       resetPullRequestSelection();
+      setWorkspaceHomeWorkspaceId(null);
+      setAppMode("chat");
+      setActiveTab("codex");
+      collapseRightPanel();
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
-      if (isCompact) {
-        setActiveTab("codex");
+      const threads = threadsByWorkspace[workspaceId] ?? [];
+      const thread = threads.find((entry) => entry.id === threadId);
+      if (thread?.engineSource) {
+        setActiveEngine(thread.engineSource);
       }
     },
     [
       exitDiffView,
-      isCompact,
+      collapseRightPanel,
       resetPullRequestSelection,
       selectWorkspace,
-      setActiveTab,
+      setActiveEngine,
       setActiveThreadId,
+      threadsByWorkspace,
     ],
   );
 
-  const getOrCreateCustomAPIWorkspace = useCallback(async (): Promise<WorkspaceInfo> => {
-    const isCustomAPIWorkspace = (ws: WorkspaceInfo | null | undefined) => {
-      const type = ws?.settings.engineType ?? null;
-      return typeof type === "string" && type.toLowerCase() === "openai";
-    };
-    const normalizePath = (path: string) =>
-      path.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
-    const isScratch = (ws: WorkspaceInfo) => {
-      const normalized = normalizePath(ws.path);
-      return normalized.endsWith("/openai-chat-workspace");
-    };
-
-    const openaiWorkspaces = workspaces.filter((ws) => {
-      if (!isCustomAPIWorkspace(ws)) {
-        return false;
-      }
-      return (ws.kind ?? "main") !== "worktree";
-    });
-    const realOpenAIWorkspaces = openaiWorkspaces.filter((ws) => !isScratch(ws));
-
-    // Prefer the current Custom API workspace only if it is a real folder workspace.
-    // If the current workspace is the scratch "no project" workspace, we prefer the last
-    // selected Custom API folder workspace instead.
-    if (activeWorkspace && isCustomAPIWorkspace(activeWorkspace) && !isScratch(activeWorkspace)) {
-      return activeWorkspace;
-    }
-
-    const lastWorkspaceId =
-      getClientStoreSync<string>("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY) ?? null;
-    const lastWorkspace = lastWorkspaceId ? workspacesById.get(lastWorkspaceId) : null;
-    if (lastWorkspace && isCustomAPIWorkspace(lastWorkspace) && !isScratch(lastWorkspace)) {
-      return lastWorkspace;
-    }
-
-    // If the user is currently inside a "CLI" workspace, prefer (or create) a Custom API workspace
-    // pointing at the same folder so the Custom API home opens in the current project by default.
-    if (activeWorkspace && !isCustomAPIWorkspace(activeWorkspace)) {
-      const activeNormalized = normalizePath(activeWorkspace.path);
-      const matchingOpenAIWorkspace =
-        realOpenAIWorkspaces.find((ws) => normalizePath(ws.path) === activeNormalized) ?? null;
-      if (matchingOpenAIWorkspace) {
-        return matchingOpenAIWorkspace;
+  const handleStartWorkspaceConversation = useCallback(
+    async (engine: EngineType = "claude") => {
+      if (!activeWorkspace) {
+        return;
       }
       try {
-        const created = await addOpenAIWorkspaceFromPath(activeWorkspace.path);
-        if (created) {
-          return created;
+        setWorkspaceHomeWorkspaceId(null);
+        if (!activeWorkspace.connected) {
+          await connectWorkspace(activeWorkspace);
         }
-      } catch {
-        // If we fail to create a per-project workspace, fall back to the scratch workspace.
+        await setActiveEngine(engine);
+        const threadId = await startThreadForWorkspace(activeWorkspace.id, {
+          activate: true,
+          engine,
+        });
+        if (!threadId) {
+          return;
+        }
+        setActiveThreadId(threadId, activeWorkspace.id);
+        collapseRightPanel();
+        if (isCompact) {
+          setActiveTab("codex");
+        }
+      } catch (error) {
+        alertError(error);
       }
-    }
-
-    if (realOpenAIWorkspaces.length > 0) {
-      return realOpenAIWorkspaces[0];
-    }
-    if (openaiWorkspaces.length > 0) {
-      return openaiWorkspaces[0];
-    }
-
-    return ensureOpenAIChatWorkspace();
-  }, [
-    activeWorkspace,
-    addOpenAIWorkspaceFromPath,
-    ensureOpenAIChatWorkspace,
-    workspaces,
-    workspacesById,
-  ]);
-
-  const handleOpenCustomAPIHome = useCallback(async () => {
-    // Entry point: open the Custom API workspace home without auto-starting a thread.
-    try {
-      exitDiffView();
-      resetPullRequestSelection();
-      setCenterMode("chat");
-      setAppMode("chat");
-
-      const openaiStatus =
-        engineStatuses.find((status) => status.engineType === "openai") ?? null;
-      if (openaiStatus && !openaiStatus.installed) {
-        openSettings("vendors");
-        return;
-      }
-
-      const workspace = await getOrCreateCustomAPIWorkspace();
-      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
-      selectWorkspace(workspace.id);
-      setActiveThreadId(null, workspace.id);
-      await setActiveEngine("openai");
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    alertError,
-    engineStatuses,
-    exitDiffView,
-    getOrCreateCustomAPIWorkspace,
-    isCompact,
-    openSettings,
-    resetPullRequestSelection,
-    selectWorkspace,
-    setActiveEngine,
-    setActiveTab,
-    setActiveThreadId,
-    setAppMode,
-    setCenterMode,
-  ]);
-
-  const handleNewCustomAPIChat = useCallback(async () => {
-    // Start a new Custom API chat thread for the active (or default) Custom API workspace.
-    try {
-      exitDiffView();
-      resetPullRequestSelection();
-      setCenterMode("chat");
-      setAppMode("chat");
-
-      const openaiStatus =
-        engineStatuses.find((status) => status.engineType === "openai") ?? null;
-      if (openaiStatus && !openaiStatus.installed) {
-        openSettings("vendors");
-        return;
-      }
-
-      const workspace = await getOrCreateCustomAPIWorkspace();
-      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
-      selectWorkspace(workspace.id);
-      setActiveThreadId(null, workspace.id);
-      await setActiveEngine("openai");
-
-      const threadId = await startThreadForWorkspace(workspace.id, {
-        activate: true,
-        engine: "openai",
-      });
-      if (!threadId) {
-        return;
-      }
-      setActiveThreadId(threadId, workspace.id);
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    alertError,
-    engineStatuses,
-    exitDiffView,
-    getOrCreateCustomAPIWorkspace,
-    isCompact,
-    openSettings,
-    resetPullRequestSelection,
-    selectWorkspace,
-    setActiveEngine,
-    setActiveTab,
-    setActiveThreadId,
-    setAppMode,
-    setCenterMode,
-    startThreadForWorkspace,
-  ]);
-
-  const handlePickCustomAPIProjectDir = useCallback(async (workspaceId: string) => {
-    // Pick a folder and retarget the current Custom API workspace to that folder.
-    try {
-      const openaiStatus =
-        engineStatuses.find((status) => status.engineType === "openai") ?? null;
-      if (openaiStatus && !openaiStatus.installed) {
-        openSettings("vendors");
-        return;
-      }
-      if (!workspaceId) {
-        return;
-      }
-      const workspace = await retargetOpenAIWorkspace(workspaceId);
-      if (!workspace) {
-        return;
-      }
-      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    alertError,
-    engineStatuses,
-    openSettings,
-    retargetOpenAIWorkspace,
-  ]);
-
-  const handleAddOpenAIWorkspaceAndChat = useCallback(async () => {
-    // Create an OpenAI-compatible workspace from a user-selected folder and start a chat.
-    try {
-      exitDiffView();
-      resetPullRequestSelection();
-      setCenterMode("chat");
-      setAppMode("chat");
-
-      const openaiStatus =
-        engineStatuses.find((status) => status.engineType === "openai") ?? null;
-      if (openaiStatus && !openaiStatus.installed) {
-        openSettings("vendors");
-        return;
-      }
-
-      const workspace = await addOpenAIWorkspace();
-      if (!workspace) {
-        return;
-      }
-      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspace.id);
-      selectWorkspace(workspace.id);
-      setActiveThreadId(null, workspace.id);
-      await setActiveEngine("openai");
-
-      const threadId = await startThreadForWorkspace(workspace.id, {
-        activate: true,
-        engine: "openai",
-      });
-      if (!threadId) {
-        return;
-      }
-      setActiveThreadId(threadId, workspace.id);
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    addOpenAIWorkspace,
-    alertError,
-    engineStatuses,
-    exitDiffView,
-    isCompact,
-    openSettings,
-    resetPullRequestSelection,
-    selectWorkspace,
-    setActiveEngine,
-    setActiveTab,
-    setActiveThreadId,
-    setAppMode,
-    setCenterMode,
-    startThreadForWorkspace,
-  ]);
-
-  const handleSelectOpenAIWorkspaceAndChat = useCallback(async (workspaceId: string) => {
-    if (!workspaceId) {
-      return;
-    }
-
-    // Switch to an existing OpenAI workspace (folder) and start a new chat in it.
-    try {
-      exitDiffView();
-      resetPullRequestSelection();
-      setCenterMode("chat");
-      setAppMode("chat");
-
-      const openaiStatus =
-        engineStatuses.find((status) => status.engineType === "openai") ?? null;
-      if (openaiStatus && !openaiStatus.installed) {
-        openSettings("vendors");
-        return;
-      }
-
-      writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
-      selectWorkspace(workspaceId);
-      setActiveThreadId(null, workspaceId);
-      await setActiveEngine("openai");
-
-      const threadId = await startThreadForWorkspace(workspaceId, {
-        activate: true,
-        engine: "openai",
-      });
-      if (!threadId) {
-        return;
-      }
-      setActiveThreadId(threadId, workspaceId);
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    alertError,
-    engineStatuses,
-    exitDiffView,
-    isCompact,
-    openSettings,
-    resetPullRequestSelection,
-    selectWorkspace,
-    setActiveEngine,
-    setActiveTab,
-    setActiveThreadId,
-    setAppMode,
-    setCenterMode,
-    startThreadForWorkspace,
-  ]);
-
-  const handleStartWorkspaceConversation = useCallback(async (engine: EngineType = "claude") => {
-    if (!activeWorkspace) {
-      return;
-    }
-    try {
-      if (!activeWorkspace.connected) {
-        await connectWorkspace(activeWorkspace);
-      }
-      await setActiveEngine(engine);
-      const threadId = await startThreadForWorkspace(activeWorkspace.id, {
-        activate: true,
-        engine,
-      });
-      if (!threadId) {
-        return;
-      }
-      setActiveThreadId(threadId, activeWorkspace.id);
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    } catch (error) {
-      alertError(error);
-    }
-  }, [
-    activeWorkspace,
-    alertError,
-    connectWorkspace,
-    isCompact,
-    setActiveEngine,
-    setActiveTab,
-    setActiveThreadId,
-    startThreadForWorkspace,
-  ]);
+    },
+    [
+      activeWorkspace,
+      alertError,
+      collapseRightPanel,
+      connectWorkspace,
+      isCompact,
+      setActiveEngine,
+      setActiveThreadId,
+      startThreadForWorkspace,
+    ],
+  );
 
   const handleContinueLatestConversation = useCallback(() => {
     const latest = recentThreads[0];
@@ -3026,6 +3334,7 @@ function MainApp() {
         return;
       }
       try {
+        setWorkspaceHomeWorkspaceId(null);
         if (!activeWorkspace.connected) {
           await connectWorkspace(activeWorkspace);
         }
@@ -3038,6 +3347,7 @@ function MainApp() {
           return;
         }
         setActiveThreadId(threadId, activeWorkspace.id);
+        collapseRightPanel();
         await sendUserMessageToThread(activeWorkspace, threadId, normalizedPrompt);
         if (isCompact) {
           setActiveTab("codex");
@@ -3049,11 +3359,11 @@ function MainApp() {
     [
       activeWorkspace,
       alertError,
+      collapseRightPanel,
       connectWorkspace,
       isCompact,
       sendUserMessageToThread,
       setActiveEngine,
-      setActiveTab,
       setActiveThreadId,
       startThreadForWorkspace,
     ],
@@ -3097,10 +3407,7 @@ function MainApp() {
       if (failed.length > 0) {
         const failedReasonLine = failed
           .slice(0, 3)
-          .map(
-            (entry) =>
-              `- ${entry.threadId}: ${t(`workspace.deleteErrorCode.${entry.code}`)}`,
-          )
+          .map((entry) => `- ${entry.threadId}: ${t(`workspace.deleteErrorCode.${entry.code}`)}`)
           .join("\n");
         alertError(
           `${t("workspace.deleteConversationsPartial", {
@@ -3454,9 +3761,31 @@ function MainApp() {
     );
   };
 
+  const shouldMountSpecHub = Boolean(activeWorkspace) && appMode === "chat";
+  const showSpecHub = shouldMountSpecHub && activeTab === "spec";
+  const rightPanelAvailable = Boolean(
+    !isCompact &&
+    activeWorkspace &&
+    appMode === "chat" &&
+    !settingsOpen &&
+    centerMode !== "memory",
+  );
+  const sidebarToggleProps = {
+    isCompact,
+    sidebarCollapsed,
+    rightPanelCollapsed,
+    rightPanelAvailable,
+    onCollapseSidebar: collapseSidebar,
+    onExpandSidebar: expandSidebar,
+    onCollapseRightPanel: collapseRightPanel,
+    onExpandRightPanel: expandRightPanel,
+  };
+
   const showComposer = Boolean(selectedKanbanTaskId) || ((!isCompact
-    ? centerMode === "chat" || centerMode === "diff" || centerMode === "editor"
-    : (isTablet ? tabletTab : activeTab) === "codex") && !showWorkspaceHome);
+    ? (centerMode === "chat" || centerMode === "diff" || centerMode === "editor") &&
+      !showSpecHub &&
+      !showWorkspaceHome
+    : (isTablet ? tabletTab : activeTab) === "codex" && !showWorkspaceHome));
   const showGitDetail = Boolean(selectedDiffPath) && isPhone;
   const isThreadOpen = Boolean(activeThreadId && showComposer);
   const handleSelectDiffForPanel = useCallback(
@@ -3469,6 +3798,67 @@ function MainApp() {
     },
     [handleSelectDiff, setSelectedDiffPath],
   );
+  const normalizeWorkspacePath = useCallback(
+    (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, ""),
+    [],
+  );
+  const handleSelectWorkspacePathForGitHistory = useCallback(
+    async (path: string) => {
+      const normalizedTarget = normalizeWorkspacePath(path);
+      const existing = workspaces.find(
+        (entry) => normalizeWorkspacePath(entry.path) === normalizedTarget,
+      );
+      if (existing) {
+        setActiveWorkspaceId(existing.id);
+        return;
+      }
+      try {
+        const workspace = await addWorkspaceFromPath(path);
+        if (workspace) {
+          setActiveWorkspaceId(workspace.id);
+        }
+      } catch (error) {
+        addDebugEntry({
+          id: `${Date.now()}-git-history-select-workspace-path-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "git-history/select-workspace-path error",
+          payload: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [addDebugEntry, addWorkspaceFromPath, normalizeWorkspacePath, setActiveWorkspaceId, workspaces],
+  );
+
+  const handleOpenSpecHub = useCallback(() => {
+    closeSettings();
+    setAppMode("chat");
+    setCenterMode("chat");
+    setActiveTab((current) => (current === "spec" ? "codex" : "spec"));
+  }, [closeSettings]);
+
+  const handleOpenWorkspaceHome = useCallback(() => {
+    exitDiffView();
+    resetPullRequestSelection();
+    setAppMode("chat");
+    setCenterMode("chat");
+    setActiveTab("codex");
+    if (activeWorkspaceId) {
+      setWorkspaceHomeWorkspaceId(activeWorkspaceId);
+      selectWorkspace(activeWorkspaceId);
+      setActiveThreadId(null, activeWorkspaceId);
+      return;
+    }
+    setWorkspaceHomeWorkspaceId(null);
+    selectHome();
+  }, [
+    activeWorkspaceId,
+    exitDiffView,
+    resetPullRequestSelection,
+    selectHome,
+    selectWorkspace,
+    setActiveThreadId,
+  ]);
 
   useArchiveShortcut({
     isEnabled: isThreadOpen,
@@ -3496,8 +3886,8 @@ function MainApp() {
     onAddWorkspace: () => {
       void handleAddWorkspace();
     },
-    onAddAgent: (workspace) => {
-      void handleAddAgent(workspace);
+    onAddAgent: (workspace, engine) => {
+      void handleAddAgent(workspace, engine);
     },
     onAddWorktreeAgent: (workspace) => {
       void handleAddWorktreeAgent(workspace);
@@ -3510,18 +3900,10 @@ function MainApp() {
     onCycleWorkspace: handleCycleWorkspace,
     onToggleDebug: handleDebugClick,
     onToggleTerminal: handleToggleTerminal,
-    onToggleGlobalSearch: () => {
-      setIsSearchPaletteOpen((prev) => {
-        const next = !prev;
-        if (!next) {
-          setSearchPaletteQuery("");
-          setSearchPaletteSelectedIndex(0);
-        }
-        return next;
-      });
-    },
+    onToggleGlobalSearch: handleToggleSearchPalette,
     sidebarCollapsed,
     rightPanelCollapsed,
+    rightPanelAvailable,
     onExpandSidebar: expandSidebar,
     onCollapseSidebar: collapseSidebar,
     onExpandRightPanel: expandRightPanel,
@@ -3530,34 +3912,26 @@ function MainApp() {
 
   useMenuAcceleratorController({ appSettings, onDebug: addDebugEntry });
   useMenuLocalization();
+  const handleRefreshAccountRateLimits = useCallback(
+    () => refreshAccountRateLimits(activeWorkspaceId ?? undefined),
+    [activeWorkspaceId, refreshAccountRateLimits],
+  );
   const dropOverlayActive = isWorkspaceDropActive;
   const dropOverlayText = "Drop Project Here";
-  const showWorkspaceView = Boolean(activeWorkspace && !showHome && !showKanban);
-  const activeWorkspaceEngineType = activeWorkspace?.settings?.engineType ?? null;
-  const isOpenAIWorkspace =
-    typeof activeWorkspaceEngineType === "string" &&
-    activeWorkspaceEngineType.toLowerCase() === "openai";
-
-  useEffect(() => {
-    if (!isOpenAIWorkspace) {
-      return;
-    }
-    if (activeTab === "git" || activeTab === "log") {
-      setActiveTab("codex");
-    }
-  }, [activeTab, isOpenAIWorkspace]);
-
-  const showRightPanel = true;
-  const shouldShowSidebarTopbarContent =
-    !isCompact && !sidebarCollapsed && showWorkspaceView;
+  const shouldShowSidebarTopbarContent = false;
   const appClassName = `app ${isCompact ? "layout-compact" : "layout-desktop"}${
     isPhone ? " layout-phone" : ""
   }${isTablet ? " layout-tablet" : ""}${
+    isWindowsDesktop ? " windows-desktop" : ""
+  }${
     reduceTransparency ? " reduced-transparency" : ""
-  }${!isCompact && sidebarCollapsed ? " sidebar-collapsed" : ""}${
+  }${!isCompact && sidebarCollapsed && !showGitHistory ? " sidebar-collapsed" : ""}${
     !isCompact && rightPanelCollapsed ? " right-panel-collapsed" : ""
   }${shouldShowSidebarTopbarContent ? " sidebar-title-relocated" : ""}${
+    showHome ? " home-active" : ""
+  }${
     showKanban ? " kanban-active" : ""
+  }${showGitHistory ? " git-history-active" : ""
   }`;
   const {
     sidebarNode,
@@ -3579,6 +3953,7 @@ function MainApp() {
     debugPanelFullNode,
     terminalDockNode,
     compactEmptyCodexNode,
+    compactEmptySpecNode,
     compactEmptyGitNode,
     compactGitBackNode,
   } = useLayoutNodes({
@@ -3597,6 +3972,7 @@ function MainApp() {
     activeItems,
     activeRateLimits,
     usageShowRemaining: appSettings.usageShowRemaining,
+    onRefreshAccountRateLimits: handleRefreshAccountRateLimits,
     showMessageAnchors: appSettings.showMessageAnchors,
     accountInfo: activeAccount,
     onSwitchAccount: handleSwitchAccount,
@@ -3611,43 +3987,32 @@ function MainApp() {
     userInputRequests,
     handleApprovalDecision,
     handleApprovalRemember,
-    handleUserInputSubmit,
+    handleUserInputSubmit: handleUserInputSubmitWithPlanApply,
     onOpenSettings: () => openSettings(),
+    onOpenAgentSettings: () => openSettings("agents"),
     onOpenDictationSettings: () => openSettings("dictation"),
     onOpenDebug: handleDebugClick,
     showDebugButton,
     onAddWorkspace: handleAddWorkspace,
     onSelectHome: () => {
+      closeSettings();
       resetPullRequestSelection();
+      setWorkspaceHomeWorkspaceId(null);
       selectHome();
     },
     onSelectWorkspace: (workspaceId) => {
+      closeSettings();
       exitDiffView();
       resetPullRequestSelection();
+      setWorkspaceHomeWorkspaceId(null);
       setCenterMode("chat");
       selectWorkspace(workspaceId);
+      ensureWorkspaceThreadListLoaded(workspaceId);
       setActiveThreadId(null, workspaceId);
-      const target = workspacesById.get(workspaceId);
-      const workspaceEngineType = target?.settings?.engineType ?? null;
-      if (
-        typeof workspaceEngineType === "string" &&
-        workspaceEngineType.toLowerCase() === "openai"
-      ) {
-        writeClientStoreValue("app", LAST_CUSTOM_API_WORKSPACE_ID_KEY, workspaceId);
-        void setActiveEngine("openai");
-      } else if (activeEngine === "openai") {
-        // Avoid leaving the UI in an OpenAI engine state when switching back to CLI workspaces.
-        const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
-        const fallback =
-          preferredCliOrder.find(
-            (engine) =>
-              (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
-          ) ?? "claude";
-        void setActiveEngine(fallback);
-      }
     },
     onConnectWorkspace: async (workspace) => {
       await connectWorkspace(workspace);
+      ensureWorkspaceThreadListLoaded(workspace.id, { force: true });
       if (isCompact) {
         setActiveTab("codex");
       }
@@ -3655,10 +4020,6 @@ function MainApp() {
     onAddAgent: handleAddAgent,
     onAddWorktreeAgent: handleAddWorktreeAgent,
     onAddCloneAgent: handleAddCloneAgent,
-    onOpenCustomAPIHome: handleOpenCustomAPIHome,
-    onNewCustomAPIChat: handleNewCustomAPIChat,
-    onAddOpenAIWorkspace: handleAddOpenAIWorkspaceAndChat,
-    onSelectOpenAIWorkspace: handleSelectOpenAIWorkspaceAndChat,
     onToggleWorkspaceCollapse: (workspaceId, collapsed) => {
       const target = workspacesById.get(workspaceId);
       if (!target) {
@@ -3666,40 +4027,27 @@ function MainApp() {
       }
       void updateWorkspaceSettings(workspaceId, {
         sidebarCollapsed: collapsed,
+      }).then(() => {
+        if (!collapsed) {
+          ensureWorkspaceThreadListLoaded(workspaceId);
+        }
       });
     },
     onSelectThread: (workspaceId, threadId) => {
+      closeSettings();
       exitDiffView();
       resetPullRequestSelection();
+      setWorkspaceHomeWorkspaceId(null);
       setCenterMode("chat");
+      setAppMode("chat");
+      setActiveTab("codex");
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
-
-      // Keep OpenAI Compatible as an isolated conversation space:
-      // When a thread belongs to an OpenAI workspace, always switch engine to OpenAI.
-      const workspace = workspacesById.get(workspaceId);
-      const workspaceEngineType = workspace?.settings?.engineType ?? null;
-      const isOpenAIWorkspace =
-        typeof workspaceEngineType === "string" &&
-        workspaceEngineType.toLowerCase() === "openai";
-      if (isOpenAIWorkspace) {
-        void setActiveEngine("openai");
-        return;
-      }
-
-      // Otherwise, auto-switch engine based on thread's engineSource (if any).
+      // Auto-switch engine based on thread's engineSource
       const threads = threadsByWorkspace[workspaceId] ?? [];
       const thread = threads.find((t) => t.id === threadId);
       if (thread?.engineSource) {
-        void setActiveEngine(thread.engineSource);
-      } else if (activeEngine === "openai") {
-        const preferredCliOrder: EngineType[] = ["claude", "codex", "gemini", "opencode"];
-        const fallback =
-          preferredCliOrder.find(
-            (engine) =>
-              (engineStatuses.find((s) => s.engineType === engine)?.installed ?? false),
-          ) ?? "claude";
-        void setActiveEngine(fallback);
+        setActiveEngine(thread.engineSource);
       }
     },
     onDeleteThread: async (workspaceId, threadId) => {
@@ -3774,12 +4122,31 @@ function MainApp() {
       }
       void loadOlderThreadsForWorkspace(workspace);
     },
-    onReloadWorkspaceThreads: (workspaceId) => {
+    onReloadWorkspaceThreads: async (workspaceId) => {
       const workspace = workspacesById.get(workspaceId);
       if (!workspace) {
         return;
       }
-      void listThreadsForWorkspace(workspace);
+      const workspaceName = workspace.name || t("workspace.noWorkspaceSelected");
+      const detailLines = [
+        t("workspace.reloadWorkspaceThreadsEffectRefresh"),
+        t("workspace.reloadWorkspaceThreadsEffectDisplayOnly"),
+        t("workspace.reloadWorkspaceThreadsEffectNoDelete"),
+        t("workspace.reloadWorkspaceThreadsEffectNoGitWrite"),
+      ];
+      const confirmed = await ask(
+        `${t("workspace.reloadWorkspaceThreadsConfirm", { name: workspaceName })}\n\n${t("workspace.reloadWorkspaceThreadsBeforeYouConfirm")}\n${detailLines.map((line) => `• ${line}`).join("\n")}`,
+        {
+          title: t("workspace.reloadWorkspaceThreadsTitle"),
+          kind: "warning",
+          okLabel: t("threads.reloadThreads"),
+          cancelLabel: t("common.cancel"),
+        },
+      );
+      if (!confirmed) {
+        return;
+      }
+      void listThreadsForWorkspaceTracked(workspace);
     },
     updaterState,
     onUpdate: startUpdate,
@@ -3788,20 +4155,8 @@ function MainApp() {
     onDismissErrorToast: dismissErrorToast,
     latestAgentRuns,
     isLoadingLatestAgents,
-    onSelectHomeThread: (workspaceId, threadId) => {
-      exitDiffView();
-      selectWorkspace(workspaceId);
-      setActiveThreadId(threadId, workspaceId);
-      // Auto-switch engine based on thread's engineSource
-      const threads = threadsByWorkspace[workspaceId] ?? [];
-      const thread = threads.find((t) => t.id === threadId);
-      if (thread?.engineSource) {
-        setActiveEngine(thread.engineSource);
-      }
-      if (isCompact) {
-        setActiveTab("codex");
-      }
-    },
+    onSelectHomeThread: handleSelectWorkspaceInstance,
+    onOpenSpecHub: handleOpenSpecHub,
     activeWorkspace,
     activeParentWorkspace,
     worktreeLabel,
@@ -3831,6 +4186,9 @@ function MainApp() {
         isCompact={isCompact}
         rightPanelCollapsed={rightPanelCollapsed}
         sidebarToggleProps={sidebarToggleProps}
+        showTerminalButton={!isCompact}
+        isTerminalOpen={terminalOpen}
+        onToggleTerminal={handleToggleTerminal}
       />
     ),
     filePanelMode,
@@ -3838,7 +4196,11 @@ function MainApp() {
     fileTreeLoading: isFilesLoading,
     onRefreshFiles: refreshFiles,
     centerMode,
+    editorSplitLayout,
+    onToggleEditorSplitLayout: () =>
+      setEditorSplitLayout((prev) => (prev === "vertical" ? "horizontal" : "vertical")),
     editorFilePath: activeEditorFilePath,
+    editorNavigationTarget,
     openEditorTabs: openFileTabs,
     onActivateEditorTab: handleActivateFileTab,
     onCloseEditorTab: handleCloseFileTab,
@@ -3986,12 +4348,9 @@ function MainApp() {
     draftText: activeDraft,
     onDraftChange: handleDraftChange,
     activeImages,
-    activeContextFiles,
     onPickImages: pickImages,
-    onPickContextFiles: pickContextFiles,
     onAttachImages: attachImages,
     onRemoveImage: removeImage,
-    onRemoveContextFile: removeContextFile,
     prefillDraft,
     onPrefillHandled: (id) => {
       if (prefillDraft?.id === id) {
@@ -4009,9 +4368,10 @@ function MainApp() {
     collaborationModes,
     collaborationModesEnabled,
     selectedCollaborationModeId,
-    onSelectCollaborationMode: setSelectedCollaborationModeId,
+    onSelectCollaborationMode: applySelectedCollaborationMode,
     engines: installedEngines,
     selectedEngine: activeEngine,
+    usePresentationProfile: appSettings.chatCanvasUsePresentationProfile,
     onSelectEngine: setActiveEngine,
     models: effectiveModels,
     selectedModelId: effectiveSelectedModelId,
@@ -4023,11 +4383,13 @@ function MainApp() {
     opencodeAgents: openCodeAgents,
     selectedOpenCodeAgent,
     onSelectOpenCodeAgent: handleSelectOpenCodeAgent,
+    selectedAgent,
+    onSelectAgent: handleSelectAgent,
     opencodeVariantOptions: OPENCODE_VARIANT_OPTIONS,
     selectedOpenCodeVariant,
     onSelectOpenCodeVariant: handleSelectOpenCodeVariant,
     accessMode,
-    onSelectAccessMode: setAccessMode,
+    onSelectAccessMode: handleSetAccessMode,
     skills,
     prompts,
     commands,
@@ -4035,11 +4397,9 @@ function MainApp() {
     directories,
     gitignoredFiles,
     onInsertComposerText: handleInsertComposerText,
-    onAttachContextFile: (path) => {
-      attachContextFiles([path]);
-    },
     textareaRef: composerInputRef,
     composerEditorSettings,
+    composerSendShortcut: appSettings.composerSendShortcut,
     textareaHeight,
     onTextareaHeightChange,
     dictationEnabled: appSettings.dictationEnabled && dictationReady,
@@ -4098,27 +4458,67 @@ function MainApp() {
     onWorkspaceDragLeave: handleWorkspaceDragLeave,
     onWorkspaceDrop: handleWorkspaceDrop,
     appMode,
-    onAppModeChange: setAppMode,
-    onOpenMemory: () => setCenterMode("memory"),
+    onAppModeChange: handleAppModeChange,
+    onOpenMemory: () => {
+      closeSettings();
+      setAppMode("chat");
+      setCenterMode("memory");
+    },
+    onOpenProjectMemory: () => {
+      closeSettings();
+      setAppMode("chat");
+      setCenterMode("chat");
+      setFilePanelMode("memory");
+      expandRightPanel();
+      if (isCompact) {
+        setActiveTab("git");
+      }
+    },
+    onOpenGlobalSearch: handleOpenSearchPalette,
+    globalSearchShortcut: appSettings.toggleGlobalSearchShortcut,
+    onOpenWorkspaceHome: handleOpenWorkspaceHome,
   });
+
+  const specHubNode = shouldMountSpecHub ? (
+    <SpecHub
+      workspaceId={activeWorkspace?.id ?? null}
+      workspaceName={activeWorkspace?.name ?? null}
+      files={files}
+      directories={directories}
+      onBackToChat={() => setActiveTab("codex")}
+    />
+  ) : null;
 
   const workspaceHomeNode = activeWorkspace ? (
     <WorkspaceHome
       workspace={activeWorkspace}
-      engines={availableEngines}
+      engines={installedEngines}
       currentBranch={gitStatus.branchName || null}
       recentThreads={recentThreads}
       onSelectConversation={handleSelectWorkspaceInstance}
       onStartConversation={handleStartWorkspaceConversation}
       onContinueLatestConversation={handleContinueLatestConversation}
       onStartGuidedConversation={handleStartGuidedConversation}
+      onOpenSpecHub={handleOpenSpecHub}
       onRevealWorkspace={handleRevealActiveWorkspace}
-      onPickCustomAPIWorkspace={handlePickCustomAPIProjectDir}
       onDeleteConversations={handleDeleteWorkspaceConversations}
     />
   ) : null;
 
-  const mainMessagesNode = showWorkspaceHome ? workspaceHomeNode : messagesNode;
+  const workspacePrimaryNode = showWorkspaceHome ? workspaceHomeNode : messagesNode;
+
+  const mainMessagesNode = shouldMountSpecHub
+    ? (
+      <div className="workspace-chat-stack">
+        <div className={`workspace-chat-layer ${showSpecHub ? "is-hidden" : "is-active"}`}>
+          {workspacePrimaryNode}
+        </div>
+        <div className={`workspace-spec-layer ${showSpecHub ? "is-active" : "is-hidden"}`}>
+          {specHubNode}
+        </div>
+      </div>
+    )
+    : workspacePrimaryNode;
 
   const kanbanConversationNode = selectedKanbanTaskId ? (
     <div className="kanban-conversation-content">
@@ -4126,6 +4526,18 @@ function MainApp() {
       {composerNode}
     </div>
   ) : null;
+
+  const gitHistoryNode = (
+    <GitHistoryPanel
+      workspace={activeWorkspace}
+      workspaces={workspaces}
+      groupedWorkspaces={groupedWorkspaces}
+      onSelectWorkspace={setActiveWorkspaceId}
+      onSelectWorkspacePath={handleSelectWorkspacePathForGitHistory}
+      onOpenDiffPath={(path) => handleSelectDiffForPanel(path)}
+      onRequestClose={() => setAppMode("chat")}
+    />
+  );
 
   const desktopTopbarLeftNodeWithToggle = !isCompact ? (
     <div className="topbar-leading">
@@ -4149,7 +4561,15 @@ function MainApp() {
       style={
         {
           "--sidebar-width": `${
-            isCompact ? sidebarWidth : sidebarCollapsed ? 0 : sidebarWidth
+            isCompact
+              ? sidebarWidth
+              : settingsOpen
+                ? 0
+              : showGitHistory
+                ? Math.max(sidebarWidth, 360)
+                : sidebarCollapsed
+                  ? 0
+                  : sidebarWidth
           }px`,
           "--right-panel-width": `${
             isCompact ? rightPanelWidth : rightPanelCollapsed ? 0 : rightPanelWidth
@@ -4157,6 +4577,7 @@ function MainApp() {
           "--plan-panel-height": `${planPanelHeight}px`,
           "--terminal-panel-height": `${terminalPanelHeight}px`,
           "--debug-panel-height": `${debugPanelHeight}px`,
+          "--git-history-panel-height": `${gitHistoryPanelHeight}px`,
           "--ui-font-family": appSettings.uiFontFamily,
           "--code-font-family": appSettings.codeFontFamily,
           "--code-font-size": `${appSettings.codeFontSize}px`
@@ -4185,7 +4606,8 @@ function MainApp() {
         isTablet={isTablet}
         showHome={showHome}
         showKanban={showKanban}
-        showRightPanel={showRightPanel}
+        showGitHistory={showGitHistory}
+        hideRightPanel={activeTab === "spec" && rightPanelCollapsed}
         kanbanNode={
           showKanban ? (
             <KanbanView
@@ -4202,7 +4624,7 @@ function MainApp() {
               onUpdatePanel={kanbanUpdatePanel}
               onDeletePanel={kanbanDeletePanel}
               onAddWorkspace={handleAddWorkspace}
-              onAppModeChange={setAppMode}
+              onAppModeChange={handleAppModeChange}
               engineStatuses={engineStatuses}
               conversationNode={kanbanConversationNode}
               selectedTaskId={selectedKanbanTaskId}
@@ -4218,10 +4640,12 @@ function MainApp() {
             />
           ) : null
         }
+        gitHistoryNode={showGitHistory ? gitHistoryNode : null}
         showGitDetail={showGitDetail}
         activeTab={activeTab}
         tabletTab={tabletTab}
         centerMode={centerMode}
+        editorSplitLayout={editorSplitLayout}
         hasActivePlan={hasActivePlan}
         activeWorkspace={Boolean(activeWorkspace)}
         sidebarNode={sidebarNodeWithTopbar}
@@ -4243,6 +4667,7 @@ function MainApp() {
         debugPanelFullNode={debugPanelFullNode}
         terminalDockNode={terminalDockNode}
         compactEmptyCodexNode={compactEmptyCodexNode}
+        compactEmptySpecNode={compactEmptySpecNode}
         compactEmptyGitNode={compactEmptyGitNode}
         compactGitBackNode={compactGitBackNode}
         settingsOpen={settingsOpen}
@@ -4270,6 +4695,8 @@ function MainApp() {
                   await queueSaveSettings(next);
                 }}
                 onRunDoctor={doctor}
+                activeWorkspace={activeWorkspace}
+                activeEngine={activeEngine}
                 onUpdateWorkspaceCodexBin={async (id, codexBin) => {
                   await updateWorkspaceCodexBin(id, codexBin);
                 }}
@@ -4293,6 +4720,7 @@ function MainApp() {
         onSidebarResizeStart={onSidebarResizeStart}
         onRightPanelResizeStart={onRightPanelResizeStart}
         onPlanPanelResizeStart={onPlanPanelResizeStart}
+        onGitHistoryPanelResizeStart={onGitHistoryPanelResizeStart}
       />
       <LockScreenOverlay
         isOpen={isPanelLocked}
@@ -4317,11 +4745,7 @@ function MainApp() {
           setSearchPaletteSelectedIndex(0);
         }}
         onContentFilterToggle={handleToggleSearchContentFilter}
-        onClose={() => {
-          setIsSearchPaletteOpen(false);
-          setSearchPaletteQuery("");
-          setSearchPaletteSelectedIndex(0);
-        }}
+        onClose={closeSearchPalette}
       />
       <AppModals
         renamePrompt={renamePrompt}
@@ -4330,9 +4754,13 @@ function MainApp() {
         onRenamePromptConfirm={handleRenamePromptConfirm}
         worktreePrompt={worktreePrompt}
         onWorktreePromptChange={updateWorktreeBranch}
+        onWorktreePromptBaseRefChange={updateWorktreeBaseRef}
+        onWorktreePromptPublishChange={updateWorktreePublishToOrigin}
         onWorktreeSetupScriptChange={updateWorktreeSetupScript}
         onWorktreePromptCancel={cancelWorktreePrompt}
         onWorktreePromptConfirm={confirmWorktreePrompt}
+        worktreeCreateResult={worktreeCreateResult}
+        onWorktreeCreateResultClose={closeWorktreeCreateResult}
         clonePrompt={clonePrompt}
         onClonePromptCopyNameChange={updateCloneCopyName}
         onClonePromptChooseCopiesFolder={chooseCloneCopiesFolder}

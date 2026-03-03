@@ -7,10 +7,13 @@ type PhoneLayoutProps = {
   errorToastsNode: ReactNode;
   tabBarNode: ReactNode;
   sidebarNode: ReactNode;
-  activeTab: "projects" | "codex" | "git" | "log";
+  showGitHistory: boolean;
+  gitHistoryNode: ReactNode;
+  activeTab: "projects" | "codex" | "spec" | "git" | "log";
   activeWorkspace: boolean;
   showGitDetail: boolean;
   compactEmptyCodexNode: ReactNode;
+  compactEmptySpecNode: ReactNode;
   compactEmptyGitNode: ReactNode;
   compactGitBackNode: ReactNode;
   topbarLeftNode: ReactNode;
@@ -29,10 +32,13 @@ export function PhoneLayout({
   errorToastsNode,
   tabBarNode,
   sidebarNode,
+  showGitHistory,
+  gitHistoryNode,
   activeTab,
   activeWorkspace,
   showGitDetail,
   compactEmptyCodexNode,
+  compactEmptySpecNode,
   compactEmptyGitNode,
   compactGitBackNode,
   topbarLeftNode,
@@ -49,9 +55,10 @@ export function PhoneLayout({
       {approvalToastsNode}
       {updateToastNode}
       {errorToastsNode}
+      {!settingsOpen && showGitHistory && <div className="compact-panel">{gitHistoryNode}</div>}
       {settingsOpen && <div className="compact-panel">{settingsNode}</div>}
-      {!settingsOpen && activeTab === "projects" && <div className="compact-panel">{sidebarNode}</div>}
-      {activeTab === "codex" && (
+      {!settingsOpen && !showGitHistory && activeTab === "projects" && <div className="compact-panel">{sidebarNode}</div>}
+      {!showGitHistory && activeTab === "codex" && (
         <div className="compact-panel">
           {activeWorkspace ? (
             <>
@@ -64,7 +71,19 @@ export function PhoneLayout({
           )}
         </div>
       )}
-      {activeTab === "git" && (
+      {!showGitHistory && activeTab === "spec" && (
+        <div className="compact-panel">
+          {activeWorkspace ? (
+            <>
+              <MainTopbar leftNode={topbarLeftNode} className="compact-topbar" />
+              <div className="content compact-content">{messagesNode}</div>
+            </>
+          ) : (
+            compactEmptySpecNode
+          )}
+        </div>
+      )}
+      {!showGitHistory && activeTab === "git" && (
         <div className="compact-panel">
           {!activeWorkspace && compactEmptyGitNode}
           {activeWorkspace && showGitDetail && (
@@ -83,7 +102,7 @@ export function PhoneLayout({
           )}
         </div>
       )}
-      {activeTab === "log" && (
+      {!showGitHistory && activeTab === "log" && (
         <div className="compact-panel">{debugPanelNode}</div>
       )}
       {tabBarNode}

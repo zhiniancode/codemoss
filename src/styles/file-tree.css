@@ -2,6 +2,11 @@
   gap: 10px;
 }
 
+.app.reduced-transparency .file-tree-panel {
+  border-radius: 0;
+  border-left: none;
+}
+
 .file-tree-count {
   font-size: 11px;
   color: var(--text-faint);
@@ -177,7 +182,9 @@
   top: 50%;
   transform: translateY(-50%);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  z-index: 2;
   padding: 2px;
   border: none;
   background: transparent;
@@ -190,9 +197,12 @@
 }
 
 .file-tree-row-wrap:hover .file-tree-action,
+.file-tree-row-wrap:focus-within .file-tree-action,
+.file-tree-action.is-visible,
 .file-tree-action:hover,
 .file-tree-action:focus-visible {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 

@@ -10,15 +10,13 @@ import type {
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import {
   addClone as addCloneService,
-  addOpenAIWorkspace as addOpenAIWorkspaceService,
   addWorkspace as addWorkspaceService,
   addWorktree as addWorktreeService,
   connectWorkspace as connectWorkspaceService,
-  ensureOpenAIChatWorkspace as ensureOpenAIChatWorkspaceService,
   isWorkspacePathDir as isWorkspacePathDirService,
+  listGitBranches,
   listWorkspaces,
   pickWorkspacePath,
-  retargetOpenAIWorkspace as retargetOpenAIWorkspaceService,
   removeWorkspace as removeWorkspaceService,
   removeWorktree as removeWorktreeService,
   renameWorktree as renameWorktreeService,
@@ -75,6 +73,24 @@ function createGroupId() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.floor(Math.random() * GROUP_ID_RANDOM_MODULUS)}`;
+}
+
+function resolveDefaultBaseRefFromList(
+  names: Set<string>,
+  currentBranch: string | null | undefined,
+) {
+  const preferred = ["upstream/main", "origin/main", "main"];
+  for (const name of preferred) {
+    if (names.has(name)) {
+      return name;
+    }
+  }
+  const trimmedCurrent = currentBranch?.trim() ?? "";
+  if (trimmedCurrent && names.has(trimmedCurrent)) {
+    return trimmedCurrent;
+  }
+  const [first] = names;
+  return first ?? "";
 }
 
 export function useWorkspaces(options: UseWorkspacesOptions = {}) {
@@ -206,7 +222,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     }
 
     return sections.filter((section) => section.workspaces.length > 0);
-  }, [workspaces, workspaceGroups]);
+  }, [t, workspaces, workspaceGroups]);
 
   const getWorkspaceGroupName = useCallback(
     (workspaceId: string) => {
@@ -263,89 +279,6 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     return addWorkspaceFromPath(selection);
   }, [addWorkspaceFromPath]);
 
-  const addOpenAIWorkspaceFromPath = useCallback(
-    async (path: string) => {
-      const selection = path.trim();
-      if (!selection) {
-        return null;
-      }
-      onDebug?.({
-        id: `${Date.now()}-client-add-openai-workspace`,
-        timestamp: Date.now(),
-        source: "client",
-        label: "workspace/add-openai",
-        payload: { path: selection },
-      });
-      try {
-        const workspace = await addOpenAIWorkspaceService(selection, null);
-        setWorkspaces((prev) => [...prev, workspace]);
-        setActiveWorkspaceId(workspace.id);
-        return workspace;
-      } catch (error) {
-        onDebug?.({
-          id: `${Date.now()}-client-add-openai-workspace-error`,
-          timestamp: Date.now(),
-          source: "error",
-          label: "workspace/add-openai error",
-          payload: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    },
-    [onDebug, setActiveWorkspaceId, setWorkspaces],
-  );
-
-  const addOpenAIWorkspace = useCallback(async () => {
-    const selection = await pickWorkspacePath();
-    if (!selection) {
-      return null;
-    }
-    return addOpenAIWorkspaceFromPath(selection);
-  }, [addOpenAIWorkspaceFromPath]);
-
-  const retargetOpenAIWorkspaceFromPath = useCallback(
-    async (workspaceId: string, path: string) => {
-      const selection = path.trim();
-      if (!selection) {
-        return null;
-      }
-      onDebug?.({
-        id: `${Date.now()}-client-retarget-openai-workspace`,
-        timestamp: Date.now(),
-        source: "client",
-        label: "workspace/retarget-openai",
-        payload: { workspaceId, path: selection },
-      });
-      try {
-        const workspace = await retargetOpenAIWorkspaceService(workspaceId, selection);
-        setWorkspaces((prev) => prev.map((entry) => (entry.id === workspaceId ? workspace : entry)));
-        setActiveWorkspaceId(workspaceId);
-        return workspace;
-      } catch (error) {
-        onDebug?.({
-          id: `${Date.now()}-client-retarget-openai-workspace-error`,
-          timestamp: Date.now(),
-          source: "error",
-          label: "workspace/retarget-openai error",
-          payload: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    },
-    [onDebug, setActiveWorkspaceId, setWorkspaces],
-  );
-
-  const retargetOpenAIWorkspace = useCallback(
-    async (workspaceId: string) => {
-      const selection = await pickWorkspacePath();
-      if (!selection) {
-        return null;
-      }
-      return retargetOpenAIWorkspaceFromPath(workspaceId, selection);
-    },
-    [retargetOpenAIWorkspaceFromPath],
-  );
-
   const filterWorkspacePaths = useCallback(async (paths: string[]) => {
     const trimmed = paths.map((path) => path.trim()).filter(Boolean);
     if (trimmed.length === 0) {
@@ -363,21 +296,55 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
   async function addWorktreeAgent(
     parent: WorkspaceInfo,
     branch: string,
-    options?: { activate?: boolean },
+    options?: {
+      activate?: boolean;
+      baseRef?: string;
+      publishToOrigin?: boolean;
+    },
   ) {
     const trimmed = branch.trim();
     if (!trimmed) {
       return null;
     }
+    let baseRef = options?.baseRef?.trim() ?? "";
+    if (!baseRef) {
+      const response = await listGitBranches(parent.id);
+      const candidates = new Set<string>();
+      for (const local of response.localBranches ?? []) {
+        const name = local.name?.trim() ?? "";
+        if (name) {
+          candidates.add(name);
+        }
+      }
+      for (const remote of response.remoteBranches ?? []) {
+        const name = remote.name?.trim() ?? "";
+        if (name && !name.endsWith("/HEAD")) {
+          candidates.add(name);
+        }
+      }
+      baseRef = resolveDefaultBaseRefFromList(candidates, response.currentBranch);
+    }
+    if (!baseRef) {
+      throw new Error("Base branch is required.");
+    }
+    const publishToOrigin = options?.publishToOrigin ?? true;
     onDebug?.({
       id: `${Date.now()}-client-add-worktree`,
       timestamp: Date.now(),
       source: "client",
       label: "worktree/add",
-      payload: { parentId: parent.id, branch: trimmed },
+      payload: {
+        parentId: parent.id,
+        branch: trimmed,
+        baseRef: baseRef || null,
+        publishToOrigin,
+      },
     });
     try {
-      const workspace = await addWorktreeService(parent.id, trimmed);
+      const workspace = await addWorktreeService(parent.id, trimmed, {
+        baseRef: baseRef || null,
+        publishToOrigin,
+      });
       setWorkspaces((prev) => [...prev, workspace]);
       if (options?.activate !== false) {
         setActiveWorkspaceId(workspace.id);
@@ -452,38 +419,6 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         timestamp: Date.now(),
         source: "error",
         label: "workspace/connect error",
-        payload: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  async function ensureOpenAIChatWorkspace(): Promise<WorkspaceInfo> {
-    onDebug?.({
-      id: `${Date.now()}-client-ensure-openai-chat-workspace`,
-      timestamp: Date.now(),
-      source: "client",
-      label: "workspace/ensure-openai-chat",
-      payload: {},
-    });
-    try {
-      const workspace = await ensureOpenAIChatWorkspaceService();
-      setWorkspaces((prev) => {
-        const idx = prev.findIndex((entry) => entry.id === workspace.id);
-        if (idx === -1) {
-          return [...prev, workspace];
-        }
-        const next = prev.slice();
-        next[idx] = workspace;
-        return next;
-      });
-      return workspace;
-    } catch (error) {
-      onDebug?.({
-        id: `${Date.now()}-client-ensure-openai-chat-workspace-error`,
-        timestamp: Date.now(),
-        source: "error",
-        label: "workspace/ensure-openai-chat error",
         payload: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -755,13 +690,21 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         .filter((entry) => entry.parentId === workspaceId)
         .map((entry) => entry.id),
     );
-    const detail =
-      worktreeCount > 0
-        ? `\n\n${t("workspace.deleteWorkspaceWorktreeWarning", { count: worktreeCount })}`
-        : "";
+    const willHappenLines = [
+      t("workspace.deleteWorkspaceEffectListOnly"),
+      t("workspace.deleteWorkspaceEffectSessions"),
+      ...(worktreeCount > 0
+        ? [t("workspace.deleteWorkspaceEffectDeleteWorktrees", { count: worktreeCount })]
+        : []),
+    ];
+    const willNotHappenLines = [
+      t("workspace.deleteWorkspaceEffectKeepFiles"),
+      t("workspace.deleteWorkspaceEffectNoGitWrite"),
+      t("workspace.deleteWorkspaceEffectReAdd"),
+    ];
 
     const confirmed = await ask(
-      `${t("workspace.deleteWorkspaceConfirm", { name: workspaceName })}\n\n${t("workspace.deleteWorkspaceMessage")}${detail}`,
+      `${t("workspace.deleteWorkspaceConfirm", { name: workspaceName })}\n\n${t("workspace.deleteWorkspaceBeforeYouConfirm")}\n${t("workspace.deleteWorkspaceWillHappenTitle")}\n${willHappenLines.map((line) => `• ${line}`).join("\n")}\n\n${t("workspace.deleteWorkspaceWillNotHappenTitle")}\n${willNotHappenLines.map((line) => `• ${line}`).join("\n")}`,
       {
         title: t("workspace.deleteWorkspaceTitle"),
         kind: "warning",
@@ -946,15 +889,10 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     setActiveWorkspaceId,
     addWorkspace,
     addWorkspaceFromPath,
-    addOpenAIWorkspace,
-    addOpenAIWorkspaceFromPath,
-    retargetOpenAIWorkspace,
-    retargetOpenAIWorkspaceFromPath,
     filterWorkspacePaths,
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
-    ensureOpenAIChatWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,

@@ -24,6 +24,11 @@ fn workspace_with_id_and_kind(
             Some("parent".to_string()),
             Some(WorktreeInfo {
                 branch: name.to_string(),
+                base_ref: None,
+                base_commit: None,
+                tracking: None,
+                publish_error: None,
+                publish_retry_command: None,
             }),
         )
     } else {
@@ -87,7 +92,7 @@ fn sanitize_clone_dir_name_allows_safe_chars() {
 
 #[test]
 fn build_clone_destination_path_sanitizes_and_uniquifies() {
-    let temp_dir = std::env::temp_dir().join(format!("code-moss-test-{}", Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!("moss-x-test-{}", Uuid::new_v4()));
     let copies_folder = temp_dir.join("copies");
     std::fs::create_dir_all(&copies_folder).expect("create copies folder");
 
@@ -222,7 +227,7 @@ fn update_workspace_settings_persists_sort_and_group() {
         Some("pnpm install"),
     );
 
-    let temp_dir = std::env::temp_dir().join(format!("code-moss-test-{}", Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!("moss-x-test-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).expect("create temp dir");
     let path = PathBuf::from(temp_dir.join("workspaces.json"));
     let list: Vec<_> = workspaces.values().cloned().collect();

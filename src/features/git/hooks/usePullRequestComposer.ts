@@ -1,5 +1,10 @@
 import { useCallback, useMemo } from "react";
-import type { GitHubPullRequest, GitHubPullRequestDiff, WorkspaceInfo } from "../../../types";
+import type {
+  GitHubPullRequest,
+  GitHubPullRequestDiff,
+  MessageSendOptions,
+  WorkspaceInfo,
+} from "../../../types";
 import {
   buildPullRequestDraft,
   buildPullRequestPrompt,
@@ -9,7 +14,7 @@ type UsePullRequestComposerOptions = {
   activeWorkspace: WorkspaceInfo | null;
   selectedPullRequest: GitHubPullRequest | null;
   gitPullRequestDiffs: GitHubPullRequestDiff[];
-  filePanelMode: "git" | "files" | "prompts";
+  filePanelMode: "git" | "files" | "prompts" | "memory";
   gitPanelMode: "diff" | "log" | "issues" | "prs";
   centerMode: "chat" | "diff" | "editor" | "memory";
   isCompact: boolean;
@@ -19,7 +24,7 @@ type UsePullRequestComposerOptions = {
   setCenterMode: (mode: "chat" | "diff" | "editor" | "memory") => void;
   setGitPanelMode: (mode: "diff" | "log" | "issues" | "prs") => void;
   setPrefillDraft: (draft: { id: string; text: string; createdAt: number }) => void;
-  setActiveTab: (tab: "projects" | "codex" | "git" | "log") => void;
+  setActiveTab: (tab: "projects" | "codex" | "spec" | "git" | "log") => void;
   connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
   startThreadForWorkspace: (workspaceId: string, options?: { activate?: boolean }) => Promise<string | null>;
   sendUserMessageToThread: (
@@ -27,11 +32,19 @@ type UsePullRequestComposerOptions = {
     threadId: string,
     text: string,
     images?: string[],
-    options?: { model?: string | null; effort?: string | null },
+    options?: { model?: string | null; effort?: string | null } & MessageSendOptions,
   ) => Promise<void>;
   clearActiveImages: () => void;
-  handleSend: (text: string, images: string[], files: string[]) => Promise<void>;
-  queueMessage: (text: string, images: string[], files: string[]) => Promise<void>;
+  handleSend: (
+    text: string,
+    images: string[],
+    options?: MessageSendOptions,
+  ) => Promise<void>;
+  queueMessage: (
+    text: string,
+    images: string[],
+    options?: MessageSendOptions,
+  ) => Promise<void>;
 };
 
 export function usePullRequestComposer({
@@ -99,9 +112,11 @@ export function usePullRequestComposer({
   }, [setDiffSource, setSelectedPullRequest]);
 
   const handleSendPullRequestQuestion = useCallback(
-    async (_text: string, _images: string[] = [], _files: string[] = []) => {
-      const text = _text;
-      const images = _images;
+    async (
+      text: string,
+      images: string[] = [],
+      options?: MessageSendOptions,
+    ) => {
       const trimmed = text.trim();
       if (!activeWorkspace || !selectedPullRequest) {
         return;
@@ -123,7 +138,17 @@ export function usePullRequestComposer({
       if (!threadId) {
         return;
       }
-      await sendUserMessageToThread(activeWorkspace, threadId, prompt, images);
+      if (options) {
+        await sendUserMessageToThread(
+          activeWorkspace,
+          threadId,
+          prompt,
+          images,
+          options,
+        );
+      } else {
+        await sendUserMessageToThread(activeWorkspace, threadId, prompt, images);
+      }
       clearActiveImages();
     },
     [
